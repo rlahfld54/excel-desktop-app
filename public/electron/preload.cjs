@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("api", {
   getSendPackages: () => ipcRenderer.invoke("send-packages:get"),
   createSampleSendPackage: () => ipcRenderer.invoke("send-packages:create-sample"),
   prepareSendPackageAttachments: (packageId) => ipcRenderer.invoke("send-packages:prepare-attachments", packageId),
+  updateSendPackageItemStatus: (payload) => ipcRenderer.invoke("send-package-items:update-status", payload),
   getAppSettings: () => ipcRenderer.invoke("app-settings:get"),
   saveAppSettings: (settings) => ipcRenderer.invoke("app-settings:save", settings),
   chooseDirectory: (options) => ipcRenderer.invoke("app-settings:choose-directory", options),

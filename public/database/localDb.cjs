@@ -929,6 +929,56 @@ function prepareSendPackageAttachments(database, packageId) {
   return getSendPackages(database);
 }
 
+function updateSendPackageItemStatus(database, payload) {
+  const allowedStatuses = new Set(["READY", "SENT", "REPLIED", "CLOSED", "FAILED"]);
+  const status = String(payload?.status ?? "").toUpperCase();
+
+  if (!allowedStatuses.has(status)) {
+    throw new Error("지원하지 않는 발송 상태입니다.");
+  }
+
+  const itemId = Number(payload?.itemId);
+  if (!Number.isFinite(itemId)) {
+    throw new Error("발송 항목 ID가 올바르지 않습니다.");
+  }
+
+  const updateItem = database.prepare(`
+    UPDATE send_package_items
+    SET
+      status = @status,
+      sent_checked_at = CASE
+        WHEN @status IN ('SENT', 'REPLIED', 'CLOSED') THEN CURRENT_TIMESTAMP
+        ELSE sent_checked_at
+      END,
+      memo = @memo
+    WHERE item_id = @itemId
+  `);
+  const insertEvent = database.prepare(`
+    INSERT INTO app_events (level, message, meta_json)
+    VALUES ('INFO', @message, @metaJson)
+  `);
+
+  const transaction = database.transaction(() => {
+    const result = updateItem.run({
+      itemId,
+      status,
+      memo: payload?.memo ?? null,
+    });
+
+    if (result.changes === 0) {
+      throw new Error("발송 항목을 찾을 수 없습니다.");
+    }
+
+    insertEvent.run({
+      message: "발송 항목 상태를 변경했습니다.",
+      metaJson: toJson({ itemId, status }),
+    });
+  });
+
+  transaction();
+  return getSendPackages(database);
+}
+
 function createSampleSendPackage(database) {
   seedMasterData(database);
   const templates = getMessageTemplates(database);
@@ -1385,6 +1435,14 @@ function registerDatabaseIpc(ipcMain, app) {
     return {
       ok: true,
       packages: prepareSendPackageAttachments(database, packageId),
+    };
+  });
+
+  ipcMain.handle("send-package-items:update-status", (_, payload) => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      packages: updateSendPackageItemStatus(database, payload),
     };
   });
 
