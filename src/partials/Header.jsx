@@ -5,38 +5,25 @@ import Notifications from '../components/DropdownNotifications';
 import Help from '../components/DropdownHelp';
 import UserMenu from '../components/DropdownProfile';
 import ThemeToggle from '../components/ThemeToggle';
-// import UploadIcon from "../images/upload-4-outline-24.svg";
+
+const toolbarItems = [
+  { label: '업로드', icon: 'M8 1 3 6h3v5h4V6h3L8 1ZM3 13v2h10v-2H3Z' },
+  { label: '저장', icon: 'M2 2h10l2 2v10H2V2Zm3 1v4h6V3H5Zm-1 8v2h8v-2H4Z' },
+  { label: '실행', icon: 'M4 2.5v11l9-5.5-9-5.5Z' },
+];
 
 function Header({
   sidebarOpen,
   setSidebarOpen,
   variant = 'default',
 }) {
-
-  const [searchModalOpen, setSearchModalOpen] = useState(false)
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
 
   return (
     <header className={`sticky top-0 before:absolute before:inset-0 before:backdrop-blur-md max-lg:before:bg-white/90 dark:max-lg:before:bg-gray-800/90 before:-z-10 z-30 ${variant === 'v2' || variant === 'v3' ? 'before:bg-white after:absolute after:h-px after:inset-x-0 after:top-full after:bg-gray-200 dark:after:bg-gray-700/60 after:-z-10' : 'max-lg:shadow-xs lg:before:bg-gray-100/90 dark:lg:before:bg-gray-900/90'} ${variant === 'v2' ? 'dark:before:bg-gray-800' : ''} ${variant === 'v3' ? 'dark:before:bg-gray-900' : ''}`}>
       <div className="px-4 sm:px-6 lg:px-8">
-        <div className={`flex items-center justify-between h-16 ${variant === 'v2' || variant === 'v3' ? '' : 'lg:border-b border-gray-200 dark:border-gray-700/60'}`}>
-
-          {/* Header: Left side */}
-          <div className="flex">
-            {/* Header: Midle side 파일 업로드 버튼 / 저장 버튼/ 자동저장 상태 및 마지막 저장시간 표시 */}
-          <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-3">
-              <label htmlFor="file">
-                {/* <img src={UploadIcon} alt="업로드" /> */}
-                <div className="btn-upload">파일 업로드하기</div>
-              </label>
-              <input type="file" multiple id="file"/>
-            
-              <button>저장 버튼</button>
-              <div>자동저장 상태 및 마지막 저장시간 표시</div>
-            </div>
-              
-
-            {/* Hamburger button 화면이 작아지면 메뉴 여는 버튼이 나옴*/}
+        <div className={`flex items-center justify-between h-16 gap-4 ${variant === 'v2' || variant === 'v3' ? '' : 'lg:border-b border-gray-200 dark:border-gray-700/60'}`}>
+          <div className="flex items-center gap-3 min-w-0">
             <button
               className="text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 lg:hidden"
               aria-controls="sidebar"
@@ -51,13 +38,40 @@ function Header({
               </svg>
             </button>
 
+            <div className="hidden md:flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+              {toolbarItems.map((item) => (
+                <button
+                  key={item.label}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700/60"
+                  type="button"
+                >
+                  <svg className="h-4 w-4 fill-current text-gray-500 dark:text-gray-400" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d={item.icon} />
+                  </svg>
+                  <span>{item.label}</span>
+                </button>
+              ))}
+              <div className="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-700" />
+              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60" type="button" title="Undo">
+                <span className="sr-only">Undo</span>
+                <svg className="mx-auto h-4 w-4 fill-current" viewBox="0 0 16 16"><path d="M6.5 3 2 7.5 6.5 12V9H10a3 3 0 1 1 0 6H8v-2h2a1 1 0 1 0 0-2H6.5V3Z" /></svg>
+              </button>
+              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60" type="button" title="Redo">
+                <span className="sr-only">Redo</span>
+                <svg className="mx-auto h-4 w-4 fill-current" viewBox="0 0 16 16"><path d="M9.5 3 14 7.5 9.5 12V9H6a3 3 0 1 0 0 6h2v-2H6a1 1 0 1 1 0-2h3.5V3Z" /></svg>
+              </button>
+            </div>
+
+            <div className="hidden xl:flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <span className="h-2 w-2 rounded-full bg-green-500" aria-hidden="true" />
+              <span>자동 저장됨 · 방금 전</span>
+            </div>
           </div>
 
-          {/* Header: Right side */}
           <div className="flex items-center space-x-3">
             <div>
               <button
-                className={`w-8 h-8 flex items-center justify-center hover:bg-gray-100 lg:hover:bg-gray-200 dark:hover:bg-gray-700/50 dark:lg:hover:bg-gray-800 rounded-full ml-3 ${searchModalOpen && 'bg-gray-200 dark:bg-gray-800'}`}
+                className={`w-8 h-8 flex items-center justify-center hover:bg-gray-100 lg:hover:bg-gray-200 dark:hover:bg-gray-700/50 dark:lg:hover:bg-gray-800 rounded-full ml-3 ${searchModalOpen ? 'bg-gray-200 dark:bg-gray-800' : ''}`}
                 onClick={(e) => { e.stopPropagation(); setSearchModalOpen(true); }}
                 aria-controls="search-modal"
               >
@@ -78,14 +92,10 @@ function Header({
             <Notifications align="right" />
             <Help align="right" />
             <ThemeToggle />
-            {/*  Divider */}
             <hr className="w-px h-6 bg-gray-200 dark:bg-gray-700/60 border-none" />
             <UserMenu align="right" />
-
           </div>
-
         </div>
-      </div>
       </div>
     </header>
   );

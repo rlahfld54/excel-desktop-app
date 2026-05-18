@@ -1,191 +1,95 @@
 import React from 'react';
 
-function ExcelTable() {
-  async function handleFileOpen() {
-  try {
-      // 파일 열기 API 호출 및 경로/내용 기다림
-      const filePath = await window.api.openFile(); 
-      console.log("선택된 파일:", filePath);
-    } catch (error) {
-      console.error("파일 열기 실패:", error);
-    }
-  }
+const columns = ['거래일', '거래처', '품목 코드', '품목명', '수량', '단가', '금액', '검증', '담당자'];
 
+const rows = [
+  ['2026-05-18', '한빛유통', 'A-1024', '복사용지 A4', '42', '5,800', '243,600', '정상', '김민서'],
+  ['2026-05-18', '세종오피스', 'B-2108', '토너 카트리지', '8', '86,000', '688,000', '확인 필요', '박준호'],
+  ['2026-05-17', '노블상사', 'C-0412', 'USB 허브', '16', '19,500', '312,000', '정상', '이서연'],
+  ['2026-05-17', '에이원물류', 'A-1180', '라벨 스티커', '120', '1,200', '144,000', '중복 의심', '최현우'],
+  ['2026-05-16', '바른테크', 'D-3301', '무선 마우스', '24', '22,000', '528,000', '정상', '정다은'],
+  ['2026-05-16', '동서문구', 'E-7120', '파일 박스', '75', '3,400', '255,000', '정상', '김민서'],
+  ['2026-05-15', '그린솔루션', 'C-0412', 'USB 허브', '16', '19,500', '312,000', '중복 의심', '박준호'],
+  ['2026-05-15', '서울컴퍼니', 'F-0905', '키보드', '18', '31,000', '558,000', '정상', '이서연'],
+  ['2026-05-14', '코리아비즈', 'A-1024', '복사용지 A4', '60', '5,800', '348,000', '정상', '최현우'],
+  ['2026-05-14', '제이엠상사', 'G-5022', '회의실 케이블', '11', '14,700', '161,700', '확인 필요', '정다은'],
+];
+
+function ExcelTable() {
   return (
-    <div className="col-span-full xl:col-span-8 bg-white dark:bg-gray-800 shadow-xs rounded-xl">
-      <header className="px-5 py-4 border-b border-gray-100 dark:border-gray-700/60">
-        <h2 className="font-semibold text-gray-800 dark:text-gray-100">Top Channels</h2>
-      </header>
-      <div className="p-3">
-        <input type="file" onClick={handleFileOpen} />
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="table-auto w-full dark:text-gray-300">
-            {/* Table header */}
-            <thead className="text-xs uppercase text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-xs">
-              <tr>
-                <th className="p-2">
-                  <div className="font-semibold text-left">Source</div>
-                </th>
-                <th className="p-2">
-                  <div className="font-semibold text-center">Visitors</div>
-                </th>
-                <th className="p-2">
-                  <div className="font-semibold text-center">Revenues</div>
-                </th>
-                <th className="p-2">
-                  <div className="font-semibold text-center">Sales</div>
-                </th>
-                <th className="p-2">
-                  <div className="font-semibold text-center">Conversion</div>
-                </th>
-              </tr>
-            </thead>
-            {/* Table body */}
-            <tbody className="text-sm font-medium divide-y divide-gray-100 dark:divide-gray-700/60">
-              {/* Row */}
-              <tr>
-                <td className="p-2">
-                  <div className="flex items-center">
-                    <svg className="shrink-0 mr-2 sm:mr-3" width="36" height="36" viewBox="0 0 36 36">
-                      <circle fill="#24292E" cx="18" cy="18" r="18" />
-                      <path
-                        d="M18 10.2c-4.4 0-8 3.6-8 8 0 3.5 2.3 6.5 5.5 7.6.4.1.5-.2.5-.4V24c-2.2.5-2.7-1-2.7-1-.4-.9-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.3 1.9.9 2.3.7.1-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-4 0-.9.3-1.6.8-2.1-.1-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8.6-.2 1.3-.3 2-.3s1.4.1 2 .3c1.5-1 2.2-.8 2.2-.8.4 1.1.2 1.9.1 2.1.5.6.8 1.3.8 2.1 0 3.1-1.9 3.7-3.7 3.9.3.4.6.9.6 1.6v2.2c0 .2.1.5.6.4 3.2-1.1 5.5-4.1 5.5-7.6-.1-4.4-3.7-8-8.1-8z"
-                        fill="#FFF"
-                      />
-                    </svg>
-                    <div className="text-gray-800 dark:text-gray-100">Github.com</div>
-                  </div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center">2.4K</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center text-green-500">$3,877</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center">267</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center text-sky-500">4.7%</div>
-                </td>
-              </tr>
-              {/* Row */}
-              <tr>
-                <td className="p-2">
-                  <div className="flex items-center">
-                    <svg className="shrink-0 mr-2 sm:mr-3" width="36" height="36" viewBox="0 0 36 36">
-                      <circle fill="#1877F2" cx="18" cy="18" r="18" />
-                      <path
-                        d="M16.023 26 16 19h-3v-3h3v-2c0-2.7 1.672-4 4.08-4 1.153 0 2.144.086 2.433.124v2.821h-1.67c-1.31 0-1.563.623-1.563 1.536V16H23l-1 3h-2.72v7h-3.257Z"
-                        fill="#FFF"
-                        fillRule="nonzero"
-                      />
-                    </svg>
-                    <div className="text-gray-800 dark:text-gray-100">Facebook</div>
-                  </div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center">2.2K</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center text-green-500">$3,426</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center">249</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center text-sky-500">4.4%</div>
-                </td>
-              </tr>
-              {/* Row */}
-              <tr>
-                <td className="p-2">
-                  <div className="flex items-center">
-                    <svg className="shrink-0 mr-2 sm:mr-3" width="36" height="36" viewBox="0 0 36 36">
-                      <circle fill="#EA4335" cx="18" cy="18" r="18" />
-                      <path
-                        d="M18 17v2.4h4.1c-.2 1-1.2 3-4 3-2.4 0-4.3-2-4.3-4.4 0-2.4 2-4.4 4.3-4.4 1.4 0 2.3.6 2.8 1.1l1.9-1.8C21.6 11.7 20 11 18.1 11c-3.9 0-7 3.1-7 7s3.1 7 7 7c4 0 6.7-2.8 6.7-6.8 0-.5 0-.8-.1-1.2H18z"
-                        fill="#FFF"
-                        fillRule="nonzero"
-                      />
-                    </svg>
-                    <div className="text-gray-800 dark:text-gray-100">Google (organic)</div>
-                  </div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center">2.0K</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center text-green-500">$2,444</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center">224</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center text-sky-500">4.2%</div>
-                </td>
-              </tr>
-              {/* Row */}
-              <tr>
-                <td className="p-2">
-                  <div className="flex items-center">
-                    <svg className="shrink-0 mr-2 sm:mr-3" width="36" height="36" viewBox="0 0 36 36">
-                      <circle fill="#4BC9FF" cx="18" cy="18" r="18" />
-                      <path
-                        d="M26 14.3c-.1 1.6-1.2 3.7-3.3 6.4-2.2 2.8-4 4.2-5.5 4.2-.9 0-1.7-.9-2.4-2.6C14 19.9 13.4 15 12 15c-.1 0-.5.3-1.2.8l-.8-1c.8-.7 3.5-3.4 4.7-3.5 1.2-.1 2 .7 2.3 2.5.3 2 .8 6.1 1.8 6.1.9 0 2.5-3.4 2.6-4 .1-.9-.3-1.9-2.3-1.1.8-2.6 2.3-3.8 4.5-3.8 1.7.1 2.5 1.2 2.4 3.3z"
-                        fill="#FFF"
-                        fillRule="nonzero"
-                      />
-                    </svg>
-                    <div className="text-gray-800 dark:text-gray-100">Vimeo.com</div>
-                  </div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center">1.9K</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center text-green-500">$2,236</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center">220</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center text-sky-500">4.2%</div>
-                </td>
-              </tr>
-              {/* Row */}
-              <tr>
-                <td className="p-2">
-                  <div className="flex items-center">
-                    <svg className="shrink-0 mr-2 sm:mr-3" width="36" height="36" viewBox="0 0 36 36">
-                      <circle fill="#0E2439" cx="18" cy="18" r="18" />
-                      <path
-                        d="M14.232 12.818V23H11.77V12.818h2.46zM15.772 23V12.818h2.462v4.087h4.012v-4.087h2.456V23h-2.456v-4.092h-4.012V23h-2.461z"
-                        fill="#E6ECF4"
-                      />
-                    </svg>
-                    <div className="text-gray-800 dark:text-gray-100">Indiehackers.com</div>
-                  </div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center">1.7K</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center text-green-500">$2,034</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center">204</div>
-                </td>
-                <td className="p-2">
-                  <div className="text-center text-sky-500">3.9%</div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+    <section className="flex min-h-[520px] flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
+        <div className="flex items-center gap-2">
+          {['Sheet 1', '정제 결과', '오류 목록'].map((tab, index) => (
+            <button
+              key={tab}
+              className={`h-8 rounded-md px-3 text-sm font-medium ${index === 0 ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60'}`}
+              type="button"
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {['필터', '정렬', '열', '찾기/바꾸기', '검증', '고정', '내보내기'].map((action) => (
+            <button
+              key={action}
+              className="h-8 rounded-md border border-gray-200 px-2.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700/60 dark:text-gray-300 dark:hover:bg-gray-700/40"
+              type="button"
+            >
+              {action}
+            </button>
+          ))}
         </div>
       </div>
-    </div>
+
+      <div className="flex-1 overflow-auto">
+        <table className="min-w-[1080px] w-full border-separate border-spacing-0 text-sm dark:text-gray-300">
+          <thead className="sticky top-0 z-10 text-xs text-gray-500 dark:text-gray-400">
+            <tr>
+              <th className="w-12 border-b border-r border-gray-200 bg-gray-50 px-2 py-2 text-center font-semibold dark:border-gray-700/60 dark:bg-gray-900/40">#</th>
+              {columns.map((column) => (
+                <th key={column} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left font-semibold dark:border-gray-700/60 dark:bg-gray-900/40">
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={`${row[0]}-${row[2]}-${rowIndex}`} className="group">
+                <td className="border-b border-r border-gray-200 bg-gray-50 px-2 py-2 text-center text-xs text-gray-400 dark:border-gray-700/60 dark:bg-gray-900/30">
+                  {rowIndex + 1}
+                </td>
+                {row.map((cell, cellIndex) => {
+                  const isStatus = cellIndex === 7;
+                  const statusClass = cell === '정상'
+                    ? 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300'
+                    : cell === '중복 의심'
+                      ? 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300'
+                      : 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300';
+
+                  return (
+                    <td
+                      key={`${cell}-${cellIndex}`}
+                      className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 group-hover:bg-sky-50/60 dark:border-gray-700/60 dark:text-gray-200 dark:group-hover:bg-sky-500/10"
+                    >
+                      {isStatus ? (
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass}`}>
+                          {cell}
+                        </span>
+                      ) : (
+                        cell
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
