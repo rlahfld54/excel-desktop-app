@@ -855,15 +855,78 @@ function getSendPackages(database) {
     const items = getItems.all({ packageId: sendPackage.packageId });
     const readyCount = items.filter((item) => item.status === "READY").length;
     const missingEmailCount = items.filter((item) => item.channel === "EMAIL" && !item.recipientEmail).length;
+    const missingAttachmentCount = items.filter((item) => !item.attachmentPdfPath || !item.attachmentXlsxPath).length;
 
     return {
       ...sendPackage,
-      items,
+      items: items.map((item) => ({
+        ...item,
+        attachmentStatus: item.attachmentPdfPath && item.attachmentXlsxPath ? "READY" : "MISSING",
+      })),
       itemCount: items.length,
       readyCount,
       missingEmailCount,
+      missingAttachmentCount,
     };
   });
+}
+
+function prepareSendPackageAttachments(database, packageId) {
+  const sendPackage = database.prepare(`
+    SELECT
+      package_id AS packageId,
+      package_name AS packageName,
+      closing_month AS closingMonth,
+      output_folder_path AS outputFolderPath
+    FROM send_packages
+    WHERE package_id = @packageId
+  `).get({ packageId });
+
+  if (!sendPackage) {
+    throw new Error("발송 패키지를 찾을 수 없습니다.");
+  }
+
+  const items = database.prepare(`
+    SELECT item_id AS itemId, customer_code AS customerCode
+    FROM send_package_items
+    WHERE package_id = @packageId
+    ORDER BY item_id
+  `).all({ packageId });
+
+  const updateItem = database.prepare(`
+    UPDATE send_package_items
+    SET
+      attachment_pdf_path = @attachmentPdfPath,
+      attachment_xlsx_path = @attachmentXlsxPath,
+      status = CASE
+        WHEN status IN ('READY', 'CREATED') THEN 'READY'
+        ELSE status
+      END
+    WHERE item_id = @itemId
+  `);
+  const insertEvent = database.prepare(`
+    INSERT INTO app_events (level, message, meta_json)
+    VALUES ('INFO', @message, @metaJson)
+  `);
+
+  const transaction = database.transaction(() => {
+    items.forEach((item) => {
+      const key = item.customerCode || `ITEM-${item.itemId}`;
+      updateItem.run({
+        itemId: item.itemId,
+        attachmentPdfPath: `${sendPackage.outputFolderPath}/${key}.pdf`,
+        attachmentXlsxPath: `${sendPackage.outputFolderPath}/${key}.xlsx`,
+      });
+    });
+
+    insertEvent.run({
+      message: "발송 패키지 첨부 파일 경로를 준비했습니다.",
+      metaJson: toJson({ packageId, itemCount: items.length }),
+    });
+  });
+
+  transaction();
+  return getSendPackages(database);
 }
 
 function createSampleSendPackage(database) {
@@ -1314,6 +1377,14 @@ function registerDatabaseIpc(ipcMain, app) {
     return {
       ok: true,
       packages: createSampleSendPackage(database),
+    };
+  });
+
+  ipcMain.handle("send-packages:prepare-attachments", (_, packageId) => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      packages: prepareSendPackageAttachments(database, packageId),
     };
   });
 

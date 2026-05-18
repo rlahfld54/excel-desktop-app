@@ -12,6 +12,7 @@ const fallbackPackages = [
     itemCount: 2,
     readyCount: 2,
     missingEmailCount: 0,
+    missingAttachmentCount: 0,
     createdAt: '-',
     items: [
       {
@@ -21,8 +22,10 @@ const fallbackPackages = [
         recipientEmail: 'settle@hanbit.example',
         channel: 'EMAIL',
         subject: '[확인 요청] 2026-05 매출 자료 검수 협조 요청드립니다',
+        body: '첨부드린 매출 자료 확인 부탁드립니다.',
         attachmentPdfPath: 'exports/request/202605/CUST-001.pdf',
         attachmentXlsxPath: 'exports/request/202605/CUST-001.xlsx',
+        attachmentStatus: 'READY',
         status: 'READY',
       },
       {
@@ -32,8 +35,10 @@ const fallbackPackages = [
         recipientEmail: 'admin@moble.example',
         channel: 'KAKAO',
         subject: '[확인 요청] 2026-05 매출 자료 검수 협조 요청드립니다',
+        body: '첨부드린 매출 자료 확인 부탁드립니다.',
         attachmentPdfPath: 'exports/request/202605/CUST-003.pdf',
         attachmentXlsxPath: 'exports/request/202605/CUST-003.xlsx',
+        attachmentStatus: 'READY',
         status: 'READY',
       },
     ],
@@ -41,11 +46,11 @@ const fallbackPackages = [
 ];
 
 function statusClass(status) {
-  if (status === 'READY' || status === 'CREATED') {
+  if (['READY', 'CREATED', 'COMPLETED'].includes(status)) {
     return 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300';
   }
 
-  if (status === 'FAILED' || status === 'MISSING') {
+  if (['FAILED', 'MISSING'].includes(status)) {
     return 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300';
   }
 
@@ -58,16 +63,6 @@ function channelClass(channel) {
   }
 
   return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200';
-}
-
-function MetricCard({ label, value, detail }) {
-  return (
-    <section className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-      <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
-      <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{value}</p>
-      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
-    </section>
-  );
 }
 
 function escapeCsv(value) {
@@ -109,6 +104,34 @@ function downloadCsvInBrowser(fileName, csv) {
   URL.revokeObjectURL(url);
 }
 
+function MetricCard({ label, value, detail, tone = 'default' }) {
+  const toneClass = tone === 'warning'
+    ? 'border-yellow-200 bg-yellow-50/70 dark:border-yellow-500/30 dark:bg-yellow-500/10'
+    : 'border-gray-200 bg-white dark:border-gray-700/60 dark:bg-gray-800';
+
+  return (
+    <section className={`rounded-lg border px-4 py-3 shadow-xs ${toneClass}`}>
+      <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
+      <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{value}</p>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
+    </section>
+  );
+}
+
+function ChecklistItem({ label, detail, status }) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
+      <div className="min-w-0">
+        <p className="font-medium text-gray-800 dark:text-gray-100">{label}</p>
+        <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{detail}</p>
+      </div>
+      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(status)}`}>
+        {status}
+      </span>
+    </div>
+  );
+}
+
 export default function SendPackagesPage() {
   const [packages, setPackages] = useState(fallbackPackages);
   const [selectedPackageId, setSelectedPackageId] = useState(fallbackPackages[0].packageId);
@@ -116,6 +139,7 @@ export default function SendPackagesPage() {
   const [loadState, setLoadState] = useState('브라우저 미리보기');
   const [exportState, setExportState] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
 
   const selectedPackage = useMemo(
     () => packages.find((item) => item.packageId === selectedPackageId) ?? packages[0],
@@ -127,17 +151,18 @@ export default function SendPackagesPage() {
   );
 
   const metrics = useMemo(() => {
-    const itemCount = packages.reduce((sum, sendPackage) => sum + sendPackage.itemCount, 0);
-    const readyCount = packages.reduce((sum, sendPackage) => sum + sendPackage.readyCount, 0);
-    const missingEmailCount = packages.reduce((sum, sendPackage) => sum + sendPackage.missingEmailCount, 0);
+    const itemCount = packages.reduce((sum, sendPackage) => sum + (sendPackage.itemCount ?? 0), 0);
+    const readyCount = packages.reduce((sum, sendPackage) => sum + (sendPackage.readyCount ?? 0), 0);
+    const missingEmailCount = packages.reduce((sum, sendPackage) => sum + (sendPackage.missingEmailCount ?? 0), 0);
+    const missingAttachmentCount = packages.reduce((sum, sendPackage) => sum + (sendPackage.missingAttachmentCount ?? 0), 0);
 
     return [
       { label: '패키지', value: `${packages.length.toLocaleString('ko-KR')}건`, detail: '거래처 요청 묶음' },
       { label: '발송 대상', value: `${itemCount.toLocaleString('ko-KR')}건`, detail: `${readyCount.toLocaleString('ko-KR')}건 준비 완료` },
-      { label: '확인 필요', value: `${missingEmailCount.toLocaleString('ko-KR')}건`, detail: '이메일 누락 또는 미확정' },
-      { label: '출력 폴더', value: selectedPackage?.outputFolderPath ?? '-', detail: selectedPackage?.closingMonth ?? '-' },
+      { label: '이메일 확인', value: `${missingEmailCount.toLocaleString('ko-KR')}건`, detail: 'EMAIL 채널 이메일 누락', tone: missingEmailCount > 0 ? 'warning' : 'default' },
+      { label: '첨부 확인', value: `${missingAttachmentCount.toLocaleString('ko-KR')}건`, detail: 'PDF/XLSX 경로 누락', tone: missingAttachmentCount > 0 ? 'warning' : 'default' },
     ];
-  }, [packages, selectedPackage]);
+  }, [packages]);
 
   const setNextPackages = (nextPackages) => {
     const normalized = nextPackages.length ? nextPackages : fallbackPackages;
@@ -186,6 +211,26 @@ export default function SendPackagesPage() {
     }
   };
 
+  const handlePrepareAttachments = async () => {
+    if (!selectedPackage) return;
+
+    if (!window.api?.prepareSendPackageAttachments) {
+      setExportState('Electron 실행 후 첨부 경로 준비를 저장할 수 있습니다.');
+      return;
+    }
+
+    setIsPreparing(true);
+    try {
+      const result = await window.api.prepareSendPackageAttachments(selectedPackage.packageId);
+      setNextPackages(result.packages ?? []);
+      setExportState('거래처별 PDF/XLSX 첨부 경로를 준비했습니다.');
+    } catch (error) {
+      setExportState(`첨부 준비 실패: ${error.message}`);
+    } finally {
+      setIsPreparing(false);
+    }
+  };
+
   const handleExportSendList = async () => {
     if (!selectedPackage) return;
 
@@ -218,7 +263,7 @@ export default function SendPackagesPage() {
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Send packages</p>
             <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{loadState}</p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">직접 발송 전 단계로, 파일과 문구가 준비됐는지 확인하는 화면입니다.</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">문서 기준 3단계: 거래처별 검수 결과 PDF/XLSX 첨부 생성 준비</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button className="btn btn-secondary" type="button" onClick={loadPackages}>
@@ -226,6 +271,9 @@ export default function SendPackagesPage() {
             </button>
             <button className="btn btn-secondary" type="button" onClick={handleExportSendList}>
               send_list.csv
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={handlePrepareAttachments} disabled={isPreparing}>
+              {isPreparing ? '준비 중' : '첨부 경로 준비'}
             </button>
             <button className="btn btn-primary" type="button" onClick={handleCreateSample} disabled={isCreating}>
               {isCreating ? '생성 중' : '샘플 패키지 생성'}
@@ -273,7 +321,7 @@ export default function SendPackagesPage() {
                   </div>
                   <p className="truncate text-sm text-gray-500 dark:text-gray-400">{sendPackage.outputFolderPath}</p>
                   <p className="text-xs text-gray-400 dark:text-gray-500">
-                    대상 {sendPackage.itemCount.toLocaleString('ko-KR')}건 / 준비 {sendPackage.readyCount.toLocaleString('ko-KR')}건
+                    대상 {sendPackage.itemCount.toLocaleString('ko-KR')}건 / 첨부 누락 {(sendPackage.missingAttachmentCount ?? 0).toLocaleString('ko-KR')}건
                   </p>
                 </button>
               );
@@ -284,7 +332,7 @@ export default function SendPackagesPage() {
         <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <div>
-              <h2 className="font-semibold text-gray-900 dark:text-gray-100">발송 대상</h2>
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100">거래처별 첨부 준비</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{selectedPackage?.packageName}</p>
             </div>
             <span className="rounded-full bg-accent-50 px-2.5 py-1 text-xs font-semibold text-accent-700 dark:bg-accent-500/10 dark:text-accent-300">
@@ -294,10 +342,10 @@ export default function SendPackagesPage() {
 
           <div className="grid grid-cols-12">
             <div className="col-span-12 max-h-[30rem] overflow-auto border-b border-gray-200 no-scrollbar dark:border-gray-700/60 lg:col-span-7 lg:border-b-0 lg:border-r">
-              <table className="min-w-[720px] w-full border-separate border-spacing-0 text-sm">
+              <table className="min-w-[760px] w-full border-separate border-spacing-0 text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr>
-                    {['거래처', '채널', '수신자', '첨부', '상태'].map((column) => (
+                    {['거래처', '채널', '수신자', 'PDF', 'XLSX', '상태'].map((column) => (
                       <th key={column} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-400">
                         {column}
                       </th>
@@ -325,8 +373,15 @@ export default function SendPackagesPage() {
                         <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
                           {item.recipientEmail ?? '확인 필요'}
                         </td>
-                        <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
-                          PDF / XLSX
+                        <td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(item.attachmentPdfPath ? 'READY' : 'MISSING')}`}>
+                            {item.attachmentPdfPath ? 'READY' : 'MISSING'}
+                          </span>
+                        </td>
+                        <td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(item.attachmentXlsxPath ? 'READY' : 'MISSING')}`}>
+                            {item.attachmentXlsxPath ? 'READY' : 'MISSING'}
+                          </span>
                         </td>
                         <td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">
                           <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(item.status)}`}>
@@ -346,18 +401,17 @@ export default function SendPackagesPage() {
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{selectedItem?.customerCode}</p>
 
               <div className="mt-4 space-y-3">
-                <div className="rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
-                  <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">제목</p>
-                  <p className="mt-1 text-sm font-medium text-gray-800 dark:text-gray-100">{selectedItem?.subject}</p>
-                </div>
-                <div className="rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
-                  <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">첨부 PDF</p>
-                  <p className="mt-1 truncate text-sm font-medium text-gray-800 dark:text-gray-100">{selectedItem?.attachmentPdfPath}</p>
-                </div>
-                <div className="rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
-                  <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">첨부 XLSX</p>
-                  <p className="mt-1 truncate text-sm font-medium text-gray-800 dark:text-gray-100">{selectedItem?.attachmentXlsxPath}</p>
-                </div>
+                <ChecklistItem label="수신자" detail={selectedItem?.recipientEmail ?? '이메일 확인 필요'} status={selectedItem?.recipientEmail ? 'READY' : 'MISSING'} />
+                <ChecklistItem label="제목" detail={selectedItem?.subject ?? '제목 없음'} status={selectedItem?.subject ? 'READY' : 'MISSING'} />
+                <ChecklistItem label="PDF 첨부" detail={selectedItem?.attachmentPdfPath ?? 'PDF 경로 없음'} status={selectedItem?.attachmentPdfPath ? 'READY' : 'MISSING'} />
+                <ChecklistItem label="XLSX 첨부" detail={selectedItem?.attachmentXlsxPath ?? 'XLSX 경로 없음'} status={selectedItem?.attachmentXlsxPath ? 'READY' : 'MISSING'} />
+              </div>
+
+              <div className="mt-5 rounded-lg border border-accent-200 bg-accent-50/70 p-4 dark:border-accent-500/30 dark:bg-accent-500/10">
+                <p className="text-xs font-semibold uppercase text-accent-700 dark:text-accent-300">생성 기준</p>
+                <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-200">
+                  초기 MVP에서는 실제 파일을 자동 발송하지 않고, 거래처 코드 기준의 PDF/XLSX 경로와 send_list.csv를 먼저 준비합니다.
+                </p>
               </div>
             </aside>
           </div>
