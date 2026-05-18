@@ -1,0 +1,87 @@
+[ 프로젝트 ]
+- 최근 작업
+- 파일 관리
+- 자동화 작업
+- 보고서 생성
+
+[ 데이터 ]
+- 데이터 테이블
+- 코드 매핑
+- 중복 검사
+- 로그 기록
+
+[ 백업 ]
+- 로컬 백업
+- 클라우드 백업
+- 복구
+
+[ 설정 ]
+- 사용자 설정
+- 저장 설정
+- 동기화
+- 보안
+
+[ 관리자 ]
+- 작업 이력
+- 시스템 상태
+- 캐시 관리
+
+
+
+[ Project ]
+- Recent Tasks
+- File Manager
+- Automation
+- Report Generator
+
+[ Data ]
+- Data Table
+- Code Mapping
+- Duplicate Checker
+- Activity Logs
+
+[ Backup ]
+- Local Backup
+- Cloud Backup
+- Restore
+
+[ Settings ]
+- User Preferences
+- Save Settings
+- Sync Settings
+- Security
+
+[ Admin ]
+- Task History
+- System Status
+- Cache Manager
+
+
+
+project/
+├─ RecentTasksPage
+├─ FileManagerPage
+├─ AutomationPage
+└─ ReportGeneratorPage
+
+data/
+├─ DataTablePage
+├─ CodeMappingPage
+├─ DuplicateCheckerPage
+└─ ActivityLogsPage
+
+backup/
+├─ LocalBackupPage
+├─ CloudBackupPage
+└─ RestorePage
+
+settings/
+├─ UserPreferencesPage
+├─ SaveSettingsPage
+├─ SyncSettingsPage
+└─ SecurityPage
+
+admin/
+├─ TaskHistoryPage
+├─ SystemStatusPage
+└─ CacheManagerPage
