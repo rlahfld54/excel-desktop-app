@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import DoughnutChart from '../../charts/DoughnutChart';
 
 // Import utilities
@@ -15,14 +15,14 @@ function DashboardCard06() {
           35, 30, 35,
         ],
         backgroundColor: [
-          getCssVariable('--color-violet-500'),
+          getCssVariable('--color-accent-500'),
           getCssVariable('--color-sky-500'),
-          getCssVariable('--color-violet-800'),
+          getCssVariable('--color-accent-800'),
         ],
         hoverBackgroundColor: [
-          getCssVariable('--color-violet-600'),
+          getCssVariable('--color-accent-600'),
           getCssVariable('--color-sky-600'),
-          getCssVariable('--color-violet-900'),
+          getCssVariable('--color-accent-900'),
         ],
         borderWidth: 0,
       },

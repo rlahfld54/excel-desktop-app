@@ -1,13 +1,20 @@
 {
-  "name": "mosaic-react",
+  "name": "excel-desktop-app",
   "version": "0.1.0",
+  "description": "Desktop workspace for Excel automation, validation, backup, and reporting workflows.",
   "type": "module",
   "main": "public/electron/electron.cjs",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rlahfld54/excel-desktop-app.git"
+  },
   "scripts": {
     "dev": "concurrently \"npm run vite\" \"npm run electron\"",
     "vite": "vite",
     "electron": "wait-on http://localhost:5173 && electron .",
     "build": "vite build",
+    "check": "npm run build",
     "preview": "vite preview",
     "rebuild": "cross-env npm_config_python=C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python312\\python.exe electron-rebuild -f -w better-sqlite3",
     "start": "electron ."

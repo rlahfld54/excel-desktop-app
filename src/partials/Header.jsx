@@ -25,7 +25,7 @@ function Header({
         <div className={`flex items-center justify-between h-16 gap-4 ${variant === 'v2' || variant === 'v3' ? '' : 'lg:border-b border-gray-200 dark:border-gray-700/60'}`}>
           <div className="flex items-center gap-3 min-w-0">
             <button
-              className="text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 lg:hidden"
+              className="text-gray-500 hover:text-accent-600 dark:hover:text-accent-300 lg:hidden"
               aria-controls="sidebar"
               aria-expanded={sidebarOpen}
               onClick={(e) => { e.stopPropagation(); setSidebarOpen(!sidebarOpen); }}
@@ -42,7 +42,7 @@ function Header({
               {toolbarItems.map((item) => (
                 <button
                   key={item.label}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700/60"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-700 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-200 dark:hover:bg-accent-500/10 dark:hover:text-accent-300"
                   type="button"
                 >
                   <svg className="h-4 w-4 fill-current text-gray-500 dark:text-gray-400" viewBox="0 0 16 16" aria-hidden="true">
@@ -52,18 +52,18 @@ function Header({
                 </button>
               ))}
               <div className="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-700" />
-              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60" type="button" title="Undo">
+              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-400 dark:hover:bg-accent-500/10 dark:hover:text-accent-300" type="button" title="Undo">
                 <span className="sr-only">Undo</span>
                 <svg className="mx-auto h-4 w-4 fill-current" viewBox="0 0 16 16"><path d="M6.5 3 2 7.5 6.5 12V9H10a3 3 0 1 1 0 6H8v-2h2a1 1 0 1 0 0-2H6.5V3Z" /></svg>
               </button>
-              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60" type="button" title="Redo">
+              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-400 dark:hover:bg-accent-500/10 dark:hover:text-accent-300" type="button" title="Redo">
                 <span className="sr-only">Redo</span>
                 <svg className="mx-auto h-4 w-4 fill-current" viewBox="0 0 16 16"><path d="M9.5 3 14 7.5 9.5 12V9H6a3 3 0 1 0 0 6h2v-2H6a1 1 0 1 1 0-2h3.5V3Z" /></svg>
               </button>
             </div>
 
             <div className="hidden xl:flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-              <span className="h-2 w-2 rounded-full bg-green-500" aria-hidden="true" />
+              <span className="h-2 w-2 rounded-full bg-accent-500" aria-hidden="true" />
               <span>자동 저장됨 · 방금 전</span>
             </div>
           </div>
@@ -71,13 +71,13 @@ function Header({
           <div className="flex items-center space-x-3">
             <div>
               <button
-                className={`w-8 h-8 flex items-center justify-center hover:bg-gray-100 lg:hover:bg-gray-200 dark:hover:bg-gray-700/50 dark:lg:hover:bg-gray-800 rounded-full ml-3 ${searchModalOpen ? 'bg-gray-200 dark:bg-gray-800' : ''}`}
+                className={`w-8 h-8 flex items-center justify-center hover:bg-accent-50 hover:text-accent-700 dark:hover:bg-accent-500/10 dark:hover:text-accent-300 rounded-full ml-3 ${searchModalOpen ? 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300' : ''}`}
                 onClick={(e) => { e.stopPropagation(); setSearchModalOpen(true); }}
                 aria-controls="search-modal"
               >
                 <span className="sr-only">Search</span>
                 <svg
-                  className="fill-current text-gray-500/80 dark:text-gray-400/80"
+                  className="fill-current"
                   width={16}
                   height={16}
                   viewBox="0 0 16 16"

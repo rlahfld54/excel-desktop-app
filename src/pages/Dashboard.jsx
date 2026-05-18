@@ -54,10 +54,10 @@ function Dashboard() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <button className="btn border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700/60 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700/60" type="button">
+                <button className="btn btn-secondary" type="button">
                   새 작업
                 </button>
-                <button className="btn bg-gray-900 text-gray-100 hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white" type="button">
+                <button className="btn btn-primary" type="button">
                   자동화 실행
                 </button>
               </div>
@@ -89,9 +89,9 @@ function Dashboard() {
                         <p className="mb-2 text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{group.title}</p>
                         <div className="space-y-1">
                           {group.items.map((item) => (
-                            <button key={item} className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700/50" type="button">
+                            <button key={item} className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm text-gray-600 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-300 dark:hover:bg-accent-500/10 dark:hover:text-accent-300" type="button">
                               <span className="truncate">{item}</span>
-                              <span className="ml-2 h-1.5 w-1.5 rounded-full bg-sky-500" aria-hidden="true" />
+                              <span className="ml-2 h-1.5 w-1.5 rounded-full bg-accent-500" aria-hidden="true" />
                             </button>
                           ))}
                         </div>
@@ -105,13 +105,13 @@ function Dashboard() {
                   <div className="mt-4 space-y-3">
                     {['데이터 정리', '코드 매핑', '중복 검사', '보고서 생성'].map((step, index) => (
                       <div key={step} className="flex items-center gap-3">
-                        <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${index === 0 ? 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>
+                        <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${index === 0 ? 'bg-accent-100 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>
                           {index + 1}
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-gray-700 dark:text-gray-200">{step}</p>
                           <div className="mt-1 h-1.5 rounded-full bg-gray-100 dark:bg-gray-700">
-                            <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${index === 0 ? 72 : 0}%` }} />
+                            <div className="h-1.5 rounded-full bg-accent-500" style={{ width: `${index === 0 ? 72 : 0}%` }} />
                           </div>
                         </div>
                       </div>
@@ -131,7 +131,7 @@ function Dashboard() {
                   <div key={`${log.time}-${log.text}`} className="border-b border-gray-100 px-4 py-3 text-sm last:border-b-0 md:border-b-0 md:border-r md:last:border-r-0 dark:border-gray-700/60">
                     <div className="mb-1 flex items-center gap-2">
                       <span className="font-mono text-xs text-gray-400">{log.time}</span>
-                      <span className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${log.type === 'ERROR' ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300' : log.type === 'WARN' ? 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300' : 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300'}`}>
+                      <span className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${log.type === 'ERROR' ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300' : log.type === 'WARN' ? 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300' : 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300'}`}>
                         {log.type}
                       </span>
                     </div>

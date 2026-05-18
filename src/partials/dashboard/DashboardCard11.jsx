@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import BarChart from '../../charts/BarChart03';
 
 // Import utilities
@@ -12,16 +12,16 @@ function DashboardCard11() {
       {
         label: 'Having difficulties using the product',
         data: [131],
-        backgroundColor: getCssVariable('--color-violet-500'),
-        hoverBackgroundColor: getCssVariable('--color-violet-600'),
+        backgroundColor: getCssVariable('--color-accent-500'),
+        hoverBackgroundColor: getCssVariable('--color-accent-600'),
         barPercentage: 1,
         categoryPercentage: 1,
       },
       {
         label: 'Missing features I need',
         data: [100],
-        backgroundColor: getCssVariable('--color-violet-700'),
-        hoverBackgroundColor: getCssVariable('--color-violet-800'),
+        backgroundColor: getCssVariable('--color-accent-700'),
+        hoverBackgroundColor: getCssVariable('--color-accent-800'),
         barPercentage: 1,
         categoryPercentage: 1,
       },

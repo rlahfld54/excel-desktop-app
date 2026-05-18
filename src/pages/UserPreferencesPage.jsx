@@ -1,6 +1,6 @@
 import React from 'react';
-import PlaceholderPage from './PlaceholderPage';
+import WorkspaceModulePage from './WorkspaceModulePage';
 
 export default function UserPreferencesPage() {
-  return <PlaceholderPage title="사용자 설정" description="개인화 옵션과 화면 설정을 관리합니다." />;
+  return <WorkspaceModulePage moduleKey="preferences" />;
 }

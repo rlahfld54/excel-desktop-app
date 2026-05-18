@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { chartAreaGradient } from '../../charts/ChartjsConfig';
 import LineChart from '../../charts/LineChart02';
 
@@ -41,13 +41,13 @@ function DashboardCard08() {
       {
         label: 'Current',
         data: [73, 64, 73, 69, 104, 104, 164, 164, 120, 120, 120, 148, 142, 104, 122, 110, 104, 152, 166, 233, 268, 252, 284, 284, 333, 323],
-        borderColor: getCssVariable('--color-violet-500'),
+        borderColor: getCssVariable('--color-accent-500'),
         fill: false,
         borderWidth: 2,
         pointRadius: 0,
         pointHoverRadius: 3,
-        pointBackgroundColor: getCssVariable('--color-violet-500'),
-        pointHoverBackgroundColor: getCssVariable('--color-violet-500'),
+        pointBackgroundColor: getCssVariable('--color-accent-500'),
+        pointHoverBackgroundColor: getCssVariable('--color-accent-500'),
         pointBorderWidth: 0,
         pointHoverBorderWidth: 0,
         clip: 20,

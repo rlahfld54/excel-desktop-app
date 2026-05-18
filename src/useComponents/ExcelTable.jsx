@@ -23,7 +23,7 @@ function ExcelTable() {
           {['Sheet 1', '정제 결과', '오류 목록'].map((tab, index) => (
             <button
               key={tab}
-              className={`h-8 rounded-md px-3 text-sm font-medium ${index === 0 ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60'}`}
+              className={`h-8 rounded-md px-3 text-sm font-medium ${index === 0 ? 'bg-accent-600 text-white shadow-xs hover:bg-accent-700 dark:bg-accent-500 dark:hover:bg-accent-400' : 'text-gray-500 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-400 dark:hover:bg-accent-500/10 dark:hover:text-accent-300'}`}
               type="button"
             >
               {tab}
@@ -72,7 +72,7 @@ function ExcelTable() {
                   return (
                     <td
                       key={`${cell}-${cellIndex}`}
-                      className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 group-hover:bg-sky-50/60 dark:border-gray-700/60 dark:text-gray-200 dark:group-hover:bg-sky-500/10"
+                      className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-200 dark:group-hover:bg-accent-500/10"
                     >
                       {isStatus ? (
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass}`}>

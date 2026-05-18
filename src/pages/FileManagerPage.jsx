@@ -1,6 +1,6 @@
 import React from 'react';
-import PlaceholderPage from './PlaceholderPage';
+import WorkspaceModulePage from './WorkspaceModulePage';
 
 export default function FileManagerPage() {
-  return <PlaceholderPage title="파일 관리" description="업로드한 파일과 작업 파일을 관리합니다." />;
+  return <WorkspaceModulePage moduleKey="fileManager" />;
 }

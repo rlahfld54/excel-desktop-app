@@ -7,11 +7,14 @@ const isDev = !app.isPackaged;
 
 // 3. BrowserWindow 생성 관련 기능
 function createWindow() {
+  const iconPath = path.join(__dirname, "../icon.svg");
+
   const win = new BrowserWindow({
     width: 800,
     height: 600,
     minWidth: 480,
     minHeight: 360,
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,

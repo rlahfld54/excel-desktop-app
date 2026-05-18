@@ -23,6 +23,7 @@ import SecurityPage from './pages/SecurityPage';
 import TaskHistoryPage from './pages/TaskHistoryPage';
 import SystemStatusPage from './pages/SystemStatusPage';
 import CacheManagerPage from './pages/CacheManagerPage';
+import NotFoundPage from './pages/NotFoundPage';
 import { menuGroups, pageRoutes } from './routesConfig';
 
 const routeComponents = {
@@ -59,11 +60,12 @@ function App() {
     async function loadFiles() {
       if (!window.api?.getRecentFiles) return;
 
-      const files = await window.api.getRecentFiles();
-      console.log(files);
+      await window.api.getRecentFiles();
     }
 
-    loadFiles();
+    loadFiles().catch(() => {
+      // Electron preload APIs are optional during browser-only development.
+    });
   }, []);
 
   return (
@@ -79,6 +81,8 @@ function App() {
         const PageComponent = routeComponents[route.component];
         return <Route key={route.path} exact path={route.path} element={<PageComponent />} />;
       })}
+
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }

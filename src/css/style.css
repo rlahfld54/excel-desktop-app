@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=fallback');
+﻿@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=fallback');
 
 @import 'tailwindcss';
 @import './additional-styles/utility-patterns.css' layer(components);
@@ -36,6 +36,18 @@
   --color-violet-800: #4634b1;
   --color-violet-900: #2f227c;
   --color-violet-950: #1c1357;
+
+  --color-accent-50: #ecfdf7;
+  --color-accent-100: #d1faec;
+  --color-accent-200: #a7f3dc;
+  --color-accent-300: #6ee7c6;
+  --color-accent-400: #34d3a8;
+  --color-accent-500: #10b981;
+  --color-accent-600: #059669;
+  --color-accent-700: #047857;
+  --color-accent-800: #065f46;
+  --color-accent-900: #064e3b;
+  --color-accent-950: #022c22;
 
   --color-sky-50: #e3f3ff;
   --color-sky-100: #d1ecff;

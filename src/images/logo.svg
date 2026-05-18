@@ -1,4 +1,6 @@
-<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Excel Desktop App</title>
+  <desc id="desc">A green spreadsheet grid with an automation play mark.</desc>
   <rect width="128" height="128" rx="28" fill="#022C22"/>
   <rect x="14" y="14" width="100" height="100" rx="22" fill="url(#surface)"/>
   <path d="M38 34h52c5.523 0 10 4.477 10 10v40c0 5.523-4.477 10-10 10H38c-5.523 0-10-4.477-10-10V44c0-5.523 4.477-10 10-10Z" fill="#ECFDF7"/>
