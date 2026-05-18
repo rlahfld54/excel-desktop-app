@@ -730,6 +730,92 @@ const seedSuggestions = [
   { suggestionId: 90003, targetType: "PRODUCT", rawValue: "A4 용지", suggestedCode: "PAPER-A4-001", suggestedName: "A4 복사용지", confidence: 0.98 },
 ];
 
+const defaultMessageTemplates = [
+  {
+    templateId: 1,
+    templateName: "거래처 검수 협조 요청",
+    channel: "EMAIL",
+    subjectTemplate: "[확인 요청] {{closing_month}} 매출 자료 검수 협조 요청드립니다",
+    bodyTemplate: "안녕하세요. {{customer_name}} 담당자님.\n\n첨부드린 {{closing_month}} 매출 자료 중 확인이 필요한 항목이 있어 공유드립니다. 바쁘시겠지만 첨부 파일을 확인하신 뒤 수정이 필요한 내용이나 추가로 맞춰야 할 기준이 있다면 회신 부탁드립니다.\n\n확인 부탁드립니다.\n감사합니다.",
+    tone: "COOPERATIVE",
+    status: "ACTIVE",
+  },
+  {
+    templateId: 2,
+    templateName: "첨부 파일 재확인 요청",
+    channel: "EMAIL",
+    subjectTemplate: "[재확인 요청] {{customer_name}} 첨부 자료 확인 부탁드립니다",
+    bodyTemplate: "안녕하세요. {{customer_name}} 담당자님.\n\n공유드린 자료 중 일부 항목의 기준값이 맞지 않아 재확인을 요청드립니다. 첨부 파일의 표시된 행을 확인하신 뒤, 실제 적용해야 할 거래처 코드와 품목 기준을 알려주시면 마감 자료에 반영하겠습니다.\n\n감사합니다.",
+    tone: "POLITE",
+    status: "ACTIVE",
+  },
+  {
+    templateId: 3,
+    templateName: "마감 확인 완료 안내",
+    channel: "EMAIL",
+    subjectTemplate: "[확인 완료] {{closing_month}} 매출 자료 검수 완료 안내",
+    bodyTemplate: "안녕하세요. {{customer_name}} 담당자님.\n\n{{closing_month}} 매출 자료 검수가 완료되어 안내드립니다. 추가 확인이 필요한 항목은 현재 없으며, 이후 마감 기준 변경이나 정정 요청이 발생하면 별도로 공유드리겠습니다.\n\n협조해주셔서 감사합니다.",
+    tone: "THANKS",
+    status: "ACTIVE",
+  },
+];
+
+function ensureMessageTemplates(database) {
+  const upsertTemplate = database.prepare(`
+    INSERT INTO message_templates (
+      template_id,
+      template_name,
+      channel,
+      subject_template,
+      body_template,
+      tone,
+      status,
+      updated_at
+    )
+    VALUES (
+      @templateId,
+      @templateName,
+      @channel,
+      @subjectTemplate,
+      @bodyTemplate,
+      @tone,
+      @status,
+      CURRENT_TIMESTAMP
+    )
+    ON CONFLICT(template_id) DO UPDATE SET
+      template_name = excluded.template_name,
+      channel = excluded.channel,
+      subject_template = excluded.subject_template,
+      body_template = excluded.body_template,
+      tone = excluded.tone,
+      status = excluded.status,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+
+  const transaction = database.transaction(() => {
+    defaultMessageTemplates.forEach((template) => upsertTemplate.run(template));
+  });
+
+  transaction();
+}
+
+function getMessageTemplates(database) {
+  ensureMessageTemplates(database);
+  return database.prepare(`
+    SELECT
+      template_id AS templateId,
+      template_name AS templateName,
+      channel,
+      subject_template AS subjectTemplate,
+      body_template AS bodyTemplate,
+      tone,
+      status,
+      updated_at AS updatedAt
+    FROM message_templates
+    ORDER BY template_id
+  `).all();
+}
+
 function getMasterData(database) {
   return {
     customers: database.prepare(`
@@ -961,6 +1047,14 @@ function registerDatabaseIpc(ipcMain, app) {
     return {
       ok: true,
       ...seedMasterData(database),
+    };
+  });
+
+  ipcMain.handle("message-templates:get", () => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      templates: getMessageTemplates(database),
     };
   });
 

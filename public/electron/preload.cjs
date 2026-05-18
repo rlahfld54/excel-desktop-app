@@ -19,4 +19,5 @@ contextBridge.exposeInMainWorld("api", {
   getRecentFiles: () => ipcRenderer.invoke("recent-files:get"),
   getMasterData: () => ipcRenderer.invoke("master-data:get"),
   seedMasterData: () => ipcRenderer.invoke("master-data:seed"),
+  getMessageTemplates: () => ipcRenderer.invoke("message-templates:get"),
 });
