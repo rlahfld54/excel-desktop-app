@@ -41,12 +41,15 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("file:save-as", async (_, { fileName, bytes }) => {
+    const extension = path.extname(fileName).replace(".", "").toLowerCase();
+    const filters = extension === "csv"
+      ? [{ name: "CSV File", extensions: ["csv"] }]
+      : [{ name: "Excel Workbook", extensions: ["xlsx"] }];
+
     const { canceled, filePath } = await dialog.showSaveDialog({
-      title: "샘플 엑셀 데이터 저장",
+      title: "파일 저장",
       defaultPath: path.join(app.getPath("downloads"), fileName),
-      filters: [
-        { name: "Excel Workbook", extensions: ["xlsx"] },
-      ],
+      filters,
     });
 
     if (canceled || !filePath) {

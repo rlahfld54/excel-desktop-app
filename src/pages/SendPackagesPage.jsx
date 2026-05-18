@@ -70,11 +70,51 @@ function MetricCard({ label, value, detail }) {
   );
 }
 
+function escapeCsv(value) {
+  const text = String(value ?? '');
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replaceAll('"', '""')}"`;
+  }
+
+  return text;
+}
+
+function createSendListCsv(sendPackage) {
+  const headers = ['package_name', 'closing_month', 'customer_code', 'customer_name', 'channel', 'recipient_email', 'subject', 'pdf_path', 'xlsx_path', 'status'];
+  const rows = (sendPackage?.items ?? []).map((item) => [
+    sendPackage.packageName,
+    sendPackage.closingMonth,
+    item.customerCode,
+    item.customerName,
+    item.channel,
+    item.recipientEmail,
+    item.subject,
+    item.attachmentPdfPath,
+    item.attachmentXlsxPath,
+    item.status,
+  ]);
+
+  return [headers, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\r\n');
+}
+
+function downloadCsvInBrowser(fileName, csv) {
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function SendPackagesPage() {
   const [packages, setPackages] = useState(fallbackPackages);
   const [selectedPackageId, setSelectedPackageId] = useState(fallbackPackages[0].packageId);
   const [selectedItemId, setSelectedItemId] = useState(fallbackPackages[0].items[0].itemId);
   const [loadState, setLoadState] = useState('브라우저 미리보기');
+  const [exportState, setExportState] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
   const selectedPackage = useMemo(
@@ -146,6 +186,31 @@ export default function SendPackagesPage() {
     }
   };
 
+  const handleExportSendList = async () => {
+    if (!selectedPackage) return;
+
+    const csv = createSendListCsv(selectedPackage);
+    const fileName = `${selectedPackage.packageName}-send_list.csv`;
+
+    try {
+      if (window.api?.saveFileAs) {
+        const bytes = Array.from(new TextEncoder().encode(`\uFEFF${csv}`));
+        const result = await window.api.saveFileAs({ fileName, bytes });
+        if (result?.canceled) {
+          setExportState('send_list.csv 저장을 취소했습니다.');
+          return;
+        }
+        setExportState(`${fileName} 저장 완료`);
+        return;
+      }
+
+      downloadCsvInBrowser(fileName, csv);
+      setExportState(`${fileName} 다운로드 완료`);
+    } catch (error) {
+      setExportState(`CSV 저장 실패: ${error.message}`);
+    }
+  };
+
   return (
     <PageShell title="발송 패키지" description="거래처별 PDF/XLSX 첨부, 수신자, 제목과 본문을 하나의 발송 준비 묶음으로 관리합니다.">
       <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
@@ -159,7 +224,7 @@ export default function SendPackagesPage() {
             <button className="btn btn-secondary" type="button" onClick={loadPackages}>
               새로고침
             </button>
-            <button className="btn btn-secondary" type="button">
+            <button className="btn btn-secondary" type="button" onClick={handleExportSendList}>
               send_list.csv
             </button>
             <button className="btn btn-primary" type="button" onClick={handleCreateSample} disabled={isCreating}>
@@ -168,6 +233,12 @@ export default function SendPackagesPage() {
           </div>
         </div>
       </section>
+
+      {exportState && (
+        <section className="mb-4 rounded-lg border border-accent-200 bg-accent-50 px-4 py-3 text-sm font-medium text-accent-700 dark:border-accent-500/30 dark:bg-accent-500/10 dark:text-accent-300">
+          {exportState}
+        </section>
+      )}
 
       <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
