@@ -671,6 +671,172 @@ function getClosingMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
+const seedDepartments = [
+  { departmentCode: "GENERAL_AFFAIRS", departmentName: "총무팀" },
+  { departmentCode: "SALES", departmentName: "영업팀" },
+  { departmentCode: "LOGISTICS", departmentName: "물류팀" },
+];
+
+const seedCustomers = [
+  { customerCode: "CUST-001", customerName: "한빛유통", businessNumber: "101-81-00001", taxStatus: "ACTIVE", memo: "월마감 검수 대상" },
+  { customerCode: "CUST-002", customerName: "세종오피스", businessNumber: "102-82-00002", taxStatus: "ACTIVE", memo: "사무용품 정기 거래처" },
+  { customerCode: "CUST-003", customerName: "모블상사", businessNumber: "103-83-00003", taxStatus: "ACTIVE", memo: "제품명 별칭 확인 필요" },
+  { customerCode: "CUST-004", customerName: "대원시스템", businessNumber: "104-84-00004", taxStatus: "ACTIVE", memo: "단가 기준 변경 이력 관리" },
+  { customerCode: "CUST-005", customerName: "청담리테일", businessNumber: "105-85-00005", taxStatus: "ACTIVE", memo: "신규 거래처" },
+];
+
+const seedCustomerAliases = [
+  { customerCode: "CUST-001", aliasName: "한빛 유통", source: "SEED", confidence: 0.98 },
+  { customerCode: "CUST-001", aliasName: "(주)한빛유통", source: "SEED", confidence: 0.96 },
+  { customerCode: "CUST-002", aliasName: "세종 오피스", source: "SEED", confidence: 0.97 },
+  { customerCode: "CUST-003", aliasName: "모블상사 주식회사", source: "SEED", confidence: 0.94 },
+  { customerCode: "CUST-004", aliasName: "대원 시스템", source: "SEED", confidence: 0.95 },
+];
+
+const seedProducts = [
+  { productCode: "PAPER-A4-001", productName: "A4 복사용지", unit: "BOX", memo: "박스 단위" },
+  { productCode: "TONER-BLK-2108", productName: "흑백 토너 2108", unit: "EA", memo: "프린터 소모품" },
+  { productCode: "USB-HUB-04", productName: "4포트 USB 허브", unit: "EA", memo: "전산 비품" },
+  { productCode: "CABLE-MEET-01", productName: "회의실 HDMI 케이블", unit: "EA", memo: "회의실 소모품" },
+  { productCode: "LABEL-STK-02", productName: "라벨 스티커", unit: "PACK", memo: "물류 라벨" },
+];
+
+const seedProductAliases = [
+  { productCode: "PAPER-A4-001", aliasName: "A4 용지", source: "SEED", confidence: 0.98 },
+  { productCode: "PAPER-A4-001", aliasName: "복사용지 A4", source: "SEED", confidence: 0.97 },
+  { productCode: "TONER-BLK-2108", aliasName: "토너 2108", source: "SEED", confidence: 0.96 },
+  { productCode: "USB-HUB-04", aliasName: "USB 허브 4P", source: "SEED", confidence: 0.95 },
+  { productCode: "CABLE-MEET-01", aliasName: "HDMI 케이블", source: "SEED", confidence: 0.93 },
+];
+
+const seedPrices = [
+  { priceId: 90001, customerCode: "CUST-001", productCode: "PAPER-A4-001", price: 24500, startDate: "2026-01-01", changeReason: "기본 샘플 단가" },
+  { priceId: 90002, customerCode: "CUST-001", productCode: "TONER-BLK-2108", price: 78000, startDate: "2026-01-01", changeReason: "기본 샘플 단가" },
+  { priceId: 90003, customerCode: "CUST-002", productCode: "USB-HUB-04", price: 18900, startDate: "2026-01-01", changeReason: "기본 샘플 단가" },
+  { priceId: 90004, customerCode: "CUST-003", productCode: "CABLE-MEET-01", price: 9200, startDate: "2026-01-01", changeReason: "기본 샘플 단가" },
+  { priceId: 90005, customerCode: "CUST-004", productCode: "LABEL-STK-02", price: 13200, startDate: "2026-01-01", changeReason: "기본 샘플 단가" },
+];
+
+const seedContacts = [
+  { contactId: 90001, customerCode: "CUST-001", departmentName: "정산팀", recipientName: "한빛 정산담당", recipientEmail: "settle@hanbit.example", preferredChannel: "EMAIL", memo: "샘플 연락처" },
+  { contactId: 90002, customerCode: "CUST-002", departmentName: "영업지원", recipientName: "세종 영업지원", recipientEmail: "sales@sejong.example", preferredChannel: "EMAIL", memo: "샘플 연락처" },
+  { contactId: 90003, customerCode: "CUST-003", departmentName: "관리팀", recipientName: "모블 관리담당", recipientEmail: "admin@moble.example", preferredChannel: "KAKAO", memo: "카카오 공유 대상" },
+  { contactId: 90004, customerCode: "CUST-004", departmentName: "총무팀", recipientName: "대원 총무담당", recipientEmail: "admin@daewon.example", preferredChannel: "EMAIL", memo: "샘플 연락처" },
+];
+
+const seedSuggestions = [
+  { suggestionId: 90001, targetType: "CUSTOMER", rawValue: "한빛 유통", suggestedCode: "CUST-001", suggestedName: "한빛유통", confidence: 0.98 },
+  { suggestionId: 90002, targetType: "PRODUCT", rawValue: "USB 허브 4P", suggestedCode: "USB-HUB-04", suggestedName: "4포트 USB 허브", confidence: 0.95 },
+  { suggestionId: 90003, targetType: "PRODUCT", rawValue: "A4 용지", suggestedCode: "PAPER-A4-001", suggestedName: "A4 복사용지", confidence: 0.98 },
+];
+
+function getMasterData(database) {
+  return {
+    customers: database.prepare(`
+      SELECT customer_code AS customerCode, customer_name AS customerName, business_number AS businessNumber, tax_status AS taxStatus, status, memo
+      FROM customers
+      ORDER BY customer_name
+    `).all(),
+    customerAliases: database.prepare(`
+      SELECT customer_aliases.alias_id AS aliasId, customer_aliases.customer_code AS customerCode, customers.customer_name AS customerName, customer_aliases.alias_name AS aliasName, customer_aliases.source, customer_aliases.confidence, customer_aliases.status
+      FROM customer_aliases
+      LEFT JOIN customers ON customers.customer_code = customer_aliases.customer_code
+      ORDER BY customer_aliases.alias_id DESC
+      LIMIT 50
+    `).all(),
+    products: database.prepare(`
+      SELECT product_code AS productCode, product_name AS productName, unit, status, memo
+      FROM products
+      ORDER BY product_name
+    `).all(),
+    productAliases: database.prepare(`
+      SELECT product_aliases.alias_id AS aliasId, product_aliases.product_code AS productCode, products.product_name AS productName, product_aliases.alias_name AS aliasName, product_aliases.source, product_aliases.confidence, product_aliases.status
+      FROM product_aliases
+      LEFT JOIN products ON products.product_code = product_aliases.product_code
+      ORDER BY product_aliases.alias_id DESC
+      LIMIT 50
+    `).all(),
+    prices: database.prepare(`
+      SELECT sales_prices.price_id AS priceId, sales_prices.customer_code AS customerCode, customers.customer_name AS customerName, sales_prices.product_code AS productCode, products.product_name AS productName, sales_prices.price, sales_prices.currency, sales_prices.start_date AS startDate, sales_prices.status, sales_prices.change_reason AS changeReason
+      FROM sales_prices
+      LEFT JOIN customers ON customers.customer_code = sales_prices.customer_code
+      LEFT JOIN products ON products.product_code = sales_prices.product_code
+      ORDER BY sales_prices.price_id DESC
+      LIMIT 50
+    `).all(),
+    suggestions: database.prepare(`
+      SELECT suggestion_id AS suggestionId, target_type AS targetType, raw_value AS rawValue, suggested_code AS suggestedCode, suggested_name AS suggestedName, confidence, status
+      FROM mapping_suggestions
+      ORDER BY suggestion_id DESC
+      LIMIT 50
+    `).all(),
+    contacts: database.prepare(`
+      SELECT contacts.contact_id AS contactId, contacts.customer_code AS customerCode, customers.customer_name AS customerName, contacts.department_name AS departmentName, contacts.recipient_name AS recipientName, contacts.recipient_email AS recipientEmail, contacts.preferred_channel AS preferredChannel, contacts.status
+      FROM contacts
+      LEFT JOIN customers ON customers.customer_code = contacts.customer_code
+      ORDER BY contacts.contact_id DESC
+      LIMIT 50
+    `).all(),
+  };
+}
+
+function seedMasterData(database) {
+  const insertDepartment = database.prepare(`
+    INSERT OR IGNORE INTO departments (department_code, department_name, status)
+    VALUES (@departmentCode, @departmentName, 'ACTIVE')
+  `);
+  const insertCustomer = database.prepare(`
+    INSERT OR IGNORE INTO customers (customer_code, customer_name, business_number, tax_status, memo)
+    VALUES (@customerCode, @customerName, @businessNumber, @taxStatus, @memo)
+  `);
+  const insertCustomerAlias = database.prepare(`
+    INSERT OR IGNORE INTO customer_aliases (customer_code, alias_name, source, confidence)
+    VALUES (@customerCode, @aliasName, @source, @confidence)
+  `);
+  const insertProduct = database.prepare(`
+    INSERT OR IGNORE INTO products (product_code, product_name, unit, memo)
+    VALUES (@productCode, @productName, @unit, @memo)
+  `);
+  const insertProductAlias = database.prepare(`
+    INSERT OR IGNORE INTO product_aliases (product_code, alias_name, source, confidence)
+    VALUES (@productCode, @aliasName, @source, @confidence)
+  `);
+  const insertPrice = database.prepare(`
+    INSERT OR IGNORE INTO sales_prices (price_id, customer_code, product_code, price, currency, start_date, version, status, change_reason, approved_department_code)
+    VALUES (@priceId, @customerCode, @productCode, @price, 'KRW', @startDate, 1, 'ACTIVE', @changeReason, 'GENERAL_AFFAIRS')
+  `);
+  const insertContact = database.prepare(`
+    INSERT OR IGNORE INTO contacts (contact_id, customer_code, department_name, recipient_name, recipient_email, preferred_channel, memo)
+    VALUES (@contactId, @customerCode, @departmentName, @recipientName, @recipientEmail, @preferredChannel, @memo)
+  `);
+  const insertSuggestion = database.prepare(`
+    INSERT OR IGNORE INTO mapping_suggestions (suggestion_id, target_type, raw_value, suggested_code, suggested_name, confidence, status, approved_department_code)
+    VALUES (@suggestionId, @targetType, @rawValue, @suggestedCode, @suggestedName, @confidence, 'PENDING', 'GENERAL_AFFAIRS')
+  `);
+  const insertEvent = database.prepare(`
+    INSERT INTO app_events (level, message, meta_json)
+    VALUES ('INFO', @message, @metaJson)
+  `);
+
+  const transaction = database.transaction(() => {
+    seedDepartments.forEach((item) => insertDepartment.run(item));
+    seedCustomers.forEach((item) => insertCustomer.run(item));
+    seedCustomerAliases.forEach((item) => insertCustomerAlias.run(item));
+    seedProducts.forEach((item) => insertProduct.run(item));
+    seedProductAliases.forEach((item) => insertProductAlias.run(item));
+    seedPrices.forEach((item) => insertPrice.run(item));
+    seedContacts.forEach((item) => insertContact.run(item));
+    seedSuggestions.forEach((item) => insertSuggestion.run(item));
+    insertEvent.run({
+      message: "기준 데이터 샘플을 SQLite에 준비했습니다.",
+      metaJson: toJson({ customers: seedCustomers.length, products: seedProducts.length, prices: seedPrices.length }),
+    });
+  });
+
+  transaction();
+  return getMasterData(database);
+}
+
 function initializeDatabase(app) {
   const database = getDatabase(app);
   return {
@@ -780,6 +946,22 @@ function registerDatabaseIpc(ipcMain, app) {
     `,
       )
       .all();
+  });
+
+  ipcMain.handle("master-data:get", () => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      ...getMasterData(database),
+    };
+  });
+
+  ipcMain.handle("master-data:seed", () => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      ...seedMasterData(database),
+    };
   });
 
   ipcMain.handle("data:save", (_, data) => {

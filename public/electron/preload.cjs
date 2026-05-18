@@ -17,4 +17,6 @@ contextBridge.exposeInMainWorld("api", {
   addEvent: (event) => ipcRenderer.invoke("events:add", event),
   getEvents: () => ipcRenderer.invoke("events:list"),
   getRecentFiles: () => ipcRenderer.invoke("recent-files:get"),
+  getMasterData: () => ipcRenderer.invoke("master-data:get"),
+  seedMasterData: () => ipcRenderer.invoke("master-data:seed"),
 });
