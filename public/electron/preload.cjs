@@ -22,4 +22,7 @@ contextBridge.exposeInMainWorld("api", {
   getMessageTemplates: () => ipcRenderer.invoke("message-templates:get"),
   getSendPackages: () => ipcRenderer.invoke("send-packages:get"),
   createSampleSendPackage: () => ipcRenderer.invoke("send-packages:create-sample"),
+  getAppSettings: () => ipcRenderer.invoke("app-settings:get"),
+  saveAppSettings: (settings) => ipcRenderer.invoke("app-settings:save", settings),
+  chooseDirectory: (options) => ipcRenderer.invoke("app-settings:choose-directory", options),
 });
