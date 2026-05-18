@@ -5,6 +5,12 @@ import SidebarLinkGroup from "./SidebarLinkGroup";
 import { menuGroups } from "../routesConfig";
 import logo from "../images/logo.svg";
 
+const workspaceFiles = [
+  { label: "sales_orders_2026.xlsx", status: "최근" },
+  { label: "월간 매출 원본.xlsx", status: "고정" },
+  { label: "오늘 15:02 자동 저장", status: "백업" },
+];
+
 const groupIcons = [
   (
     <path d="M6.5 1A1.5 1.5 0 0 0 5 2.5V4H2.5A1.5 1.5 0 0 0 1 5.5v7A1.5 1.5 0 0 0 2.5 14h11a1.5 1.5 0 0 0 1.5-1.5v-7A1.5 1.5 0 0 0 13.5 4H11V2.5A1.5 1.5 0 0 0 9.5 1h-3ZM6 4V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4H6Zm-3.5 6h11v2.5a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V10Z" />
@@ -193,6 +199,29 @@ function Sidebar({
                 );
               })}
             </ul>
+          </div>
+        </div>
+
+        <div className="mt-auto hidden pt-4 lg:sidebar-expanded:block 2xl:block">
+          <div className="rounded-lg border border-accent-200/70 bg-accent-50/70 p-3 dark:border-accent-500/30 dark:bg-accent-500/10">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase text-accent-700 dark:text-accent-300">작업 보관함</p>
+              <span className="h-2 w-2 rounded-full bg-accent-500" aria-hidden="true" />
+            </div>
+            <div className="space-y-2">
+              {workspaceFiles.map((file) => (
+                <button
+                  key={file.label}
+                  className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-600 hover:bg-white/80 hover:text-accent-700 dark:text-gray-300 dark:hover:bg-gray-800/70 dark:hover:text-accent-300"
+                  type="button"
+                >
+                  <span className="truncate">{file.label}</span>
+                  <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-accent-700 dark:bg-gray-800 dark:text-accent-300">
+                    {file.status}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 

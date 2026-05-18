@@ -16,8 +16,22 @@ function Header({
   sidebarOpen,
   setSidebarOpen,
   variant = 'default',
+  onFileUpload,
+  onSave,
+  onRun,
+  onUndo,
+  onRedo,
+  lastSavedAt = '방금 전',
 }) {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
+
+  const handleFileChange = (event) => {
+    const [file] = event.target.files;
+    if (file && onFileUpload) {
+      onFileUpload(file);
+    }
+    event.target.value = '';
+  };
 
   return (
     <header className={`sticky top-0 before:absolute before:inset-0 before:backdrop-blur-md max-lg:before:bg-white/90 dark:max-lg:before:bg-gray-800/90 before:-z-10 z-30 ${variant === 'v2' || variant === 'v3' ? 'before:bg-white after:absolute after:h-px after:inset-x-0 after:top-full after:bg-gray-200 dark:after:bg-gray-700/60 after:-z-10' : 'max-lg:shadow-xs lg:before:bg-gray-100/90 dark:lg:before:bg-gray-900/90'} ${variant === 'v2' ? 'dark:before:bg-gray-800' : ''} ${variant === 'v3' ? 'dark:before:bg-gray-900' : ''}`}>
@@ -39,11 +53,19 @@ function Header({
             </button>
 
             <div className="hidden md:flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-              {toolbarItems.map((item) => (
+              <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-700 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-200 dark:hover:bg-accent-500/10 dark:hover:text-accent-300">
+                <svg className="h-4 w-4 fill-current text-gray-500 dark:text-gray-400" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d={toolbarItems[0].icon} />
+                </svg>
+                <span>{toolbarItems[0].label}</span>
+                <input className="sr-only" type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
+              </label>
+              {toolbarItems.slice(1).map((item) => (
                 <button
                   key={item.label}
                   className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-700 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-200 dark:hover:bg-accent-500/10 dark:hover:text-accent-300"
                   type="button"
+                  onClick={item.label === '저장' ? onSave : onRun}
                 >
                   <svg className="h-4 w-4 fill-current text-gray-500 dark:text-gray-400" viewBox="0 0 16 16" aria-hidden="true">
                     <path d={item.icon} />
@@ -52,11 +74,11 @@ function Header({
                 </button>
               ))}
               <div className="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-700" />
-              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-400 dark:hover:bg-accent-500/10 dark:hover:text-accent-300" type="button" title="Undo">
+              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-400 dark:hover:bg-accent-500/10 dark:hover:text-accent-300" type="button" title="Undo" onClick={onUndo}>
                 <span className="sr-only">Undo</span>
                 <svg className="mx-auto h-4 w-4 fill-current" viewBox="0 0 16 16"><path d="M6.5 3 2 7.5 6.5 12V9H10a3 3 0 1 1 0 6H8v-2h2a1 1 0 1 0 0-2H6.5V3Z" /></svg>
               </button>
-              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-400 dark:hover:bg-accent-500/10 dark:hover:text-accent-300" type="button" title="Redo">
+              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-400 dark:hover:bg-accent-500/10 dark:hover:text-accent-300" type="button" title="Redo" onClick={onRedo}>
                 <span className="sr-only">Redo</span>
                 <svg className="mx-auto h-4 w-4 fill-current" viewBox="0 0 16 16"><path d="M9.5 3 14 7.5 9.5 12V9H6a3 3 0 1 0 0 6h2v-2H6a1 1 0 1 1 0-2h3.5V3Z" /></svg>
               </button>
@@ -64,7 +86,7 @@ function Header({
 
             <div className="hidden xl:flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
               <span className="h-2 w-2 rounded-full bg-accent-500" aria-hidden="true" />
-              <span>자동 저장됨 · 방금 전</span>
+              <span>자동 저장됨 · {lastSavedAt}</span>
             </div>
           </div>
 

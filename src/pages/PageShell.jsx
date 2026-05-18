@@ -15,19 +15,21 @@ function PageShell({ title, description, children }) {
         <Header sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
 
         <main className="grow">
-          <div className="w-full max-w-9xl px-4 py-6 sm:px-6 lg:px-8">
-            <div className="mb-6">
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 md:text-3xl">
-                {title}
-              </h1>
-              <div className="mt-2">
-                <Breadcrumbs />
+          <div className="w-full max-w-9xl px-4 py-4 sm:px-6 lg:px-8">
+            <div className="mb-4 flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
+              <div>
+                <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 md:text-2xl">
+                  {title}
+                </h1>
+                <div className="mt-2">
+                  <Breadcrumbs />
+                </div>
+                {description && (
+                  <p className="mt-3 max-w-3xl text-sm text-gray-600 dark:text-gray-400">
+                    {description}
+                  </p>
+                )}
               </div>
-              {description && (
-                <p className="mt-3 max-w-3xl text-sm text-gray-600 dark:text-gray-400">
-                  {description}
-                </p>
-              )}
             </div>
 
             {children}

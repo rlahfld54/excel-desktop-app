@@ -1,7 +1,7 @@
-const { app, BrowserWindow, ipcMain } = require("electron/main");
+const { app, BrowserWindow, ipcMain, dialog } = require("electron/main");
+const fs = require("node:fs/promises");
 const path = require("node:path");
-// const { initializeDatabase } = require("../database/schema.cjs");
-// const { registerRecentFileIpc } = require("../database/recentFileIpc.js");
+const { closeDatabase, initializeDatabase, registerDatabaseIpc } = require("../database/localDb.cjs");
 // 2. 설정값 / 환경 구분
 const isDev = !app.isPackaged;
 
@@ -40,8 +40,21 @@ function registerIpcHandlers() {
     // 파일 열기
   });
 
-  ipcMain.handle("data:save", async (_, data) => {
-    // sqlite 저장
+  ipcMain.handle("file:save-as", async (_, { fileName, bytes }) => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "샘플 엑셀 데이터 저장",
+      defaultPath: path.join(app.getPath("downloads"), fileName),
+      filters: [
+        { name: "Excel Workbook", extensions: ["xlsx"] },
+      ],
+    });
+
+    if (canceled || !filePath) {
+      return { canceled: true };
+    }
+
+    await fs.writeFile(filePath, Buffer.from(bytes));
+    return { canceled: false, filePath };
   });
 }
 
@@ -49,10 +62,10 @@ function registerIpcHandlers() {
 app.whenReady().then(() => {
   // preload.js 메서드 가져옴
   registerIpcHandlers();
+  registerDatabaseIpc(ipcMain, app);
 
   //Electron 시작 시 DB 초기화.
-  // initializeDatabase();
-  // registerRecentFileIpc();
+  initializeDatabase(app);
 
   createWindow();
 
@@ -66,6 +79,7 @@ app.whenReady().then(() => {
 // 6. 종료 처리
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
+    closeDatabase();
     app.quit();
   }
 });

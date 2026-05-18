@@ -8,6 +8,7 @@ export default defineConfig({
   },
   plugins: [react()],
   build: {
+    chunkSizeWarningLimit: 1000,
     commonjsOptions: {
       transformMixedEsModules: true,
     }

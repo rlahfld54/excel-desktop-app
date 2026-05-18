@@ -365,24 +365,35 @@ function statusClass(value) {
 
 function WorkspaceModulePage({ moduleKey }) {
   const config = moduleConfigs[moduleKey] || moduleConfigs.recentTasks;
+  const primaryMetric = config.stats[0];
+  const secondaryMetric = config.stats[1];
 
   return (
     <PageShell title={config.title} description={config.description}>
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        {config.actions.map((action, index) => (
-          <button
-            key={action}
-            className={`btn ${index === 0 ? 'btn-primary' : 'btn-secondary'}`}
-            type="button"
-          >
-            {action}
-          </button>
-        ))}
-      </div>
+      <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">{config.title} workspace</p>
+            <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{primaryMetric[1]} · {primaryMetric[0]}</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{primaryMetric[2]} / {secondaryMetric[0]} {secondaryMetric[1]}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {config.actions.map((action, index) => (
+              <button
+                key={action}
+                className={`btn ${index === 0 ? 'btn-primary' : 'btn-secondary'}`}
+                type="button"
+              >
+                {action}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
 
-      <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
         {config.stats.map(([label, value, detail]) => (
-          <section key={label} className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+          <section key={label} className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
             <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
             <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{value}</p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
@@ -451,6 +462,29 @@ function WorkspaceModulePage({ moduleKey }) {
           </div>
         </aside>
       </div>
+
+      <section className="mt-5 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div>
+            <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">운영 의도</p>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              이 화면은 {config.title} 업무를 빠르게 파악하고, 첫 번째 액션을 바로 실행하는 작업대 역할입니다.
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">사용자 흐름</p>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              목록에서 대상을 고르고, 우측 패널에서 조건을 확인한 뒤, 상단 주요 버튼으로 처리합니다.
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">다음 고도화</p>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              실제 데이터 연결, 권한 처리, 실행 결과 저장을 붙이면 바로 업무 화면으로 확장됩니다.
+            </p>
+          </div>
+        </div>
+      </section>
     </PageShell>
   );
 }
