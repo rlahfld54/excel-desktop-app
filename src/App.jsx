@@ -16,6 +16,11 @@ import ActivityLogsPage from './pages/ActivityLogsPage';
 import LocalBackupPage from './pages/LocalBackupPage';
 import CloudBackupPage from './pages/CloudBackupPage';
 import RestorePage from './pages/RestorePage';
+import RequestDashboardPage from './pages/RequestDashboardPage';
+import ContactListPage from './pages/ContactListPage';
+import MessageTemplatesPage from './pages/MessageTemplatesPage';
+import SendPackagesPage from './pages/SendPackagesPage';
+import SendHistoryPage from './pages/SendHistoryPage';
 import UserPreferencesPage from './pages/UserPreferencesPage';
 import SaveSettingsPage from './pages/SaveSettingsPage';
 import SyncSettingsPage from './pages/SyncSettingsPage';
@@ -38,6 +43,11 @@ const routeComponents = {
   LocalBackupPage,
   CloudBackupPage,
   RestorePage,
+  RequestDashboardPage,
+  ContactListPage,
+  MessageTemplatesPage,
+  SendPackagesPage,
+  SendHistoryPage,
   UserPreferencesPage,
   SaveSettingsPage,
   SyncSettingsPage,

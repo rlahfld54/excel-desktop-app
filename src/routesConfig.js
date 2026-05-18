@@ -29,6 +29,17 @@ export const menuGroups = [
     ],
   },
   {
+    title: '요청 센터',
+    basePath: '/request',
+    items: [
+      { label: '요청 대시보드', path: '/request/dashboard', component: 'RequestDashboardPage' },
+      { label: '연락처 목록', path: '/request/contacts', component: 'ContactListPage' },
+      { label: '문구 템플릿', path: '/request/templates', component: 'MessageTemplatesPage' },
+      { label: '발송 패키지', path: '/request/send-packages', component: 'SendPackagesPage' },
+      { label: '발송 이력', path: '/request/send-history', component: 'SendHistoryPage' },
+    ],
+  },
+  {
     title: '설정',
     basePath: '/settings',
     items: [

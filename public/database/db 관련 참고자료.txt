@@ -1,0 +1,128 @@
+app_events
+→ 앱 전체 로그
+
+recent_files
+→ 최근 열었던 파일
+
+workspace_snapshots
+→ 자동저장/스냅샷 JSON 저장
+
+validation_results
+→ 검증 요약
+  예: 오류 84건, 중복 51건
+
+sales_uploads
+→ 매출 마감 업로드 1건
+
+sales_rows
+→ 업로드된 엑셀 행 데이터
+
+validation_issues
+→ 행별 상세 오류 목록
+
+customers / products / sales_prices
+→ 기준 데이터
+
+customer_aliases / product_aliases
+→ 지저분한 기존 데이터 정리용
+
+mapping_suggestions
+→ 자동 추천 매핑 대기함
+
+audit_logs
+→ 기준 데이터 변경 이력
+
+backup_history
+→ 변경 전후 백업 기록
+
+closing_reports
+→ 최종 보고서 생성 기록
+
+
+
+
+
+
+data:save
+1. workspace_snapshots 저장
+2. recent_files 저장
+3. sales_uploads 저장
+4. sales_rows 저장
+5. validation_issues 저장
+6. validation_results에 요약 저장
+
+
+지금 당장 다 구현하지 않아도 되고, 우선은:
+
+customers
+products
+sales_prices
+sales_uploads
+sales_rows
+validation_issues
+
+여기부터 붙이면 충분해.
+
+
+
+화면 데이터는 이렇게 매핑하면 돼.
+
+보고서
+→ report_jobs.report_name
+
+데이터 소스
+→ report_jobs.data_source_name
+
+형식
+→ report_jobs.output_format
+
+최근 생성
+→ report_jobs.generated_at
+
+상태
+→ report_jobs.status
+
+출력 옵션은 이렇게 저장돼.
+
+표지 포함
+→ report_output_options.include_cover
+
+오류 행 강조
+→ report_output_options.highlight_error_rows
+
+담당자별 분리
+→ report_output_options.split_by_department
+※ 네 방향이면 담당자별보다 부서별 분리가 더 좋아서 컬럼명은 split_by_department 추천
+
+클라우드 백업 첨부
+→ report_output_options.attach_cloud_backup
+
+기존 closing_reports랑 역할을 나누면:
+
+report_jobs
+→ 보고서 생성 작업 전체 목록
+
+report_files
+→ 실제 생성된 PDF/XLSX 파일
+
+closing_reports
+→ 매출 마감 최종 확정 보고서
+
+처음 MVP에서는 report_jobs, report_output_options, report_files 3개만 먼저 만들어도 충분해.
+
+
+추천 흐름은 이거야.
+
+users
+→ 로그인/권한
+
+departments
+→ 총무팀, 물류팀
+
+login_logs
+→ 로그인 이력
+
+validation_issues.assigned_department_code
+→ 오류를 어느 부서에 확인 요청할지 연결
+
+처음에는 password_hash를 NULL로 두고 관리자 모드로 개발해도 되고, 나중에 로그인 화면 붙일 때 bcrypt 같은 걸로 해시 저장하면 돼.
