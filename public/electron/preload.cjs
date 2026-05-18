@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("api", {
   saveData: (data) => ipcRenderer.invoke("data:save", data),
   saveFileAs: (file) => ipcRenderer.invoke("file:save-as", file),
   getDatabaseHealth: () => ipcRenderer.invoke("db:health"),
+  getDatabaseSummary: () => ipcRenderer.invoke("db:summary"),
   addEvent: (event) => ipcRenderer.invoke("events:add", event),
   getEvents: () => ipcRenderer.invoke("events:list"),
   getRecentFiles: () => ipcRenderer.invoke("recent-files:get"),

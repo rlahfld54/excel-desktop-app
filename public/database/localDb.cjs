@@ -692,6 +692,50 @@ function registerDatabaseIpc(ipcMain, app) {
     };
   });
 
+  ipcMain.handle("db:summary", () => {
+    const database = getDatabase(app);
+    const tables = [
+      "customers",
+      "products",
+      "sales_prices",
+      "sales_uploads",
+      "sales_rows",
+      "validation_issues",
+      "workspace_snapshots",
+      "recent_files",
+      "send_packages",
+      "send_package_items",
+      "message_templates",
+      "contacts",
+      "app_events",
+    ];
+
+    const counts = tables.map((tableName) => {
+      const row = database.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get();
+      return {
+        tableName,
+        count: row.count,
+      };
+    });
+    const recentEvents = database
+      .prepare(
+        `
+        SELECT level, message, created_at AS createdAt
+        FROM app_events
+        ORDER BY id DESC
+        LIMIT 5
+      `,
+      )
+      .all();
+
+    return {
+      ok: true,
+      path: database.name,
+      counts,
+      recentEvents,
+    };
+  });
+
   ipcMain.handle("events:add", (_, event) => {
     const database = getDatabase(app);
     const info = database
