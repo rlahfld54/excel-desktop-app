@@ -816,6 +816,141 @@ function getMessageTemplates(database) {
   `).all();
 }
 
+function getSendPackages(database) {
+  const packages = database.prepare(`
+    SELECT
+      package_id AS packageId,
+      package_name AS packageName,
+      closing_month AS closingMonth,
+      output_folder_path AS outputFolderPath,
+      status,
+      created_at AS createdAt
+    FROM send_packages
+    ORDER BY package_id DESC
+    LIMIT 20
+  `).all();
+
+  const getItems = database.prepare(`
+    SELECT
+      item_id AS itemId,
+      package_id AS packageId,
+      customer_code AS customerCode,
+      customer_name AS customerName,
+      recipient_email AS recipientEmail,
+      recipient_phone AS recipientPhone,
+      channel,
+      subject,
+      body,
+      attachment_pdf_path AS attachmentPdfPath,
+      attachment_xlsx_path AS attachmentXlsxPath,
+      status,
+      memo,
+      created_at AS createdAt
+    FROM send_package_items
+    WHERE package_id = @packageId
+    ORDER BY item_id
+  `);
+
+  return packages.map((sendPackage) => {
+    const items = getItems.all({ packageId: sendPackage.packageId });
+    const readyCount = items.filter((item) => item.status === "READY").length;
+    const missingEmailCount = items.filter((item) => item.channel === "EMAIL" && !item.recipientEmail).length;
+
+    return {
+      ...sendPackage,
+      items,
+      itemCount: items.length,
+      readyCount,
+      missingEmailCount,
+    };
+  });
+}
+
+function createSampleSendPackage(database) {
+  seedMasterData(database);
+  const templates = getMessageTemplates(database);
+  const template = templates[0];
+  const contacts = getMasterData(database).contacts.slice(0, 4);
+  const closingMonth = getClosingMonth();
+  const packageName = `REQ-${closingMonth.replace("-", "")}-SAMPLE`;
+  const outputFolderPath = `exports/request/${closingMonth.replace("-", "")}`;
+
+  const insertPackage = database.prepare(`
+    INSERT INTO send_packages (package_name, closing_month, output_folder_path, status)
+    VALUES (@packageName, @closingMonth, @outputFolderPath, 'CREATED')
+  `);
+  const insertItem = database.prepare(`
+    INSERT INTO send_package_items (
+      package_id,
+      customer_code,
+      contact_id,
+      customer_name,
+      recipient_email,
+      recipient_phone,
+      channel,
+      subject,
+      body,
+      attachment_pdf_path,
+      attachment_xlsx_path,
+      status,
+      memo
+    )
+    VALUES (
+      @packageId,
+      @customerCode,
+      @contactId,
+      @customerName,
+      @recipientEmail,
+      @recipientPhone,
+      @channel,
+      @subject,
+      @body,
+      @attachmentPdfPath,
+      @attachmentXlsxPath,
+      'READY',
+      @memo
+    )
+  `);
+  const insertEvent = database.prepare(`
+    INSERT INTO app_events (level, message, meta_json)
+    VALUES ('INFO', @message, @metaJson)
+  `);
+
+  const applyTemplate = (text, contact) => String(text ?? "")
+    .replaceAll("{{closing_month}}", closingMonth)
+    .replaceAll("{{customer_name}}", contact.customerName ?? contact.customerCode ?? "거래처");
+
+  const transaction = database.transaction(() => {
+    const packageResult = insertPackage.run({ packageName, closingMonth, outputFolderPath });
+    const packageId = packageResult.lastInsertRowid;
+
+    contacts.forEach((contact) => {
+      insertItem.run({
+        packageId,
+        customerCode: contact.customerCode,
+        contactId: contact.contactId,
+        customerName: contact.customerName,
+        recipientEmail: contact.recipientEmail,
+        recipientPhone: contact.recipientPhone,
+        channel: contact.preferredChannel ?? "EMAIL",
+        subject: applyTemplate(template.subjectTemplate, contact),
+        body: applyTemplate(template.bodyTemplate, contact),
+        attachmentPdfPath: `${outputFolderPath}/${contact.customerCode}.pdf`,
+        attachmentXlsxPath: `${outputFolderPath}/${contact.customerCode}.xlsx`,
+        memo: "샘플 발송 패키지 항목",
+      });
+    });
+
+    insertEvent.run({
+      message: "샘플 발송 패키지를 준비했습니다.",
+      metaJson: toJson({ packageId, itemCount: contacts.length }),
+    });
+  });
+
+  transaction();
+  return getSendPackages(database);
+}
+
 function getMasterData(database) {
   return {
     customers: database.prepare(`
@@ -1055,6 +1190,22 @@ function registerDatabaseIpc(ipcMain, app) {
     return {
       ok: true,
       templates: getMessageTemplates(database),
+    };
+  });
+
+  ipcMain.handle("send-packages:get", () => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      packages: getSendPackages(database),
+    };
+  });
+
+  ipcMain.handle("send-packages:create-sample", () => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      packages: createSampleSendPackage(database),
     };
   });
 
