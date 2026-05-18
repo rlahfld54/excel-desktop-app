@@ -240,6 +240,26 @@ export default function DataTablePage() {
     }
   };
 
+  const handleSaveSnapshot = async () => {
+    if (!window.api?.saveData) {
+      setActionState('브라우저 미리보기에서는 SQLite 저장 대신 화면 확인만 가능합니다.');
+      return;
+    }
+
+    try {
+      await window.api.saveData({
+        fileName: 'data-table-review-sample.xlsx',
+        columns,
+        rows,
+        validationIssues: issues,
+        savedAt: new Date().toISOString(),
+      });
+      setActionState('현재 데이터와 검증 이슈를 SQLite에 저장했습니다.');
+    } catch (error) {
+      setActionState(`SQLite 저장 실패: ${error.message}`);
+    }
+  };
+
   return (
     <PageShell title="데이터 테이블" description="대용량 Excel/CSV 데이터를 10행 고정 테이블로 검토하고, 검색/필터/정렬/검증 처리를 수행합니다.">
       <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
@@ -258,6 +278,9 @@ export default function DataTablePage() {
             />
             <button className="btn btn-secondary" type="button" onClick={() => setRows(createRows(1200))}>
               샘플 재생성
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={handleSaveSnapshot}>
+              SQLite 저장
             </button>
             <button className="btn btn-secondary" type="button" onClick={handleExport}>
               XLSX 내보내기
