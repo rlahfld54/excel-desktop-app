@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("api", {
   getRecentFiles: () => ipcRenderer.invoke("recent-files:get"),
   getMasterData: () => ipcRenderer.invoke("master-data:get"),
   seedMasterData: () => ipcRenderer.invoke("master-data:seed"),
+  importContacts: (contacts) => ipcRenderer.invoke("contacts:import", contacts),
   getMessageTemplates: () => ipcRenderer.invoke("message-templates:get"),
   getSendPackages: () => ipcRenderer.invoke("send-packages:get"),
   createSampleSendPackage: () => ipcRenderer.invoke("send-packages:create-sample"),

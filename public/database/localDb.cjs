@@ -1001,6 +1001,104 @@ function getMasterData(database) {
   };
 }
 
+function importContacts(database, contacts) {
+  const insertCustomer = database.prepare(`
+    INSERT OR IGNORE INTO customers (customer_code, customer_name, tax_status, memo)
+    VALUES (@customerCode, @customerName, 'UNKNOWN', '연락처 CSV 가져오기에서 생성')
+  `);
+  const findContact = database.prepare(`
+    SELECT contact_id AS contactId
+    FROM contacts
+    WHERE COALESCE(customer_code, '') = COALESCE(@customerCode, '')
+      AND COALESCE(recipient_email, '') = COALESCE(@recipientEmail, '')
+      AND COALESCE(recipient_name, '') = COALESCE(@recipientName, '')
+    LIMIT 1
+  `);
+  const insertContact = database.prepare(`
+    INSERT INTO contacts (
+      customer_code,
+      department_name,
+      recipient_name,
+      recipient_email,
+      recipient_phone,
+      preferred_channel,
+      status,
+      memo
+    )
+    VALUES (
+      @customerCode,
+      @departmentName,
+      @recipientName,
+      @recipientEmail,
+      @recipientPhone,
+      @preferredChannel,
+      @status,
+      @memo
+    )
+  `);
+  const updateContact = database.prepare(`
+    UPDATE contacts
+    SET
+      department_name = @departmentName,
+      recipient_email = @recipientEmail,
+      recipient_phone = @recipientPhone,
+      preferred_channel = @preferredChannel,
+      status = @status,
+      memo = @memo,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE contact_id = @contactId
+  `);
+  const insertEvent = database.prepare(`
+    INSERT INTO app_events (level, message, meta_json)
+    VALUES ('INFO', @message, @metaJson)
+  `);
+
+  const transaction = database.transaction(() => {
+    let inserted = 0;
+    let updated = 0;
+
+    contacts.forEach((contact) => {
+      const normalized = {
+        customerCode: contact.customerCode || null,
+        customerName: contact.customerName || null,
+        departmentName: contact.departmentName || null,
+        recipientName: contact.recipientName || null,
+        recipientEmail: contact.recipientEmail || null,
+        recipientPhone: contact.recipientPhone || null,
+        preferredChannel: contact.preferredChannel || "EMAIL",
+        status: contact.status || "ACTIVE",
+        memo: contact.memo || null,
+      };
+
+      if (normalized.customerCode && normalized.customerName) {
+        insertCustomer.run(normalized);
+      }
+
+      const existing = findContact.get(normalized);
+      if (existing?.contactId) {
+        updateContact.run({
+          ...normalized,
+          contactId: existing.contactId,
+        });
+        updated += 1;
+        return;
+      }
+
+      insertContact.run(normalized);
+      inserted += 1;
+    });
+
+    insertEvent.run({
+      message: "연락처 CSV 데이터를 가져왔습니다.",
+      metaJson: toJson({ inserted, updated, total: contacts.length }),
+    });
+
+    return { inserted, updated };
+  });
+
+  return transaction();
+}
+
 function seedMasterData(database) {
   const insertDepartment = database.prepare(`
     INSERT OR IGNORE INTO departments (department_code, department_name, status)
@@ -1182,6 +1280,16 @@ function registerDatabaseIpc(ipcMain, app) {
     return {
       ok: true,
       ...seedMasterData(database),
+    };
+  });
+
+  ipcMain.handle("contacts:import", (_, contacts) => {
+    const database = getDatabase(app);
+    const summary = importContacts(database, contacts ?? []);
+    return {
+      ok: true,
+      summary,
+      ...getMasterData(database),
     };
   });
 
