@@ -1,6 +1,230 @@
-import React from 'react';
-import WorkspaceModulePage from './WorkspaceModulePage';
+import React, { useEffect, useMemo, useState } from 'react';
+
+import PageShell from './PageShell';
+
+const fallbackItems = [
+  {
+    itemId: 1,
+    packageName: 'REQ-202605-SAMPLE',
+    closingMonth: '2026-05',
+    customerName: '한빛유통',
+    channel: 'EMAIL',
+    recipientEmail: 'settle@hanbit.example',
+    status: 'READY',
+    createdAt: '-',
+    subject: '[확인 요청] 2026-05 매출 자료 검수 협조 요청드립니다',
+  },
+  {
+    itemId: 2,
+    packageName: 'REQ-202605-SAMPLE',
+    closingMonth: '2026-05',
+    customerName: '모블상사',
+    channel: 'KAKAO',
+    recipientEmail: 'admin@moble.example',
+    status: 'READY',
+    createdAt: '-',
+    subject: '[확인 요청] 2026-05 매출 자료 검수 협조 요청드립니다',
+  },
+];
+
+function statusClass(status) {
+  const map = {
+    READY: 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300',
+    SENT: 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300',
+    REPLIED: 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300',
+    CLOSED: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200',
+    FAILED: 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300',
+  };
+
+  return map[status] ?? 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300';
+}
+
+function channelClass(channel) {
+  return channel === 'EMAIL'
+    ? 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300'
+    : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200';
+}
+
+function MetricCard({ label, value, detail }) {
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+      <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
+      <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{value}</p>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
+    </section>
+  );
+}
+
+function flattenPackageItems(packages) {
+  return packages.flatMap((sendPackage) => (
+    (sendPackage.items ?? []).map((item) => ({
+      ...item,
+      packageName: sendPackage.packageName,
+      closingMonth: sendPackage.closingMonth,
+      packageStatus: sendPackage.status,
+    }))
+  ));
+}
 
 export default function SendHistoryPage() {
-  return <WorkspaceModulePage moduleKey="sendHistory" />;
+  const [items, setItems] = useState(fallbackItems);
+  const [selectedId, setSelectedId] = useState(fallbackItems[0].itemId);
+  const [loadState, setLoadState] = useState('브라우저 미리보기');
+
+  const selectedItem = useMemo(
+    () => items.find((item) => item.itemId === selectedId) ?? items[0],
+    [items, selectedId],
+  );
+
+  const metrics = useMemo(() => {
+    const readyCount = items.filter((item) => item.status === 'READY').length;
+    const sentCount = items.filter((item) => item.status === 'SENT').length;
+    const repliedCount = items.filter((item) => item.status === 'REPLIED').length;
+    const closedCount = items.filter((item) => item.status === 'CLOSED').length;
+
+    return [
+      { label: '전체 대상', value: `${items.length.toLocaleString('ko-KR')}건`, detail: '패키지 항목 기준' },
+      { label: '준비됨', value: `${readyCount.toLocaleString('ko-KR')}건`, detail: '수동 발송 가능' },
+      { label: '응답/종료', value: `${(repliedCount + closedCount).toLocaleString('ko-KR')}건`, detail: `응답 ${repliedCount.toLocaleString('ko-KR')} / 종료 ${closedCount.toLocaleString('ko-KR')}` },
+      { label: '발송됨', value: `${sentCount.toLocaleString('ko-KR')}건`, detail: '향후 수동 체크로 갱신' },
+    ];
+  }, [items]);
+
+  const loadHistory = async () => {
+    if (!window.api?.getSendPackages) {
+      setItems(fallbackItems);
+      setSelectedId(fallbackItems[0].itemId);
+      setLoadState('브라우저 미리보기');
+      return;
+    }
+
+    try {
+      const result = await window.api.getSendPackages();
+      const nextItems = flattenPackageItems(result.packages ?? []);
+      const normalized = nextItems.length ? nextItems : fallbackItems;
+      setItems(normalized);
+      setSelectedId(normalized[0].itemId);
+      setLoadState(nextItems.length ? 'SQLite 연결됨' : 'SQLite 연결됨 / 이력 없음');
+    } catch (error) {
+      setItems(fallbackItems);
+      setSelectedId(fallbackItems[0].itemId);
+      setLoadState(`SQLite 확인 필요: ${error.message}`);
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  return (
+    <PageShell title="발송 이력" description="발송 패키지의 거래처별 준비 상태, 발송 체크, 회신과 종료 상태를 추적합니다.">
+      <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Send history</p>
+            <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{loadState}</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">현재는 패키지 항목을 기준으로 수동 발송 전후 상태를 확인합니다.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button className="btn btn-secondary" type="button" onClick={loadHistory}>
+              새로고침
+            </button>
+            <button className="btn btn-secondary" type="button">
+              완료 체크
+            </button>
+            <button className="btn btn-primary" type="button">
+              이력 내보내기
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {metrics.map((metric) => (
+          <MetricCard key={metric.label} {...metric} />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-12 gap-5">
+        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8">
+          <header className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
+            <h2 className="font-semibold text-gray-900 dark:text-gray-100">거래처별 이력</h2>
+            <span className="text-xs font-semibold text-gray-400 dark:text-gray-500">{items.length.toLocaleString('ko-KR')}건</span>
+          </header>
+          <div className="max-h-[31rem] overflow-auto no-scrollbar">
+            <table className="min-w-[880px] w-full border-separate border-spacing-0 text-sm">
+              <thead className="sticky top-0 z-10">
+                <tr>
+                  {['마감월', '패키지', '거래처', '채널', '수신자', '상태'].map((column) => (
+                    <th key={column} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-400">
+                      {column}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => {
+                  const selected = item.itemId === selectedItem?.itemId;
+
+                  return (
+                    <tr
+                      key={`${item.packageName}-${item.itemId}`}
+                      className={`group cursor-pointer ${selected ? 'bg-accent-50/70 dark:bg-accent-500/10' : ''}`}
+                      onClick={() => setSelectedId(item.itemId)}
+                    >
+                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
+                        {item.closingMonth}
+                      </td>
+                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
+                        {item.packageName}
+                      </td>
+                      <td className="border-b border-r border-gray-200 px-3 py-2 font-medium text-gray-800 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-100 dark:group-hover:bg-accent-500/10">
+                        {item.customerName}
+                      </td>
+                      <td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${channelClass(item.channel)}`}>
+                          {item.channel}
+                        </span>
+                      </td>
+                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
+                        {item.recipientEmail ?? '확인 필요'}
+                      </td>
+                      <td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(item.status)}`}>
+                          {item.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4">
+          <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">선택 이력</p>
+          <h2 className="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{selectedItem?.customerName}</h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{selectedItem?.packageName}</p>
+
+          <div className="mt-5 space-y-3">
+            <div className="rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
+              <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">제목</p>
+              <p className="mt-1 text-sm font-medium text-gray-800 dark:text-gray-100">{selectedItem?.subject}</p>
+            </div>
+            <div className="rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
+              <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">상태</p>
+              <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(selectedItem?.status)}`}>
+                {selectedItem?.status}
+              </span>
+            </div>
+            <div className="rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
+              <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">기록 시각</p>
+              <p className="mt-1 text-sm font-medium text-gray-800 dark:text-gray-100">{selectedItem?.createdAt ?? '-'}</p>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </PageShell>
+  );
 }
