@@ -3,6 +3,7 @@ export const menuGroups = [
     title: '마감 자료',
     basePath: '/closing',
     items: [
+      { label: '엑셀 첨부 양식', path: '/closing/excel-templates', component: 'ExcelTemplatesPage' },
       { label: '매출 마감 비교', path: '/closing/sales-compare', component: 'SalesClosingComparePage' },
       { label: '데이터 테이블', path: '/closing/data-table', component: 'DataTablePage' },
       { label: '코드 매핑', path: '/closing/code-mapping', component: 'CodeMappingPage' },

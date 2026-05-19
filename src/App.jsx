@@ -12,6 +12,7 @@ import AutomationPage from './pages/AutomationPage';
 import ReportGeneratorPage from './pages/ReportGeneratorPage';
 import ReportTemplatesPage from './pages/ReportTemplatesPage';
 import SalesClosingComparePage from './pages/SalesClosingComparePage';
+import ExcelTemplatesPage from './pages/ExcelTemplatesPage';
 import DataTablePage from './pages/DataTablePage';
 import CodeMappingPage from './pages/CodeMappingPage';
 import DuplicateCheckerPage from './pages/DuplicateCheckerPage';
@@ -36,6 +37,7 @@ import { menuGroups, pageRoutes } from './routesConfig'; // 메뉴 라우터 모
 
 const routeComponents = {
   SalesClosingComparePage,
+  ExcelTemplatesPage,
   WorkspaceDashboardPage,
   RecentTasksPage,
   FileManagerPage,

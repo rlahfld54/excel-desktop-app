@@ -96,8 +96,8 @@ function createWindow() {
     win.loadURL("http://localhost:5173");
     win.webContents.openDevTools({ mode: "detach" });
   } else {
-    // 빌드 시 사용되는 경로..ㅇㅋ?
-    win.loadFile(path.join(__dirname, "../dist/index.html"));
+    // Packaged app layout: app.asar/public/electron -> app.asar/dist/index.html
+    win.loadFile(path.join(__dirname, "../../dist/index.html"));
   }
 }
 
