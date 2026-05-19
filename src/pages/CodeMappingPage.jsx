@@ -1,35 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
+import { buildMasterDataFromRows, createSampleSalesRows } from '../data/sampleSalesData';
 
-const fallbackMasterData = {
-  ok: false,
-  customers: [
-    { customerCode: 'CUST-001', customerName: '한빛유통', businessNumber: '101-81-00001', taxStatus: 'ACTIVE', status: 'ACTIVE' },
-    { customerCode: 'CUST-002', customerName: '세종오피스', businessNumber: '102-82-00002', taxStatus: 'ACTIVE', status: 'ACTIVE' },
-  ],
-  customerAliases: [
-    { aliasId: 1, customerCode: 'CUST-001', customerName: '한빛유통', aliasName: '(주)한빛유통', source: 'SAMPLE', confidence: 0.96, status: 'ACTIVE' },
-    { aliasId: 2, customerCode: 'CUST-002', customerName: '세종오피스', aliasName: '세종 오피스', source: 'SAMPLE', confidence: 0.97, status: 'ACTIVE' },
-  ],
-  products: [
-    { productCode: 'PAPER-A4-001', productName: 'A4 복사용지', unit: 'BOX', status: 'ACTIVE' },
-    { productCode: 'USB-HUB-04', productName: '4포트 USB 허브', unit: 'EA', status: 'ACTIVE' },
-  ],
-  productAliases: [
-    { aliasId: 1, productCode: 'PAPER-A4-001', productName: 'A4 복사용지', aliasName: 'A4 용지', source: 'SAMPLE', confidence: 0.98, status: 'ACTIVE' },
-    { aliasId: 2, productCode: 'USB-HUB-04', productName: '4포트 USB 허브', aliasName: 'USB 허브 4P', source: 'SAMPLE', confidence: 0.95, status: 'ACTIVE' },
-  ],
-  prices: [
-    { priceId: 1, customerName: '한빛유통', productName: 'A4 복사용지', customerCode: 'CUST-001', productCode: 'PAPER-A4-001', price: 24500, currency: 'KRW', startDate: '2026-01-01', status: 'ACTIVE' },
-    { priceId: 2, customerName: '세종오피스', productName: '4포트 USB 허브', customerCode: 'CUST-002', productCode: 'USB-HUB-04', price: 18900, currency: 'KRW', startDate: '2026-01-01', status: 'ACTIVE' },
-  ],
-  suggestions: [
-    { suggestionId: 1, targetType: 'CUSTOMER', rawValue: '한빛 유통', suggestedCode: 'CUST-001', suggestedName: '한빛유통', confidence: 0.98, status: 'PENDING' },
-    { suggestionId: 2, targetType: 'PRODUCT', rawValue: 'USB 허브 4P', suggestedCode: 'USB-HUB-04', suggestedName: '4포트 USB 허브', confidence: 0.95, status: 'PENDING' },
-  ],
-  contacts: [],
-};
+const masterStorageKey = 'excel-workspace:masterData';
 
 function formatPercent(value) {
   return `${Math.round(Number(value ?? 0) * 100)}%`;
@@ -44,7 +18,7 @@ function badgeClass(status) {
     return 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300';
   }
 
-  if (status === 'PENDING') {
+  if (status === 'PENDING' || status === 'REVIEW') {
     return 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300';
   }
 
@@ -82,9 +56,7 @@ function DataTable({ title, columns, rows, emptyText }) {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td className="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400" colSpan={columns.length}>
-                  {emptyText}
-                </td>
+                <td className="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400" colSpan={columns.length}>{emptyText}</td>
               </tr>
             ) : rows.map((row, rowIndex) => (
               <tr key={`${title}-${rowIndex}`} className="group">
@@ -102,91 +74,97 @@ function DataTable({ title, columns, rows, emptyText }) {
   );
 }
 
+function getInitialMasterData() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(masterStorageKey));
+    if (saved?.customers?.length) return saved;
+  } catch {
+    // ignore malformed local data
+  }
+  return buildMasterDataFromRows(createSampleSalesRows(1200));
+}
+
 export default function CodeMappingPage() {
-  const [masterData, setMasterData] = useState(fallbackMasterData);
-  const [loadState, setLoadState] = useState('브라우저 미리보기');
+  const [masterData, setMasterData] = useState(getInitialMasterData);
+  const [loadState, setLoadState] = useState('1,200건 샘플 데이터에서 거래처/제품/단가 기준을 생성했습니다.');
   const [isSeeding, setIsSeeding] = useState(false);
-
-  const loadMasterData = async () => {
-    if (!window.api?.getMasterData) {
-      setMasterData(fallbackMasterData);
-      setLoadState('브라우저 미리보기');
-      return;
-    }
-
-    try {
-      const data = await window.api.getMasterData();
-      setMasterData(data);
-      setLoadState('SQLite 연결됨');
-    } catch (error) {
-      setMasterData(fallbackMasterData);
-      setLoadState(`SQLite 확인 필요: ${error.message}`);
-    }
-  };
-
-  useEffect(() => {
-    loadMasterData();
-  }, []);
 
   const metrics = useMemo(() => {
     const aliasCount = masterData.customerAliases.length + masterData.productAliases.length;
     const pendingCount = masterData.suggestions.filter((item) => item.status === 'PENDING').length;
     const activePriceCount = masterData.prices.filter((item) => item.status === 'ACTIVE').length;
+    const reviewPriceCount = masterData.prices.filter((item) => item.status === 'REVIEW').length;
 
     return [
       { label: '거래처 기준', value: `${masterData.customers.length.toLocaleString('ko-KR')}건`, detail: `별칭 ${masterData.customerAliases.length.toLocaleString('ko-KR')}건` },
       { label: '제품 기준', value: `${masterData.products.length.toLocaleString('ko-KR')}건`, detail: `별칭 ${masterData.productAliases.length.toLocaleString('ko-KR')}건` },
-      { label: '단가 기준', value: `${activePriceCount.toLocaleString('ko-KR')}건`, detail: `검증에 바로 사용할 가격표` },
-      { label: '매핑 후보', value: `${pendingCount.toLocaleString('ko-KR')}건`, detail: `자동 추천 검토 대기 / 전체 별칭 ${aliasCount.toLocaleString('ko-KR')}건` },
+      { label: '단가 기준', value: `${activePriceCount.toLocaleString('ko-KR')}건`, detail: `검토 단가 ${reviewPriceCount.toLocaleString('ko-KR')}건` },
+      { label: '매핑 후보', value: `${pendingCount.toLocaleString('ko-KR')}건`, detail: `전체 별칭 ${aliasCount.toLocaleString('ko-KR')}건` },
     ];
   }, [masterData]);
 
+  const loadMasterData = async () => {
+    if (window.api?.getMasterData) {
+      try {
+        const data = await window.api.getMasterData();
+        if (data.customers?.length) {
+          setMasterData(data);
+          setLoadState('SQLite에서 기준 데이터를 불러왔습니다.');
+          return;
+        }
+      } catch (error) {
+        setLoadState(`SQLite 조회 실패, 샘플 기준 사용: ${error.message}`);
+      }
+    }
+
+    const data = getInitialMasterData();
+    setMasterData(data);
+    setLoadState('브라우저 저장소 또는 샘플 데이터에서 기준 데이터를 불러왔습니다.');
+  };
+
   const handleSeed = async () => {
-    if (!window.api?.seedMasterData) {
-      setLoadState('Electron 실행 후 SQLite 시드 가능');
+    setIsSeeding(true);
+    const nextData = buildMasterDataFromRows(createSampleSalesRows(1200));
+    localStorage.setItem(masterStorageKey, JSON.stringify(nextData));
+
+    if (window.api?.seedMasterData) {
+      try {
+        await window.api.seedMasterData();
+        setMasterData(nextData);
+        setLoadState('샘플 기준 데이터를 브라우저 저장소와 SQLite 시드 흐름에 반영했습니다.');
+      } catch (error) {
+        setMasterData(nextData);
+        setLoadState(`브라우저 저장은 완료, SQLite 시드는 실패: ${error.message}`);
+      } finally {
+        setIsSeeding(false);
+      }
       return;
     }
 
-    setIsSeeding(true);
-    setLoadState('기준 데이터 준비 중');
-    try {
-      const data = await window.api.seedMasterData();
-      setMasterData(data);
-      setLoadState('샘플 기준 데이터 준비 완료');
-    } catch (error) {
-      setLoadState(`시드 실패: ${error.message}`);
-    } finally {
-      setIsSeeding(false);
-    }
+    setMasterData(nextData);
+    setLoadState('브라우저 개발 모드라 localStorage에 기준 데이터를 저장했습니다. Electron 연결 후 SQLite 저장으로 이어집니다.');
+    setIsSeeding(false);
   };
 
   return (
-    <PageShell title="코드 매핑" description="거래처명, 제품명, 단가 기준을 표준 코드로 맞춰 검증 자동화의 기준점을 관리합니다.">
+    <PageShell title="코드 매핑" description="1,200건 거래 데이터를 기초로 거래처명, 제품명, 단가 기준을 만들고 매핑 후보를 확인합니다.">
       <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Master data</p>
-            <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">기준 데이터와 매핑 후보</p>
+            <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">거래처/제품/단가 기준 데이터</p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{loadState}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn btn-secondary" type="button" onClick={loadMasterData}>
-              새로고침
-            </button>
-            <button className="btn btn-secondary" type="button">
-              후보 승인
-            </button>
-            <button className="btn btn-primary" type="button" onClick={handleSeed} disabled={isSeeding}>
-              {isSeeding ? '준비 중' : '기준 데이터 시드'}
-            </button>
+            <button className="btn btn-secondary" type="button" onClick={loadMasterData}>새로고침</button>
+            <button className="btn btn-secondary" type="button" onClick={() => setLoadState('후보 승인 기능은 다음 단계에서 실제 DB 업데이트와 연결합니다.')}>후보 승인</button>
+            <button className="btn btn-primary" type="button" onClick={handleSeed} disabled={isSeeding}>{isSeeding ? '저장 중' : '기준 데이터 저장'}</button>
           </div>
         </div>
       </section>
 
       <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((metric) => (
-          <MetricCard key={metric.label} {...metric} />
-        ))}
+        {metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}
       </div>
 
       <div className="grid grid-cols-12 gap-5">
@@ -221,7 +199,7 @@ export default function CodeMappingPage() {
           <DataTable
             title="단가 기준"
             emptyText="등록된 단가 기준이 없습니다."
-            rows={masterData.prices}
+            rows={masterData.prices.slice(0, 80)}
             columns={[
               { label: '거래처', key: 'customerName' },
               { label: '제품', key: 'productName' },
@@ -231,7 +209,7 @@ export default function CodeMappingPage() {
             ]}
           />
           <DataTable
-            title="자동 추천 후보"
+            title="자동 매핑 후보"
             emptyText="검토 대기 중인 매핑 후보가 없습니다."
             rows={masterData.suggestions}
             columns={[

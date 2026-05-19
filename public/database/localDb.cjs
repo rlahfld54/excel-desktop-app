@@ -532,9 +532,9 @@ INSERT OR IGNORE INTO users (
   status
 )
 VALUES (
-  'admin',
-  '관리자',
-  NULL,
+  '황주은',
+  '황주은',
+  '0000',
   'ADMIN',
   'GENERAL_AFFAIRS',
   'ACTIVE'

@@ -1,8 +1,6 @@
-const requiredColumns = ['거래일', '거래처', '품목 코드', '품목명', '수량', '단가', '금액'];
+import { parseNumber, sampleProducts } from '../data/sampleSalesData';
 
-function parseNumber(value) {
-  return Number(String(value ?? '').replaceAll(',', ''));
-}
+const requiredColumns = ['거래일', '거래처', '품목 코드', '품목명', '수량', '단가', '금액'];
 
 function getColumnIndex(columns, name) {
   return columns.findIndex((column) => column === name);
@@ -22,6 +20,17 @@ function getDuplicateKey(row, indexes) {
   ].join('|');
 }
 
+function getRuleType(message) {
+  if (message.includes('중복')) return 'duplicate';
+  if (message.includes('거래처')) return 'missingCustomer';
+  if (message.includes('품목 코드')) return 'missingProductCode';
+  if (message.includes('금액')) return 'amountMismatch';
+  if (message.includes('단가')) return 'priceMismatch';
+  if (message.includes('수량')) return 'largeQuantity';
+  if (message.includes('고액')) return 'highAmount';
+  return 'review';
+}
+
 export function validateRows(columns, rows) {
   const statusIndex = getStatusIndex(columns);
   if (statusIndex < 0) {
@@ -31,7 +40,8 @@ export function validateRows(columns, rows) {
         totalIssues: 0,
         duplicateCount: 0,
         reviewCount: 0,
-        fixedCount: 0,
+        fixedCount: rows.length,
+        ruleCounts: {},
       },
       issueMap: {},
     };
@@ -48,6 +58,7 @@ export function validateRows(columns, rows) {
   };
   const seenKeys = new Map();
   const issueMap = {};
+  const ruleCounts = {};
   let duplicateCount = 0;
   let reviewCount = 0;
   let fixedCount = 0;
@@ -65,12 +76,18 @@ export function validateRows(columns, rows) {
     const quantity = parseNumber(row[indexes.quantity]);
     const unitPrice = parseNumber(row[indexes.unitPrice]);
     const amount = parseNumber(row[indexes.amount]);
+    const product = sampleProducts.find((item) => item.code === row[indexes.productCode]);
+
     if (Number.isFinite(quantity) && Number.isFinite(unitPrice) && Number.isFinite(amount) && quantity * unitPrice !== amount) {
-      issues.push('수량과 단가를 곱한 금액이 일치하지 않습니다.');
+      issues.push('수량과 단가를 곱한 금액이 실제 금액과 일치하지 않습니다.');
     }
 
-    if (Number.isFinite(amount) && amount >= 5000000) {
-      issues.push('단일 거래 금액이 5,000,000원 이상입니다.');
+    if (product && Number.isFinite(unitPrice) && product.price !== unitPrice) {
+      issues.push(`단가 기준 불일치: 기준 ${product.price.toLocaleString('ko-KR')}원 / 실제 ${unitPrice.toLocaleString('ko-KR')}원`);
+    }
+
+    if (Number.isFinite(amount) && amount >= 3000000) {
+      issues.push('고액 거래 확인이 필요합니다.');
     }
 
     if (Number.isFinite(quantity) && quantity >= 100) {
@@ -80,17 +97,18 @@ export function validateRows(columns, rows) {
     const duplicateKey = getDuplicateKey(row, indexes);
     if (seenKeys.has(duplicateKey)) {
       const firstRow = seenKeys.get(duplicateKey);
-      issues.push(`${firstRow + 1}번 행과 거래일/거래처/품목/수량/금액이 같습니다.`);
+      issues.push(`${firstRow + 1}번 행과 거래일/거래처/품목/수량/금액이 같습니다. 중복 의심 항목입니다.`);
     } else {
       seenKeys.set(duplicateKey, rowIndex);
     }
 
-    if (row[indexes.productCode] === 'C-0412' && rowIndex % 11 === 0) {
-      issues.push('USB 허브 품목 코드가 반복 주문 패턴과 겹칩니다.');
-    }
+    issues.forEach((message) => {
+      const type = getRuleType(message);
+      ruleCounts[type] = (ruleCounts[type] ?? 0) + 1;
+    });
 
     let nextStatus = '정상';
-    if (issues.some((issue) => issue.includes('같습니다'))) {
+    if (issues.some((issue) => issue.includes('중복'))) {
       nextStatus = '중복 의심';
       duplicateCount += 1;
     } else if (issues.length > 0) {
@@ -114,6 +132,7 @@ export function validateRows(columns, rows) {
       duplicateCount,
       reviewCount,
       fixedCount,
+      ruleCounts,
     },
     issueMap,
   };

@@ -1,6 +1,7 @@
 ﻿import React, { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Transition from '../utils/Transition';
+import { addActivityLog, authChangedEvent, getCurrentUser, saveSession } from '../utils/authSession';
 
 import UserAvatar from '../images/user-avatar-32.png';
 
@@ -9,6 +10,7 @@ function DropdownProfile({
 }) {
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
 
   const trigger = useRef(null);
   const dropdown = useRef(null);
@@ -23,6 +25,23 @@ function DropdownProfile({
     document.addEventListener('click', clickHandler);
     return () => document.removeEventListener('click', clickHandler);
   });
+
+  useEffect(() => {
+    const refreshUser = () => setCurrentUser(getCurrentUser());
+    window.addEventListener(authChangedEvent, refreshUser);
+    window.addEventListener('storage', refreshUser);
+    return () => {
+      window.removeEventListener(authChangedEvent, refreshUser);
+      window.removeEventListener('storage', refreshUser);
+    };
+  }, []);
+
+  const handleKeepLogin = () => {
+    saveSession({ userId: currentUser.id });
+    addActivityLog('INFO', '자동 로그인 유지', currentUser.id);
+    setCurrentUser(getCurrentUser());
+    setDropdownOpen(false);
+  };
 
   // close if the esc key is pressed
   useEffect(() => {
@@ -45,7 +64,9 @@ function DropdownProfile({
       >
         <img className="w-8 h-8 rounded-full" src={UserAvatar} width="32" height="32" alt="User" />
         <div className="flex items-center truncate">
-          <span className="truncate ml-2 text-sm font-medium text-gray-600 dark:text-gray-100 group-hover:text-gray-800 dark:group-hover:text-white">Acme Inc.</span>
+          <span className="truncate ml-2 text-sm font-medium text-gray-600 dark:text-gray-100 group-hover:text-gray-800 dark:group-hover:text-white">
+            {currentUser.name}
+          </span>
           <svg className="w-3 h-3 shrink-0 ml-1 fill-current text-gray-400 dark:text-gray-500" viewBox="0 0 12 12">
             <path d="M5.9 11.4L.5 6l1.4-1.4 4 4 4-4L11.3 6z" />
           </svg>
@@ -68,27 +89,38 @@ function DropdownProfile({
           onBlur={() => setDropdownOpen(false)}
         >
           <div className="pt-0.5 pb-2 px-3 mb-1 border-b border-gray-200 dark:border-gray-700/60">
-            <div className="font-medium text-gray-800 dark:text-gray-100">Acme Inc.</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 italic">Administrator</div>
+            <div className="font-medium text-gray-800 dark:text-gray-100">{currentUser.name}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              {currentUser.role} · {currentUser.department}
+            </div>
           </div>
           <ul>
             <li>
               <Link
                 className="font-medium text-sm text-accent-500 hover:text-accent-600 dark:hover:text-accent-400 flex items-center py-1 px-3"
-                to="/settings"
+                to="/settings/preferences"
                 onClick={() => setDropdownOpen(!dropdownOpen)}
               >
-                Settings
+                마이페이지
               </Link>
             </li>
             <li>
               <Link
                 className="font-medium text-sm text-accent-500 hover:text-accent-600 dark:hover:text-accent-400 flex items-center py-1 px-3"
-                to="/signin"
+                to="/data/activity-logs"
                 onClick={() => setDropdownOpen(!dropdownOpen)}
               >
-                Sign Out
+                사용자 관리
               </Link>
+            </li>
+            <li>
+              <button
+                className="w-full font-medium text-sm text-accent-500 hover:text-accent-600 dark:hover:text-accent-400 flex items-center py-1 px-3"
+                type="button"
+                onClick={handleKeepLogin}
+              >
+                자동 로그인 유지
+              </button>
             </li>
           </ul>
         </div>

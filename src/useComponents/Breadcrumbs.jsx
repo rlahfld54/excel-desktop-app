@@ -1,4 +1,4 @@
-import { useLocation, Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { menuGroups, pageRoutes } from '../routesConfig';
 
 function getSegmentLabel(pathnames, index, value) {
@@ -23,13 +23,15 @@ function getSegmentLabel(pathnames, index, value) {
 
 const Breadcrumbs = () => {
   const location = useLocation();
-  const pathnames = location.pathname.split('/').filter((x) => x);
+  const pathnames = location.pathname.split('/').filter(Boolean);
 
   return (
     <nav aria-label="Breadcrumb">
-      <ol style={{ display: 'flex', listStyle: 'none', gap: '8px' }}>
+      <ol className="flex flex-wrap items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
         <li>
-          <Link to="/">Home</Link>
+          <Link className="hover:text-accent-700 dark:hover:text-accent-300" to="/">
+            홈
+          </Link>
         </li>
         {pathnames.map((value, index) => {
           const to = `/${pathnames.slice(0, index + 1).join('/')}`;
@@ -37,14 +39,16 @@ const Breadcrumbs = () => {
           const label = getSegmentLabel(pathnames, index, value);
 
           return (
-            <li key={to}>
-              <span style={{ margin: '0 8px' }}>/</span>
+            <li key={to} className="flex items-center gap-2">
+              <span aria-hidden="true">/</span>
               {isLast ? (
-                <span aria-current="page" style={{ fontWeight: 'bold' }}>
+                <span aria-current="page" className="font-semibold text-gray-800 dark:text-gray-100">
                   {label}
                 </span>
               ) : (
-                <Link to={to}>{label}</Link>
+                <Link className="hover:text-accent-700 dark:hover:text-accent-300" to={to}>
+                  {label}
+                </Link>
               )}
             </li>
           );
