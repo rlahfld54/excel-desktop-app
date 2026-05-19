@@ -1,7 +1,11 @@
 const { app, BrowserWindow, ipcMain, dialog } = require("electron/main");
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { closeDatabase, initializeDatabase, registerDatabaseIpc } = require("../database/localDb.cjs");
+const {
+  closeDatabase,
+  initializeDatabase,
+  registerDatabaseIpc,
+} = require("../database/localDb.cjs");
 // 2. 설정값 / 환경 구분
 const isDev = !app.isPackaged;
 
@@ -13,7 +17,10 @@ function getDefaultAppSettings() {
   const workspaceRoot = path.join(app.getPath("documents"), "ExcelDesktopApp");
 
   return {
-    databasePath: path.join(app.getPath("userData"), "excel-desktop-app.sqlite"),
+    databasePath: path.join(
+      app.getPath("userData"),
+      "excel-desktop-app.sqlite",
+    ),
     settingsPath: getSettingsPath(),
     exportPath: path.join(workspaceRoot, "Exports"),
     backupPath: path.join(workspaceRoot, "Backups"),
@@ -44,7 +51,11 @@ async function readAppSettings() {
     return settings;
   } catch {
     await ensureAppFolders(defaults);
-    await fs.writeFile(getSettingsPath(), JSON.stringify(defaults, null, 2), "utf8");
+    await fs.writeFile(
+      getSettingsPath(),
+      JSON.stringify(defaults, null, 2),
+      "utf8",
+    );
     return defaults;
   }
 }
@@ -55,13 +66,17 @@ async function writeAppSettings(nextSettings) {
     ...nextSettings,
   };
   await ensureAppFolders(settings);
-  await fs.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2), "utf8");
+  await fs.writeFile(
+    getSettingsPath(),
+    JSON.stringify(settings, null, 2),
+    "utf8",
+  );
   return settings;
 }
 
 // 3. BrowserWindow 생성 관련 기능
 function createWindow() {
-  const iconPath = path.join(__dirname, "../icon.svg");
+  const iconPath = path.join(__dirname, "../icon.ico");
 
   const win = new BrowserWindow({
     width: 800,
@@ -96,9 +111,10 @@ function registerIpcHandlers() {
 
   ipcMain.handle("file:save-as", async (_, { fileName, bytes }) => {
     const extension = path.extname(fileName).replace(".", "").toLowerCase();
-    const filters = extension === "csv"
-      ? [{ name: "CSV File", extensions: ["csv"] }]
-      : [{ name: "Excel Workbook", extensions: ["xlsx"] }];
+    const filters =
+      extension === "csv"
+        ? [{ name: "CSV File", extensions: ["csv"] }]
+        : [{ name: "Excel Workbook", extensions: ["xlsx"] }];
 
     const { canceled, filePath } = await dialog.showSaveDialog({
       title: "파일 저장",
