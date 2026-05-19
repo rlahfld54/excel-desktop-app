@@ -1,470 +1,211 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 
-import Sidebar from '../partials/Sidebar';
-import Header from '../partials/Header';
-import Breadcrumbs from '../useComponents/Breadcrumbs';
-import ExcelTable from '../useComponents/ExcelTable';
-import { sampleColumns, createSampleSalesRows } from '../data/sampleSalesData';
-import { parseSpreadsheetFile } from '../utils/fileParsers';
-import { exportRowsToXlsx } from '../utils/spreadsheetExport';
-import { validateRows } from '../utils/validationRules';
+import PageShell from './PageShell';
+import { createSampleSalesRows, parseNumber } from '../data/sampleSalesData';
+import { getCurrentUser } from '../utils/authSession';
 
-const sampleRows = createSampleSalesRows(1200);
+const rows = createSampleSalesRows(1200);
 
-const automationSteps = [
-  { title: '데이터 정리', status: '진행 가능', progress: 72 },
-  { title: '코드 매핑', status: '대기', progress: 0 },
-  { title: '중복 검사', status: '대기', progress: 0 },
-  { title: '보고서 생성', status: '대기', progress: 0 },
-];
-
-const completedAutomationSteps = automationSteps.map((step) => ({
-  ...step,
-  status: '완료',
-  progress: 100,
-}));
-
-const initialLogs = [
-  { time: '15:04:12', type: 'INFO', text: '파일 스키마를 분석했습니다.' },
-  { time: '15:04:18', type: 'WARN', text: '품목 코드 C-0412가 2회 반복되었습니다.' },
-  { time: '15:04:21', type: 'INFO', text: '거래처 코드 매핑 규칙 7개를 불러왔습니다.' },
-  { time: '15:04:27', type: 'ERROR', text: '2개 행에서 필수 금액 값이 비어 있습니다.' },
-];
-
-const issueStatuses = ['확인 필요', '중복 의심', '수정 필요', '보류'];
-const actionLabels = {
-  approved: '승인 완료',
-  hold: '보류',
-  needsEdit: '수정 필요',
-};
-
-function countRowsByStatus(rows, columns, status) {
-  const statusIndex = columns.findIndex((column) => ['검증', '상태', '결과'].includes(column));
-  if (statusIndex < 0) return 0;
-  return rows.filter((row) => row[statusIndex] === status).length;
+function toCurrency(value) {
+  if (value >= 100000000) return `${(value / 100000000).toFixed(1)}억원`;
+  if (value >= 10000) return `${Math.round(value / 10000).toLocaleString('ko-KR')}만원`;
+  return `${Number(value).toLocaleString('ko-KR')}원`;
 }
 
-function countIssueRows(rows, columns) {
-  const statusIndex = columns.findIndex((column) => ['검증', '상태', '결과'].includes(column));
-  if (statusIndex < 0) return 0;
-  return rows.filter((row) => issueStatuses.includes(row[statusIndex])).length;
-}
+function getDashboardMetrics(sourceRows) {
+  const customerMap = new Map();
+  const statusMap = new Map();
+  const ownerMap = new Map();
+  const productMap = new Map();
+  const dailyMap = new Map();
 
-function getCurrentTime() {
-  return new Intl.DateTimeFormat('ko-KR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(new Date());
-}
+  sourceRows.forEach((row) => {
+    const customer = row[1] || '거래처 미확인';
+    const product = row[3] || '품목 미확인';
+    const owner = row[8] || '담당자 미확인';
+    const status = row[7] || '정상';
+    const amount = parseNumber(row[6]);
+    const day = row[0].slice(5);
 
-function Dashboard() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [tableData, setTableData] = useState({
-    fileName: 'sample_sales_1200.csv',
-    columns: sampleColumns,
-    rows: sampleRows,
+    customerMap.set(customer, (customerMap.get(customer) ?? 0) + amount);
+    statusMap.set(status, (statusMap.get(status) ?? 0) + 1);
+    ownerMap.set(owner, (ownerMap.get(owner) ?? 0) + amount);
+    productMap.set(product, (productMap.get(product) ?? 0) + amount);
+    dailyMap.set(day, (dailyMap.get(day) ?? 0) + amount);
   });
-  const [logs, setLogs] = useState(initialLogs);
-  const [uploadState, setUploadState] = useState('샘플 데이터 로드됨');
-  const [isLoadingFile, setIsLoadingFile] = useState(false);
-  const [downloadTitle, setDownloadTitle] = useState('excel-sample-data-1200');
-  const [downloadState, setDownloadState] = useState('저장 위치 선택 가능');
-  const [automationState, setAutomationState] = useState('대기 중');
-  const [automationQueue, setAutomationQueue] = useState(automationSteps);
-  const [lastSavedAt, setLastSavedAt] = useState('방금 전');
-  const [selectedRowIndex, setSelectedRowIndex] = useState(0);
-  const [rowActions, setRowActions] = useState({});
-  const [tableRevision, setTableRevision] = useState(0);
-  const [validationIssues, setValidationIssues] = useState({});
-  const automationTimersRef = useRef([]);
 
-  useEffect(() => () => {
-    automationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
-  }, []);
+  const totalSales = sourceRows.reduce((sum, row) => sum + parseNumber(row[6]), 0);
+  const issues = sourceRows.filter((row) => row[7] !== '정상');
+  const highValue = sourceRows.filter((row) => row[7] === '고액 거래 확인');
+  const duplicate = sourceRows.filter((row) => row[7] === '중복 의심');
 
-  const quickStats = useMemo(() => {
-    const reviewCount = countRowsByStatus(tableData.rows, tableData.columns, '확인 필요');
-    const duplicateCount = countRowsByStatus(tableData.rows, tableData.columns, '중복 의심');
-    const issueCount = countIssueRows(tableData.rows, tableData.columns);
+  const sortAmount = ([, a], [, b]) => b - a;
+  const customers = Array.from(customerMap.entries()).sort(sortAmount).map(([name, amount]) => ({ name, amount, ratio: amount / totalSales }));
+  const owners = Array.from(ownerMap.entries()).sort(sortAmount).map(([name, amount]) => ({ name, amount, ratio: amount / totalSales }));
+  const products = Array.from(productMap.entries()).sort(sortAmount).map(([name, amount]) => ({ name, amount, ratio: amount / totalSales }));
+  const statuses = Array.from(statusMap.entries()).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count, ratio: count / sourceRows.length }));
+  const daily = Array.from(dailyMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([day, amount]) => ({ day, amount }));
+  const maxDaily = Math.max(...daily.map((item) => item.amount));
 
-    return [
-      {
-        label: '열린 파일',
-        value: tableData.fileName,
-        detail: `${tableData.columns.length.toLocaleString('ko-KR')}개 열 · ${tableData.rows.length.toLocaleString('ko-KR')}행`,
-      },
-      { label: '자동화 상태', value: automationState, detail: '정리 규칙 7개 준비됨' },
-      {
-        label: '검증 결과',
-        value: issueCount > 0 ? `${issueCount.toLocaleString('ko-KR')}건 확인 필요` : '이슈 없음',
-        detail: `중복 ${duplicateCount.toLocaleString('ko-KR')} · 확인 ${reviewCount.toLocaleString('ko-KR')} · 처리 ${Object.keys(rowActions).length.toLocaleString('ko-KR')}`,
-      },
-    ];
-  }, [automationState, rowActions, tableData]);
-
-  const selectedRow = tableData.rows[selectedRowIndex] ?? tableData.rows[0] ?? [];
-  const statusColumnIndex = tableData.columns.findIndex((column) => ['검증', '상태', '결과'].includes(column));
-  const selectedStatus = statusColumnIndex >= 0 ? selectedRow[statusColumnIndex] : '';
-  const selectedAction = rowActions[selectedRowIndex];
-  const selectedIssues = validationIssues[selectedRowIndex] ?? [];
-  const selectedRowDetails = tableData.columns.map((column, index) => ({
-    column,
-    value: selectedRow[index] ?? '',
-  }));
-
-  const addLog = (type, text) => {
-    setLogs((currentLogs) => [
-      { time: getCurrentTime(), type, text },
-      ...currentLogs,
-    ].slice(0, 8));
+  return {
+    totalSales,
+    averageSales: Math.round(totalSales / sourceRows.length),
+    transactionCount: sourceRows.length,
+    issueCount: issues.length,
+    issueRate: issues.length / sourceRows.length,
+    highValueCount: highValue.length,
+    duplicateCount: duplicate.length,
+    customers,
+    owners,
+    products,
+    statuses,
+    daily,
+    maxDaily,
   };
+}
 
-  const handleFileUpload = async (file) => {
-    setIsLoadingFile(true);
-    setUploadState(`${file.name} 읽는 중`);
-
-    try {
-      const parsed = await parseSpreadsheetFile(file);
-      setTableData(parsed);
-      setSelectedRowIndex(0);
-      setRowActions({});
-      setValidationIssues({});
-      setTableRevision((revision) => revision + 1);
-      setUploadState('업로드 완료');
-      addLog('INFO', `${file.name} 파일을 불러왔습니다. ${parsed.rows.length.toLocaleString('ko-KR')}행을 표시합니다.`);
-    } catch (error) {
-      setUploadState('업로드 실패');
-      addLog('ERROR', error.message);
-    } finally {
-      setIsLoadingFile(false);
-    }
-  };
-
-  const handleDownloadSample = async () => {
-    setDownloadState('엑셀 파일 생성 중');
-
-    try {
-      const result = await exportRowsToXlsx({
-        columns: sampleColumns,
-        rows: sampleRows,
-        title: downloadTitle,
-        sheetName: 'Sample 1200',
-      });
-      const locationText = result.saveMode === 'electron-dialog' || result.saveMode === 'location-picker'
-        ? '선택한 위치에 저장됨'
-        : '브라우저 기본 다운로드 폴더에 저장됨';
-
-      setDownloadState(`${result.fileName} · ${locationText}`);
-      setLastSavedAt('방금 전');
-      addLog('INFO', `1,200건 샘플 데이터를 ${result.fileName} 파일로 저장했습니다.`);
-    } catch (error) {
-      const message = error.name === 'AbortError' ? '다운로드가 취소되었습니다.' : error.message;
-      setDownloadState(message);
-      addLog('WARN', message);
-    }
-  };
-
-  const handleSaveCurrent = async () => {
-    setDownloadState('현재 작업 저장 중');
-
-    try {
-      const result = await exportRowsToXlsx({
-        columns: tableData.columns,
-        rows: tableData.rows,
-        title: `${downloadTitle}-current`,
-        sheetName: 'Current Data',
-      });
-      setDownloadState(`${result.fileName} · 현재 작업 저장됨`);
-      setLastSavedAt('방금 전');
-      addLog('INFO', `현재 작업을 ${result.fileName} 파일로 저장했습니다.`);
-      if (window.api?.saveData) {
-        await window.api.saveData({
-          fileName: tableData.fileName,
-          columns: tableData.columns,
-          rows: tableData.rows,
-          rowActions,
-          validationIssues,
-          savedAt: new Date().toISOString(),
-        });
-      }
-    } catch (error) {
-      const message = error.name === 'AbortError' ? '저장이 취소되었습니다.' : error.message;
-      setDownloadState(message);
-      addLog('WARN', message);
-    }
-  };
-
-  const handleNewTask = () => {
-    setTableData({
-      fileName: 'sample_sales_1200.csv',
-      columns: sampleColumns,
-      rows: createSampleSalesRows(1200),
-    });
-    setUploadState('새 작업 준비됨');
-    setDownloadState('저장 위치 선택 가능');
-    setAutomationState('대기 중');
-    setAutomationQueue(automationSteps);
-    setSelectedRowIndex(0);
-    setRowActions({});
-    setValidationIssues({});
-    setTableRevision((revision) => revision + 1);
-    setDownloadTitle('excel-sample-data-1200');
-    addLog('INFO', '새 작업을 만들고 1,200건 샘플 데이터를 다시 불러왔습니다.');
-  };
-
-  const handleRunAutomation = () => {
-    if (automationState === '실행 중') return;
-
-    const reviewCount = countRowsByStatus(tableData.rows, tableData.columns, '확인 필요');
-    const duplicateCount = countRowsByStatus(tableData.rows, tableData.columns, '중복 의심');
-
-    automationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
-    automationTimersRef.current = [];
-    setAutomationState('실행 중');
-    setAutomationQueue(automationSteps.map((step, index) => ({
-      ...step,
-      status: index === 0 ? '실행 중' : '대기',
-      progress: index === 0 ? 35 : 0,
-    })));
-    addLog('INFO', '자동화 실행을 시작했습니다.');
-
-    automationSteps.forEach((step, stepIndex) => {
-      const timerId = window.setTimeout(() => {
-        setAutomationQueue((currentQueue) => currentQueue.map((item, itemIndex) => {
-          if (itemIndex < stepIndex) return { ...item, status: '완료', progress: 100 };
-          if (itemIndex === stepIndex) return { ...item, status: '완료', progress: 100 };
-          if (itemIndex === stepIndex + 1) return { ...item, status: '실행 중', progress: 45 };
-          return item;
-        }));
-        addLog('INFO', `${step.title} 단계를 완료했습니다.`);
-
-        if (stepIndex === automationSteps.length - 1) {
-          setAutomationState('완료');
-          setAutomationQueue(completedAutomationSteps);
-          addLog('INFO', `자동화가 완료되었습니다. 중복 ${duplicateCount.toLocaleString('ko-KR')}건, 확인 필요 ${reviewCount.toLocaleString('ko-KR')}건을 감지했습니다.`);
-        }
-      }, (stepIndex + 1) * 650);
-      automationTimersRef.current.push(timerId);
-    });
-  };
-
-  const handleValidateData = () => {
-    const result = validateRows(tableData.columns, tableData.rows);
-
-    setTableData((currentData) => ({
-      ...currentData,
-      rows: result.rows,
-    }));
-    setValidationIssues(result.issueMap);
-    setAutomationState('검증 완료');
-    addLog('WARN', `검증 규칙을 적용했습니다. 중복 의심 ${result.summary.duplicateCount.toLocaleString('ko-KR')}건, 확인 필요 ${result.summary.reviewCount.toLocaleString('ko-KR')}건입니다.`);
-  };
-
-  const handlePinColumn = (isPinned) => {
-    addLog('INFO', isPinned ? '첫 번째 데이터 열을 고정했습니다.' : '첫 번째 데이터 열 고정을 해제했습니다.');
-  };
-
-  const handleSelectRow = (rowIndex) => {
-    setSelectedRowIndex(rowIndex);
-  };
-
-  const handleResolveSelectedRow = (action) => {
-    if (!selectedRow) return;
-
-    const nextStatus = actionLabels[action];
-    if (!nextStatus) return;
-
-    setTableData((currentData) => {
-      const nextRows = currentData.rows.map((row, rowIndex) => {
-        if (rowIndex !== selectedRowIndex) return row;
-        return row.map((cell, cellIndex) => (cellIndex === statusColumnIndex ? nextStatus : cell));
-      });
-
-      return {
-        ...currentData,
-        rows: nextRows,
-      };
-    });
-    setRowActions((currentActions) => ({
-      ...currentActions,
-      [selectedRowIndex]: action,
-    }));
-    setAutomationState('검토 반영');
-    addLog('INFO', `${selectedRowIndex + 1}번 행을 '${nextStatus}' 상태로 처리했습니다.`);
-  };
-
-  const handleUndo = () => {
-    addLog('INFO', '이전 작업으로 되돌릴 준비가 되었습니다. 실제 편집 이력은 다음 단계에서 연결할 수 있습니다.');
-  };
-
-  const handleRedo = () => {
-    addLog('INFO', '되돌린 작업을 다시 적용할 준비가 되었습니다.');
-  };
+function MetricCard({ label, value, detail, tone = 'teal' }) {
+  const toneClass = tone === 'amber'
+    ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'
+    : tone === 'rose'
+      ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300'
+      : 'bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300';
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
-
-      <div className="relative flex flex-1 flex-col overflow-y-auto overflow-x-hidden bg-gray-50 dark:bg-gray-900">
-        <Header
-          sidebarOpen={sidebarOpen}
-          setSidebarOpen={setSidebarOpen}
-          onFileUpload={handleFileUpload}
-          onSave={handleSaveCurrent}
-          onRun={handleRunAutomation}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
-          lastSavedAt={lastSavedAt}
-        />
-
-        <main className="grow">
-          <div className="w-full max-w-9xl px-4 py-3 sm:px-6 lg:px-8">
-            <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-              <div>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 md:text-2xl">
-                  Excel Automation Workspace
-                </h1>
-                <Breadcrumbs />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-600 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 dark:text-gray-300">
-                  <span className="shrink-0 text-xs font-semibold text-gray-400 dark:text-gray-500">다운로드 제목</span>
-                  <input
-                    className="w-44 bg-transparent text-sm font-medium text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-100"
-                    value={downloadTitle}
-                    onChange={(event) => setDownloadTitle(event.target.value)}
-                    placeholder="파일 제목"
-                  />
-                </label>
-                <button className="btn btn-secondary" type="button" onClick={handleNewTask}>
-                  새 작업
-                </button>
-                <button className="btn btn-secondary" type="button" onClick={handleSaveCurrent}>
-                  현재 작업 저장
-                </button>
-                <button className="btn btn-secondary" type="button" onClick={handleDownloadSample}>
-                  샘플 엑셀 다운로드
-                </button>
-                <button className="btn btn-primary" type="button" onClick={handleRunAutomation}>
-                  자동화 실행
-                </button>
-              </div>
-            </div>
-
-            <div className="mb-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
-              {quickStats.map((stat) => (
-                <div key={stat.label} className="rounded-lg border border-gray-200 bg-white px-4 py-2 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-                  <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{stat.label}</p>
-                  <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{stat.value}</p>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{stat.detail}</p>
-                </div>
-              ))}
-            </div>
-
-            <ExcelTable
-              columns={tableData.columns}
-              rows={tableData.rows}
-              fileName={tableData.fileName}
-              isLoading={isLoadingFile}
-              onExport={handleDownloadSample}
-              onValidate={handleValidateData}
-              onPin={handlePinColumn}
-              selectedRowIndex={selectedRowIndex}
-              onRowSelect={handleSelectRow}
-              resetKey={tableRevision}
-            />
-
-            <div className="h-32" aria-hidden="true" />
-          </div>
-        </main>
-
-        <section className="pointer-events-none fixed bottom-3 left-4 right-4 z-30 lg:left-24 2xl:left-[17rem]">
-          <div className="pointer-events-auto overflow-hidden rounded-lg border border-gray-200 bg-white/95 shadow-lg shadow-gray-900/10 backdrop-blur dark:border-gray-700/60 dark:bg-gray-800/95">
-            <div className="grid gap-0 xl:grid-cols-[minmax(300px,0.95fr)_minmax(280px,0.85fr)_minmax(0,1.2fr)]">
-              <div className="border-b border-gray-200 px-3 py-2 dark:border-gray-700/60 xl:border-b-0 xl:border-r">
-                <div className="mb-1.5 flex items-center justify-between gap-3">
-                  <h2 className="font-semibold text-gray-900 dark:text-gray-100">선택 행 상세</h2>
-                  <span className="rounded bg-accent-50 px-2 py-1 text-xs font-semibold text-accent-700 dark:bg-accent-500/10 dark:text-accent-300">
-                    #{selectedRowIndex + 1} · {selectedAction ? actionLabels[selectedAction] : selectedStatus || '상태 없음'}
-                  </span>
-                </div>
-                <div className="mb-2 grid grid-cols-3 gap-2">
-                  {selectedRowDetails.slice(0, 3).map((detail) => (
-                    <div key={detail.column} className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-gray-500">{detail.column}</p>
-                      <p className="truncate text-xs font-medium text-gray-800 dark:text-gray-100">{detail.value}</p>
-                    </div>
-                  ))}
-                </div>
-                {selectedIssues.length > 0 && (
-                  <p className="mt-2 truncate text-xs text-yellow-700 dark:text-yellow-300">
-                    {selectedIssues[0]}
-                  </p>
-                )}
-                <div className="grid grid-cols-3 gap-2">
-                  <button className="h-8 rounded-md bg-accent-600 px-2 text-xs font-semibold text-white hover:bg-accent-700" type="button" onClick={() => handleResolveSelectedRow('approved')}>
-                    승인
-                  </button>
-                  <button className="h-8 rounded-md border border-yellow-200 bg-yellow-50 px-2 text-xs font-semibold text-yellow-700 hover:bg-yellow-100 dark:border-yellow-500/30 dark:bg-yellow-500/10 dark:text-yellow-300" type="button" onClick={() => handleResolveSelectedRow('hold')}>
-                    보류
-                  </button>
-                  <button className="h-8 rounded-md border border-red-200 bg-red-50 px-2 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300" type="button" onClick={() => handleResolveSelectedRow('needsEdit')}>
-                    수정 필요
-                  </button>
-                </div>
-              </div>
-
-              <div className="border-b border-gray-200 px-3 py-2 dark:border-gray-700/60 xl:border-b-0 xl:border-r">
-                <div className="mb-1.5 flex items-center justify-between gap-3">
-                  <h2 className="font-semibold text-gray-900 dark:text-gray-100">자동화 큐</h2>
-                  <span className="truncate text-xs text-gray-500 dark:text-gray-400">활성 파일: {tableData.fileName}</span>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {automationQueue.map((step, index) => (
-                    <div key={step.title} className="min-w-0">
-                      <div className="mb-1 flex items-center gap-1.5">
-                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${index === 0 ? 'bg-accent-600 text-white' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>
-                          {index + 1}
-                        </span>
-                        <span className="truncate text-xs font-medium text-gray-700 dark:text-gray-200">{step.title}</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700">
-                        <div className="h-1.5 rounded-full bg-accent-500" style={{ width: `${step.progress}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="px-3 py-2">
-                <div className="mb-1.5 flex items-center justify-between gap-3">
-                  <h2 className="font-semibold text-gray-900 dark:text-gray-100">로그 및 자동화 상태</h2>
-                  <span className="truncate text-xs text-gray-500 dark:text-gray-400">{uploadState} · {downloadState}</span>
-                </div>
-                <div className="grid gap-2 md:grid-cols-4">
-                  {logs.slice(0, 4).map((log) => (
-                    <div key={`${log.time}-${log.text}`} className="min-w-0 rounded-md bg-gray-50 px-2.5 py-1.5 text-sm dark:bg-gray-900/30">
-                      <div className="mb-1 flex items-center gap-2">
-                        <span className="font-mono text-xs text-gray-400">{log.time}</span>
-                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${log.type === 'ERROR' ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300' : log.type === 'WARN' ? 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300' : 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300'}`}>
-                          {log.type}
-                        </span>
-                      </div>
-                      <p className="truncate text-gray-600 dark:text-gray-300">{log.text}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
+    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-gray-500 dark:text-gray-400">{label}</p>
+        <span className={`rounded px-2 py-1 text-xs font-bold ${toneClass}`}>총무팀</span>
       </div>
+      <p className="mt-3 text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
     </div>
   );
 }
 
-export default Dashboard;
+function HorizontalBars({ title, items, valueFormatter = toCurrency, colorClass = 'bg-teal-600' }) {
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+      <h2 className="font-bold text-gray-900 dark:text-gray-100">{title}</h2>
+      <div className="mt-4 space-y-3">
+        {items.map((item) => (
+          <div key={item.name}>
+            <div className="mb-1 flex items-center justify-between gap-3 text-sm">
+              <span className="truncate font-medium text-gray-700 dark:text-gray-200">{item.name}</span>
+              <span className="shrink-0 text-gray-500 dark:text-gray-400">{valueFormatter(item.amount ?? item.count)}</span>
+            </div>
+            <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-700">
+              <div className={`h-2 rounded-full ${colorClass}`} style={{ width: `${Math.max(item.ratio * 100, 3)}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DailyChart({ items, maxValue }) {
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-2">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-bold text-gray-900 dark:text-gray-100">일자별 매출 흐름</h2>
+        <span className="text-xs font-semibold text-teal-700 dark:text-teal-300">최근 45일 기준</span>
+      </div>
+      <div className="mt-4 flex h-56 items-end gap-1 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 px-3 py-3 dark:border-gray-700/60 dark:bg-gray-900/30">
+        {items.map((item) => (
+          <div key={item.day} className="flex min-w-2 flex-1 flex-col items-center justify-end gap-2">
+            <div
+              className="w-full rounded-t bg-teal-600 transition hover:bg-teal-500"
+              style={{ height: `${Math.max((item.amount / maxValue) * 100, 5)}%` }}
+              title={`${item.day} ${toCurrency(item.amount)}`}
+            />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export default function Dashboard() {
+  const currentUser = getCurrentUser();
+  const metrics = useMemo(() => getDashboardMetrics(rows), []);
+  const actionItems = [
+    { title: '매출 마감 비교', path: '/closing/sales-compare', detail: '전월/당월 마감 차이 확인' },
+    { title: '데이터 오류 확인', path: '/closing/data-table', detail: `${metrics.issueCount.toLocaleString('ko-KR')}건 검토 필요` },
+    { title: '중복 검사', path: '/closing/duplicate-checker', detail: `${metrics.duplicateCount.toLocaleString('ko-KR')}건 중복 의심` },
+    { title: '보고서 생성', path: '/reports/generator', detail: '월간 매출/거래처 비율 양식 준비' },
+  ];
+
+  return (
+    <PageShell title="총무팀 대시보드" description="매출, 거래처 비율, 데이터 오류, 보고서 생성 상태를 한눈에 확인합니다.">
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+        <MetricCard label="현재 매출" value={toCurrency(metrics.totalSales)} detail={`평균 거래액 ${toCurrency(metrics.averageSales)}`} />
+        <MetricCard label="거래 건수" value={`${metrics.transactionCount.toLocaleString('ko-KR')}건`} detail="1,200건 샘플 기준 집계" />
+        <MetricCard label="오류 확인" value={`${metrics.issueCount.toLocaleString('ko-KR')}건`} detail={`오류율 ${(metrics.issueRate * 100).toFixed(1)}%`} tone="rose" />
+        <MetricCard label="고액 거래" value={`${metrics.highValueCount.toLocaleString('ko-KR')}건`} detail="총무팀 추가 승인 대상" tone="amber" />
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+        <DailyChart items={metrics.daily} maxValue={metrics.maxDaily} />
+        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+          <h2 className="font-bold text-gray-900 dark:text-gray-100">오늘 처리할 업무</h2>
+          <div className="mt-4 space-y-2">
+            {actionItems.map((item) => (
+              <Link key={item.title} className="block rounded-lg border border-gray-200 p-3 transition hover:border-teal-300 hover:bg-teal-50 dark:border-gray-700 dark:hover:border-teal-500/40 dark:hover:bg-teal-500/10" to={item.path}>
+                <p className="font-semibold text-gray-900 dark:text-gray-100">{item.title}</p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{item.detail}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+        <HorizontalBars title="거래처별 거래 현황 비율" items={metrics.customers.slice(0, 6)} />
+        <HorizontalBars title="담당자별 매출 기여도" items={metrics.owners.slice(0, 6)} colorClass="bg-sky-600" />
+        <HorizontalBars title="검증 종류별 오류 현황" items={metrics.statuses.slice(0, 6)} valueFormatter={(value) => `${value.toLocaleString('ko-KR')}건`} colorClass="bg-amber-500" />
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">품목별 매출 TOP 5</h2>
+            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">구매/정산 참고</span>
+          </div>
+          <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700/60">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900/30 dark:text-gray-400">
+                <tr>
+                  <th className="px-3 py-2">품목</th>
+                  <th className="px-3 py-2">매출액</th>
+                  <th className="px-3 py-2">비율</th>
+                  <th className="px-3 py-2">관리 기준</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60">
+                {metrics.products.slice(0, 5).map((product) => (
+                  <tr key={product.name}>
+                    <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-100">{product.name}</td>
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{toCurrency(product.amount)}</td>
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{(product.ratio * 100).toFixed(1)}%</td>
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{product.ratio > 0.12 ? '단가 재확인' : '정상'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-teal-100 bg-teal-50 p-4 shadow-xs dark:border-teal-500/20 dark:bg-teal-500/10">
+          <p className="text-xs font-semibold uppercase text-teal-700 dark:text-teal-300">Signed in</p>
+          <h2 className="mt-2 text-lg font-bold text-teal-950 dark:text-teal-100">{currentUser.name} 관리자</h2>
+          <p className="mt-2 text-sm leading-6 text-teal-800 dark:text-teal-200">
+            현재 대시보드는 총무팀 보고 기준으로 구성되어 있으며, 보고서 생성 페이지의 회사 공통 양식과 같은 포인트 색상을 사용합니다.
+          </p>
+          <Link className="btn btn-primary mt-4 w-full" to="/reports/generator">보고서 생성으로 이동</Link>
+        </section>
+      </div>
+    </PageShell>
+  );
+}

@@ -5,10 +5,13 @@ import './css/style.css';
 import './charts/ChartjsConfig';
 
 import Dashboard from './pages/Dashboard';
+import WorkspaceDashboardPage from './pages/WorkspaceDashboardPage';
 import RecentTasksPage from './pages/RecentTasksPage';
 import FileManagerPage from './pages/FileManagerPage';
 import AutomationPage from './pages/AutomationPage';
 import ReportGeneratorPage from './pages/ReportGeneratorPage';
+import ReportTemplatesPage from './pages/ReportTemplatesPage';
+import SalesClosingComparePage from './pages/SalesClosingComparePage';
 import DataTablePage from './pages/DataTablePage';
 import CodeMappingPage from './pages/CodeMappingPage';
 import DuplicateCheckerPage from './pages/DuplicateCheckerPage';
@@ -32,10 +35,13 @@ import NotFoundPage from './pages/NotFoundPage';
 import { menuGroups, pageRoutes } from './routesConfig'; // 메뉴 라우터 모음
 
 const routeComponents = {
+  SalesClosingComparePage,
+  WorkspaceDashboardPage,
   RecentTasksPage,
   FileManagerPage,
   AutomationPage,
   ReportGeneratorPage,
+  ReportTemplatesPage,
   DataTablePage,
   CodeMappingPage,
   DuplicateCheckerPage,

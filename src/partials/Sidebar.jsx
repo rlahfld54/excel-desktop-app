@@ -135,7 +135,7 @@ function Sidebar({
                         <path d="M6.068 7.482A2.003 2.003 0 0 0 8 10a2 2 0 1 0-.518-3.932L3.707 2.293a1 1 0 0 0-1.414 1.414l3.775 3.775Z" />
                       </svg>
                       <span className="text-sm font-medium ml-4 lg:opacity-0 lg:sidebar-expanded:opacity-100 2xl:opacity-100 duration-200">
-                        Dashboard
+                        총무팀 대시보드
                       </span>
                     </div>
                   )}
