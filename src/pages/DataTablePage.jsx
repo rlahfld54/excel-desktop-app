@@ -65,17 +65,6 @@ export default function DataTablePage() {
       const result = await window.api.getLatestData();
       let payload = result?.data?.payload;
 
-      if (result?.ok && !payload?.rows?.length && window.api?.saveData) {
-        await window.api.saveData({
-          fileName: 'sample_sales_1200.xlsx',
-          columns: sampleColumns,
-          rows: createSampleSalesRows(1200),
-          savedAt: new Date().toISOString(),
-        });
-        const seeded = await window.api.getLatestData();
-        payload = seeded?.data?.payload;
-      }
-
       if (!active || !Array.isArray(payload?.rows) || payload.rows.length === 0) return;
 
       setRows(payload.rows);

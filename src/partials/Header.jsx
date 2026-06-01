@@ -8,10 +8,25 @@ import ThemeToggle from '../components/ThemeToggle';
 import { authChangedEvent, getCurrentUser } from '../utils/authSession';
 
 const toolbarItems = [
-  { label: '업로드', icon: 'M8 1 3 6h3v5h4V6h3L8 1ZM3 13v2h10v-2H3Z' },
-  { label: '저장', icon: 'M2 2h10l2 2v10H2V2Zm3 1v4h6V3H5Zm-1 8v2h8v-2H4Z' },
-  { label: '실행', icon: 'M4 2.5v11l9-5.5-9-5.5Z' },
+  {
+    label: '업로드',
+    icon: 'M8 1 3 6h3v5h4V6h3L8 1ZM3 13v2h10v-2H3Z',
+    help: '엑셀/CSV를 화면에만 불러옵니다. 저장 버튼을 누르기 전까지 SQLite에는 반영되지 않습니다.',
+  },
+  {
+    label: '저장',
+    icon: 'M2 2h10l2 2v10H2V2Zm3 1v4h6V3H5Zm-1 8v2h8v-2H4Z',
+    help: '현재 화면의 작업 상태를 SQLite 테이블에 저장합니다.',
+  },
 ];
+
+function ToolbarHint({ children }) {
+  return (
+    <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-64 -translate-x-1/2 rounded-md border border-gray-200 bg-white px-3 py-2 text-left text-xs leading-5 text-gray-600 shadow-lg group-hover:block group-focus-within:block dark:border-gray-700/60 dark:bg-gray-800 dark:text-gray-200">
+      {children}
+    </span>
+  );
+}
 
 function Header({
   sidebarOpen,
@@ -19,9 +34,6 @@ function Header({
   variant = 'default',
   onFileUpload,
   onSave,
-  onRun,
-  onUndo,
-  onRedo,
   lastSavedAt = '방금 전',
 }) {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
@@ -68,34 +80,24 @@ function Header({
             </button>
 
             <div className="hidden items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 md:flex">
-              <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-700 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-200 dark:hover:bg-accent-500/10 dark:hover:text-accent-300">
+              <label className="group relative inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-700 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-200 dark:hover:bg-accent-500/10 dark:hover:text-accent-300">
                 <svg className="h-4 w-4 fill-current text-gray-500 dark:text-gray-400" viewBox="0 0 16 16" aria-hidden="true">
                   <path d={toolbarItems[0].icon} />
                 </svg>
                 <span>{toolbarItems[0].label}</span>
+                <ToolbarHint>{toolbarItems[0].help}</ToolbarHint>
                 <input className="sr-only" type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
               </label>
-              {toolbarItems.slice(1).map((item) => (
-                <button
-                  key={item.label}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-700 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-200 dark:hover:bg-accent-500/10 dark:hover:text-accent-300"
-                  type="button"
-                  onClick={item.label === '저장' ? onSave : onRun}
-                >
-                  <svg className="h-4 w-4 fill-current text-gray-500 dark:text-gray-400" viewBox="0 0 16 16" aria-hidden="true">
-                    <path d={item.icon} />
-                  </svg>
-                  <span>{item.label}</span>
-                </button>
-              ))}
-              <div className="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-700" />
-              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-400 dark:hover:bg-accent-500/10 dark:hover:text-accent-300" type="button" title="되돌리기" onClick={onUndo}>
-                <span className="sr-only">되돌리기</span>
-                <svg className="mx-auto h-4 w-4 fill-current" viewBox="0 0 16 16"><path d="M6.5 3 2 7.5 6.5 12V9H10a3 3 0 1 1 0 6H8v-2h2a1 1 0 1 0 0-2H6.5V3Z" /></svg>
-              </button>
-              <button className="h-8 w-8 rounded-md text-gray-500 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-400 dark:hover:bg-accent-500/10 dark:hover:text-accent-300" type="button" title="다시 실행" onClick={onRedo}>
-                <span className="sr-only">다시 실행</span>
-                <svg className="mx-auto h-4 w-4 fill-current" viewBox="0 0 16 16"><path d="M9.5 3 14 7.5 9.5 12V9H6a3 3 0 1 0 0 6h2v-2H6a1 1 0 1 1 0-2h3.5V3Z" /></svg>
+              <button
+                className="group relative inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-700 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-200 dark:hover:bg-accent-500/10 dark:hover:text-accent-300"
+                type="button"
+                onClick={onSave}
+              >
+                <svg className="h-4 w-4 fill-current text-gray-500 dark:text-gray-400" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d={toolbarItems[1].icon} />
+                </svg>
+                <span>{toolbarItems[1].label}</span>
+                <ToolbarHint>{toolbarItems[1].help}</ToolbarHint>
               </button>
             </div>
 

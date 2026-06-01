@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld("api", {
   getAppSettings: () => ipcRenderer.invoke("app-settings:get"),
   saveAppSettings: (settings) => ipcRenderer.invoke("app-settings:save", settings),
   chooseDirectory: (options) => ipcRenderer.invoke("app-settings:choose-directory", options),
+  chooseFile: (options) => ipcRenderer.invoke("app-settings:choose-file", options),
+  showNotification: (payload) => ipcRenderer.invoke("notifications:show", payload),
   listBackups: () => ipcRenderer.invoke("backups:list"),
   createBackup: (payload) => ipcRenderer.invoke("backups:create", payload),
   restoreBackup: (payload) => ipcRenderer.invoke("backups:restore", payload),

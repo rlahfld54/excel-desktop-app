@@ -98,23 +98,6 @@ async function loadLatestAutomationData() {
     };
   }
 
-  if (result?.ok && !result.data) {
-    const seedResult = await saveAutomationRowsToDatabase(sampleRows, {}, 'sample_sales_1200.xlsx');
-    if (seedResult?.ok) {
-      const seeded = await window.api.getLatestData();
-      const seededPayload = seeded?.data?.payload;
-      if (seeded?.ok && Array.isArray(seededPayload?.rows) && seededPayload.rows.length > 0) {
-        return {
-          ok: true,
-          mode: 'sqlite-seeded',
-          rows: seededPayload.rows,
-          appliedCount: countAppliedRows(seededPayload.rows),
-          savedAt: seeded.data.savedAt ?? seededPayload.savedAt ?? null,
-        };
-      }
-    }
-  }
-
   return {
     ok: true,
     mode: 'sample',
@@ -543,7 +526,7 @@ export default function AutomationPage() {
 
     loadLatest().then((latest) => {
       if (!active) return;
-      if (latest.sourceMode === 'sqlite' || latest.mode === 'sqlite' || latest.mode === 'sqlite-seeded') {
+      if (latest.sourceMode === 'sqlite' || latest.mode === 'sqlite') {
         setStatusText(`SQLite 최신 데이터 ${latest.rows.length.toLocaleString('ko-KR')}건을 불러왔습니다.`);
       }
     });
@@ -597,7 +580,7 @@ export default function AutomationPage() {
     setResults({});
     setLastRun(null);
     await refreshFromLatestData(() => (
-      databaseResult.ok
+      latest?.sourceMode === 'sqlite'
         ? '원본 데이터로 되돌리고 SQLite 최신 데이터로 다시 불러왔습니다.'
         : '자동화 샘플 데이터를 원래 상태로 되돌렸습니다.'
     ));

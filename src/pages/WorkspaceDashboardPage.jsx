@@ -5,7 +5,9 @@ import Header from '../partials/Header';
 import Breadcrumbs from '../useComponents/Breadcrumbs';
 import ExcelTable from '../useComponents/ExcelTable';
 import { sampleColumns, createSampleSalesRows } from '../data/sampleSalesData';
+import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 import { parseSpreadsheetFile } from '../utils/fileParsers';
+import { notifyUser } from '../utils/notifications';
 import { exportRowsToXlsx } from '../utils/spreadsheetExport';
 import { validateRows } from '../utils/validationRules';
 
@@ -59,13 +61,40 @@ function getCurrentTime() {
   }).format(new Date());
 }
 
+function ChangeNotice({ notice }) {
+  if (!notice) return null;
+
+  const toneClasses = {
+    success: 'border-green-200 bg-green-50 text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-200',
+    warning: 'border-yellow-200 bg-yellow-50 text-yellow-800 dark:border-yellow-500/30 dark:bg-yellow-500/10 dark:text-yellow-200',
+    error: 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200',
+    info: 'border-accent-200 bg-accent-50 text-accent-800 dark:border-accent-500/30 dark:bg-accent-500/10 dark:text-accent-200',
+  };
+
+  return (
+    <div className="pointer-events-none fixed right-5 top-20 z-50 max-w-sm">
+      <div className={`rounded-lg border px-4 py-3 text-sm shadow-lg ${toneClasses[notice.type] ?? toneClasses.info}`}>
+        <p className="font-semibold">{notice.title}</p>
+        <p className="mt-1 leading-5">{notice.message}</p>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [tableData, setTableData] = useState({
-    fileName: 'sample_sales_1200.csv',
-    columns: sampleColumns,
-    rows: sampleRows,
-  });
+  const fileName = useWorkspaceDataStore((state) => state.fileName);
+  const columns = useWorkspaceDataStore((state) => state.columns);
+  const rows = useWorkspaceDataStore((state) => state.rows);
+  const rowActions = useWorkspaceDataStore((state) => state.rowActions);
+  const validationIssues = useWorkspaceDataStore((state) => state.validationIssues);
+  const isDirty = useWorkspaceDataStore((state) => state.isDirty);
+  const sourceMode = useWorkspaceDataStore((state) => state.sourceMode);
+  const stageWorkspace = useWorkspaceDataStore((state) => state.stageWorkspace);
+  const setRows = useWorkspaceDataStore((state) => state.setRows);
+  const setRowActions = useWorkspaceDataStore((state) => state.setRowActions);
+  const setValidationIssues = useWorkspaceDataStore((state) => state.setValidationIssues);
+  const saveRows = useWorkspaceDataStore((state) => state.saveRows);
   const [logs, setLogs] = useState(initialLogs);
   const [uploadState, setUploadState] = useState('샘플 데이터 로드됨');
   const [isLoadingFile, setIsLoadingFile] = useState(false);
@@ -75,13 +104,19 @@ function Dashboard() {
   const [automationQueue, setAutomationQueue] = useState(automationSteps);
   const [lastSavedAt, setLastSavedAt] = useState('방금 전');
   const [selectedRowIndex, setSelectedRowIndex] = useState(0);
-  const [rowActions, setRowActions] = useState({});
   const [tableRevision, setTableRevision] = useState(0);
-  const [validationIssues, setValidationIssues] = useState({});
+  const [notice, setNotice] = useState(null);
   const automationTimersRef = useRef([]);
+  const noticeTimerRef = useRef(null);
+  const tableData = useMemo(() => ({
+    fileName,
+    columns,
+    rows,
+  }), [columns, fileName, rows]);
 
   useEffect(() => () => {
     automationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    window.clearTimeout(noticeTimerRef.current);
   }, []);
 
   const quickStats = useMemo(() => {
@@ -95,6 +130,11 @@ function Dashboard() {
         value: tableData.fileName,
         detail: `${tableData.columns.length.toLocaleString('ko-KR')}개 열 · ${tableData.rows.length.toLocaleString('ko-KR')}행`,
       },
+      {
+        label: '저장 상태',
+        value: isDirty ? 'SQLite 미저장' : '저장됨',
+        detail: sourceMode === 'draft' ? '화면 상태만 반영됨' : '저장 버튼으로 DB 반영',
+      },
       { label: '자동화 상태', value: automationState, detail: '정리 규칙 7개 준비됨' },
       {
         label: '검증 결과',
@@ -102,7 +142,7 @@ function Dashboard() {
         detail: `중복 ${duplicateCount.toLocaleString('ko-KR')} · 확인 ${reviewCount.toLocaleString('ko-KR')} · 처리 ${Object.keys(rowActions).length.toLocaleString('ko-KR')}`,
       },
     ];
-  }, [automationState, rowActions, tableData]);
+  }, [automationState, isDirty, rowActions, sourceMode, tableData]);
 
   const selectedRow = tableData.rows[selectedRowIndex] ?? tableData.rows[0] ?? [];
   const statusColumnIndex = tableData.columns.findIndex((column) => ['검증', '상태', '결과'].includes(column));
@@ -121,22 +161,35 @@ function Dashboard() {
     ].slice(0, 8));
   };
 
+  const showNotice = (type, title, message, { sound = true } = {}) => {
+    window.clearTimeout(noticeTimerRef.current);
+    setNotice({ type, title, message });
+    notifyUser({ type, title, message, sound }).catch(() => {});
+    noticeTimerRef.current = window.setTimeout(() => {
+      setNotice(null);
+    }, 3200);
+  };
+
   const handleFileUpload = async (file) => {
     setIsLoadingFile(true);
     setUploadState(`${file.name} 읽는 중`);
 
     try {
       const parsed = await parseSpreadsheetFile(file);
-      setTableData(parsed);
+      stageWorkspace({
+        ...parsed,
+        rowActions: {},
+        validationIssues: {},
+      });
       setSelectedRowIndex(0);
-      setRowActions({});
-      setValidationIssues({});
       setTableRevision((revision) => revision + 1);
-      setUploadState('업로드 완료');
-      addLog('INFO', `${file.name} 파일을 불러왔습니다. ${parsed.rows.length.toLocaleString('ko-KR')}행을 표시합니다.`);
+      setUploadState('업로드 완료 · 아직 SQLite 미저장');
+      addLog('INFO', `${file.name} 파일을 화면에 불러왔습니다. 저장 버튼을 누르면 SQLite에 반영됩니다.`);
+      showNotice('info', '업로드 완료', `${parsed.rows.length.toLocaleString('ko-KR')}행을 화면에 반영했습니다. 저장 전까지 DB에는 들어가지 않습니다.`);
     } catch (error) {
       setUploadState('업로드 실패');
       addLog('ERROR', error.message);
+      showNotice('error', '업로드 실패', error.message);
     } finally {
       setIsLoadingFile(false);
     }
@@ -179,39 +232,48 @@ function Dashboard() {
       setDownloadState(`${result.fileName} · 현재 작업 저장됨`);
       setLastSavedAt('방금 전');
       addLog('INFO', `현재 작업을 ${result.fileName} 파일로 저장했습니다.`);
-      if (window.api?.saveData) {
-        await window.api.saveData({
-          fileName: tableData.fileName,
-          columns: tableData.columns,
-          rows: tableData.rows,
-          rowActions,
-          validationIssues,
-          savedAt: new Date().toISOString(),
-        });
+      const databaseResult = await saveRows({
+        fileName: tableData.fileName,
+        columns: tableData.columns,
+        rows: tableData.rows,
+        rowActions,
+        validationIssues,
+      });
+      if (databaseResult.ok) {
+        addLog('INFO', '현재 작업을 SQLite에 저장했습니다.');
+        showNotice('success', 'SQLite 저장 완료', `${tableData.rows.length.toLocaleString('ko-KR')}행이 DB 테이블에 반영됐습니다.`);
+      } else {
+        const warningMessage = databaseResult.mode === 'browser-only'
+          ? '브라우저 미리보기라 SQLite에는 저장하지 않고 로컬 상태만 보관했습니다.'
+          : `SQLite 저장 실패: ${databaseResult.message}`;
+        addLog('WARN', warningMessage);
+        showNotice('warning', '저장 확인 필요', warningMessage);
       }
     } catch (error) {
       const message = error.name === 'AbortError' ? '저장이 취소되었습니다.' : error.message;
       setDownloadState(message);
       addLog('WARN', message);
+      showNotice(error.name === 'AbortError' ? 'warning' : 'error', '저장 실패', message);
     }
   };
 
   const handleNewTask = () => {
-    setTableData({
+    stageWorkspace({
       fileName: 'sample_sales_1200.csv',
       columns: sampleColumns,
       rows: createSampleSalesRows(1200),
+      rowActions: {},
+      validationIssues: {},
     });
     setUploadState('새 작업 준비됨');
     setDownloadState('저장 위치 선택 가능');
     setAutomationState('대기 중');
     setAutomationQueue(automationSteps);
     setSelectedRowIndex(0);
-    setRowActions({});
-    setValidationIssues({});
     setTableRevision((revision) => revision + 1);
     setDownloadTitle('excel-sample-data-1200');
     addLog('INFO', '새 작업을 만들고 1,200건 샘플 데이터를 다시 불러왔습니다.');
+    showNotice('info', '새 작업 준비', '샘플 데이터가 화면 상태로 준비됐습니다. 필요할 때 저장하세요.');
   };
 
   const handleRunAutomation = () => {
@@ -229,6 +291,7 @@ function Dashboard() {
       progress: index === 0 ? 35 : 0,
     })));
     addLog('INFO', '자동화 실행을 시작했습니다.');
+    showNotice('info', '자동화 시작', '선택한 자동화 단계를 실행합니다.', { sound: false });
 
     automationSteps.forEach((step, stepIndex) => {
       const timerId = window.setTimeout(() => {
@@ -244,6 +307,7 @@ function Dashboard() {
           setAutomationState('완료');
           setAutomationQueue(completedAutomationSteps);
           addLog('INFO', `자동화가 완료되었습니다. 중복 ${duplicateCount.toLocaleString('ko-KR')}건, 확인 필요 ${reviewCount.toLocaleString('ko-KR')}건을 감지했습니다.`);
+          showNotice('success', '자동화 완료', `중복 ${duplicateCount.toLocaleString('ko-KR')}건, 확인 필요 ${reviewCount.toLocaleString('ko-KR')}건을 감지했습니다.`);
         }
       }, (stepIndex + 1) * 650);
       automationTimersRef.current.push(timerId);
@@ -253,13 +317,11 @@ function Dashboard() {
   const handleValidateData = () => {
     const result = validateRows(tableData.columns, tableData.rows);
 
-    setTableData((currentData) => ({
-      ...currentData,
-      rows: result.rows,
-    }));
+    setRows(result.rows);
     setValidationIssues(result.issueMap);
     setAutomationState('검증 완료');
     addLog('WARN', `검증 규칙을 적용했습니다. 중복 의심 ${result.summary.duplicateCount.toLocaleString('ko-KR')}건, 확인 필요 ${result.summary.reviewCount.toLocaleString('ko-KR')}건입니다.`);
+    showNotice('warning', '검증 완료', `중복 의심 ${result.summary.duplicateCount.toLocaleString('ko-KR')}건, 확인 필요 ${result.summary.reviewCount.toLocaleString('ko-KR')}건입니다.`);
   };
 
   const handlePinColumn = (isPinned) => {
@@ -276,16 +338,13 @@ function Dashboard() {
     const nextStatus = actionLabels[action];
     if (!nextStatus) return;
 
-    setTableData((currentData) => {
-      const nextRows = currentData.rows.map((row, rowIndex) => {
+    setRows((currentRows) => {
+      const nextRows = currentRows.map((row, rowIndex) => {
         if (rowIndex !== selectedRowIndex) return row;
         return row.map((cell, cellIndex) => (cellIndex === statusColumnIndex ? nextStatus : cell));
       });
 
-      return {
-        ...currentData,
-        rows: nextRows,
-      };
+      return nextRows;
     });
     setRowActions((currentActions) => ({
       ...currentActions,
@@ -293,14 +352,7 @@ function Dashboard() {
     }));
     setAutomationState('검토 반영');
     addLog('INFO', `${selectedRowIndex + 1}번 행을 '${nextStatus}' 상태로 처리했습니다.`);
-  };
-
-  const handleUndo = () => {
-    addLog('INFO', '이전 작업으로 되돌릴 준비가 되었습니다. 실제 편집 이력은 다음 단계에서 연결할 수 있습니다.');
-  };
-
-  const handleRedo = () => {
-    addLog('INFO', '되돌린 작업을 다시 적용할 준비가 되었습니다.');
+    showNotice('success', '행 상태 변경', `${selectedRowIndex + 1}번 행을 '${nextStatus}' 상태로 처리했습니다. 저장하면 DB에 반영됩니다.`, { sound: false });
   };
 
   return (
@@ -308,14 +360,12 @@ function Dashboard() {
       <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
 
       <div className="relative flex flex-1 flex-col overflow-y-auto overflow-x-hidden bg-gray-50 dark:bg-gray-900">
+        <ChangeNotice notice={notice} />
         <Header
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
           onFileUpload={handleFileUpload}
           onSave={handleSaveCurrent}
-          onRun={handleRunAutomation}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
           lastSavedAt={lastSavedAt}
         />
 

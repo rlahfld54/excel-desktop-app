@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
+import { notifyUser } from '../utils/notifications';
 
 const fallbackSettings = {
   databasePath: 'C:\\Users\\user\\AppData\\Roaming\\excel-desktop-app\\excel-desktop-app.sqlite',
@@ -13,6 +14,10 @@ const fallbackSettings = {
   autoBackupEnabled: true,
   autoBackupIntervalMinutes: 30,
   performanceMode: 'LIGHT',
+  notificationsEnabled: true,
+  desktopNotificationsEnabled: true,
+  notificationSoundEnabled: true,
+  notificationSoundPath: '',
 };
 
 const pathFields = [
@@ -94,6 +99,30 @@ export default function SaveSettingsPage() {
     updateSetting(key, result.path);
   };
 
+  const handleChooseSoundFile = async () => {
+    if (!window.api?.chooseFile) {
+      setSaveState('Electron 실행 후 알림음 파일을 선택할 수 있습니다.');
+      return;
+    }
+
+    const result = await window.api.chooseFile({
+      title: '알림음 파일 선택',
+      filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'm4a'] }],
+    });
+    if (result?.canceled) return;
+    updateSetting('notificationSoundPath', result.path);
+  };
+
+  const handleTestNotification = async () => {
+    await notifyUser({
+      type: 'success',
+      title: '알림 테스트',
+      message: '현재 알림 설정으로 표시와 소리를 테스트했습니다.',
+      settings,
+    });
+    setSaveState('알림 테스트를 실행했습니다. 소리가 나지 않으면 설정 저장 후 다시 시도하거나 OS 볼륨을 확인하세요.');
+  };
+
   const handleSave = async () => {
     if (!window.api?.saveAppSettings) {
       setSaveState('브라우저 미리보기에서는 설정 저장 대신 화면 확인만 가능합니다.');
@@ -168,6 +197,54 @@ export default function SaveSettingsPage() {
 
           <SettingRow label="설정 파일" description="저장 설정 JSON 파일 위치">
             <input className="form-input w-full bg-gray-50 text-gray-500 dark:bg-gray-900/40 dark:text-gray-400" value={settings.settingsPath ?? ''} readOnly />
+          </SettingRow>
+          <SettingRow label="알림 설정" description="작업 변경, 저장 완료, 오류 발생 시 표시할 알림 방식">
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="flex items-center justify-between gap-3 rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-200">앱 알림</span>
+                <input
+                  className="form-checkbox"
+                  type="checkbox"
+                  checked={settings.notificationsEnabled ?? true}
+                  onChange={(event) => updateSetting('notificationsEnabled', event.target.checked)}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-200">데스크톱 알림</span>
+                <input
+                  className="form-checkbox"
+                  type="checkbox"
+                  checked={settings.desktopNotificationsEnabled ?? true}
+                  onChange={(event) => updateSetting('desktopNotificationsEnabled', event.target.checked)}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-200">알림음</span>
+                <input
+                  className="form-checkbox"
+                  type="checkbox"
+                  checked={settings.notificationSoundEnabled ?? true}
+                  onChange={(event) => updateSetting('notificationSoundEnabled', event.target.checked)}
+                />
+              </label>
+            </div>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input
+                className="form-input min-w-0 flex-1"
+                placeholder="비워두면 기본 짧은 알림음 사용"
+                value={settings.notificationSoundPath ?? ''}
+                onChange={(event) => updateSetting('notificationSoundPath', event.target.value)}
+              />
+              <button className="btn btn-secondary shrink-0" type="button" onClick={handleChooseSoundFile}>
+                알림음 선택
+              </button>
+              <button className="btn btn-secondary shrink-0" type="button" onClick={handleTestNotification}>
+                테스트
+              </button>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              Windows/Linux에서는 OS 기본음을 끄고 앱에서 별도 소리를 재생합니다. mp3, wav, ogg, m4a 파일을 사용할 수 있습니다.
+            </p>
           </SettingRow>
         </section>
 

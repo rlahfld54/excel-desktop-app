@@ -388,6 +388,15 @@ const moduleConfigs = {
   cacheManager: {
     title: '캐시 관리',
     description: '미리보기, 임시 파일, 인덱스 캐시를 점검하고 정리합니다.',
+    guide: {
+      title: '캐시는 원본 파일이 아니라 앱이 빠르게 다시 열기 위해 잠시 저장해 둔 보조 파일입니다.',
+      body: '캐시 정리는 오래된 미리보기, 임시 업로드, 작업 흔적을 비워 저장 공간을 확보하고 앱을 가볍게 만듭니다. 원본 엑셀과 저장된 데이터는 삭제하지 않습니다.',
+      items: [
+        '처음이라면 캐시 정리부터 실행하세요. 지금은 약 320MB를 정리할 수 있습니다.',
+        '검색이나 파일 목록이 맞지 않을 때만 인덱스 재생성을 사용하세요.',
+        '최근 오류를 확인 중이면 오류 스냅샷은 잠시 보존하는 편이 좋습니다.',
+      ],
+    },
     actions: ['캐시 정리', '인덱스 재생성', '임시 파일 보기'],
     stats: [
       ['전체 캐시', '486MB', '정리 가능 320MB'],
@@ -561,6 +570,25 @@ function WorkspaceModulePage({ moduleKey }) {
           </div>
         </div>
       </section>
+
+      {config.guide ? (
+        <section className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-4 shadow-xs dark:border-emerald-500/30 dark:bg-emerald-500/10">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] xl:items-start">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">{config.guide.title}</p>
+              <p className="mt-2 text-sm leading-6 text-emerald-800 dark:text-emerald-200">{config.guide.body}</p>
+            </div>
+            <ul className="space-y-2 text-sm text-emerald-800 dark:text-emerald-100">
+              {config.guide.items.map((item) => (
+                <li key={item} className="flex gap-2">
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden="true" />
+                  <span className="leading-6">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      ) : null}
 
       <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
         {config.stats.map(([label, value, detail]) => (

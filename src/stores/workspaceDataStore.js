@@ -22,11 +22,15 @@ function readLocalWorkspaceData() {
     const saved = JSON.parse(localStorage.getItem(storageKey));
     if (Array.isArray(saved?.rows) && saved.rows.length > 0) {
       return {
+        fileName: saved.fileName ?? 'workspace-data.xlsx',
         columns: Array.isArray(saved.columns) && saved.columns.length > 0 ? saved.columns : sampleColumns,
         rows: saved.rows,
+        rowActions: saved.rowActions ?? {},
+        validationIssues: saved.validationIssues ?? {},
         savedAt: saved.savedAt ?? null,
         appliedCount: Number(saved.appliedCount) || countAppliedRows(saved.rows),
         sourceMode: 'browser-storage',
+        isDirty: false,
       };
     }
   } catch {
@@ -34,18 +38,25 @@ function readLocalWorkspaceData() {
   }
 
   return {
+    fileName: 'sample_sales_1200.xlsx',
     columns: sampleColumns,
     rows: sampleRows,
+    rowActions: {},
+    validationIssues: {},
     savedAt: null,
     appliedCount: 0,
     sourceMode: 'sample',
+    isDirty: false,
   };
 }
 
-function writeLocalWorkspaceData({ columns, rows, savedAt, appliedCount }) {
+function writeLocalWorkspaceData({ fileName, columns, rows, rowActions, validationIssues, savedAt, appliedCount }) {
   localStorage.setItem(storageKey, JSON.stringify({
+    fileName,
     columns,
     rows,
+    rowActions,
+    validationIssues,
     savedAt,
     appliedCount,
   }));
@@ -64,7 +75,20 @@ function buildValidationIssues(results = {}) {
   return validationIssues;
 }
 
-async function saveRowsToDatabase({ columns, rows, fileName, results }) {
+function buildResultsFromValidationIssues(validationIssues = {}) {
+  return {
+    manual: {
+      issues: Object.entries(validationIssues).flatMap(([rowIndex, messages]) => (
+        (messages ?? []).map((message) => ({
+          rowNumber: Number(rowIndex) + 1,
+          message,
+        }))
+      )),
+    },
+  };
+}
+
+async function saveRowsToDatabase({ columns, rows, fileName, rowActions, results }) {
   if (!window.api?.saveData) return { ok: false, mode: 'browser-only' };
 
   try {
@@ -72,6 +96,7 @@ async function saveRowsToDatabase({ columns, rows, fileName, results }) {
       fileName,
       columns,
       rows,
+      rowActions,
       validationIssues: buildValidationIssues(results),
       savedAt: new Date().toISOString(),
     });
@@ -91,11 +116,15 @@ async function readLatestFromDatabase() {
   }
 
   return {
+    fileName: payload.fileName ?? result.data.fileName ?? 'workspace-data.xlsx',
     columns: Array.isArray(payload.columns) && payload.columns.length > 0 ? payload.columns : sampleColumns,
     rows: payload.rows,
+    rowActions: payload.rowActions ?? {},
+    validationIssues: payload.validationIssues ?? {},
     savedAt: result.data.savedAt ?? payload.savedAt ?? null,
     appliedCount: countAppliedRows(payload.rows),
     sourceMode: 'sqlite',
+    isDirty: false,
   };
 }
 
@@ -112,6 +141,45 @@ export const useWorkspaceDataStore = create((set, get) => ({
     return {
       rows,
       appliedCount: countAppliedRows(rows),
+      isDirty: true,
+      sourceMode: 'draft',
+    };
+  }),
+
+  stageWorkspace: ({ fileName, columns, rows, rowActions = {}, validationIssues = {} }) => set({
+    fileName,
+    columns,
+    rows,
+    rowActions,
+    validationIssues,
+    savedAt: null,
+    appliedCount: countAppliedRows(rows),
+    sourceMode: 'draft',
+    isDirty: true,
+    error: '',
+  }),
+
+  setRowActions: (rowActionsOrUpdater) => set((state) => {
+    const rowActions = typeof rowActionsOrUpdater === 'function'
+      ? rowActionsOrUpdater(state.rowActions)
+      : rowActionsOrUpdater;
+
+    return {
+      rowActions,
+      isDirty: true,
+      sourceMode: 'draft',
+    };
+  }),
+
+  setValidationIssues: (validationIssuesOrUpdater) => set((state) => {
+    const validationIssues = typeof validationIssuesOrUpdater === 'function'
+      ? validationIssuesOrUpdater(state.validationIssues)
+      : validationIssuesOrUpdater;
+
+    return {
+      validationIssues,
+      isDirty: true,
+      sourceMode: 'draft',
     };
   }),
 
@@ -120,16 +188,6 @@ export const useWorkspaceDataStore = create((set, get) => ({
 
     try {
       let latest = await readLatestFromDatabase();
-
-      if (!latest && window.api?.saveData) {
-        await saveRowsToDatabase({
-          columns: sampleColumns,
-          rows: sampleRows,
-          fileName: 'sample_sales_1200.xlsx',
-          results: {},
-        });
-        latest = await readLatestFromDatabase();
-      }
 
       if (!latest) latest = readLocalWorkspaceData();
 
@@ -143,21 +201,38 @@ export const useWorkspaceDataStore = create((set, get) => ({
     }
   },
 
-  saveRows: async ({ rows, columns = get().columns, fileName = 'workspace-data.xlsx', results = {} }) => {
+  saveRows: async ({
+    rows = get().rows,
+    columns = get().columns,
+    fileName = get().fileName || 'workspace-data.xlsx',
+    rowActions = get().rowActions,
+    validationIssues = get().validationIssues,
+    results = {},
+  } = {}) => {
     set({ isLoading: true, error: '' });
 
     const savedAt = new Date().toISOString();
     const appliedCount = countAppliedRows(rows);
     const localData = {
+      fileName,
       columns,
       rows,
+      rowActions,
+      validationIssues,
       savedAt,
       appliedCount,
       sourceMode: 'browser-storage',
+      isDirty: false,
     };
 
     writeLocalWorkspaceData(localData);
-    const databaseResult = await saveRowsToDatabase({ columns, rows, fileName, results });
+    const databaseResult = await saveRowsToDatabase({
+      columns,
+      rows,
+      fileName,
+      rowActions,
+      results: Object.keys(results).length > 0 ? results : buildResultsFromValidationIssues(validationIssues),
+    });
     const latest = databaseResult.ok ? await get().loadLatest() : localData;
 
     if (!databaseResult.ok) {

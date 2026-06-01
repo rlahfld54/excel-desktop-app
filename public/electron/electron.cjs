@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron/main");
+const { app, BrowserWindow, ipcMain, dialog, Notification } = require("electron/main");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const {
@@ -33,6 +33,10 @@ function getDefaultAppSettings() {
     autoBackupIntervalMinutes: 30,
     autoBackupTime: "23:50",
     performanceMode: "LIGHT",
+    notificationsEnabled: true,
+    desktopNotificationsEnabled: true,
+    notificationSoundEnabled: true,
+    notificationSoundPath: "",
   };
 }
 
@@ -358,6 +362,39 @@ function registerIpcHandlers() {
     }
 
     return { canceled: false, path: filePaths[0] };
+  });
+
+  ipcMain.handle("app-settings:choose-file", async (_, { title, filters }) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: title ?? "파일 선택",
+      properties: ["openFile"],
+      filters: filters ?? [{ name: "Audio", extensions: ["mp3", "wav", "ogg", "m4a"] }],
+    });
+
+    if (canceled || !filePaths?.[0]) {
+      return { canceled: true };
+    }
+
+    return { canceled: false, path: filePaths[0] };
+  });
+
+  ipcMain.handle("notifications:show", async (_, payload) => {
+    if (!Notification?.isSupported?.()) {
+      return { ok: false, mode: "unsupported" };
+    }
+
+    const settings = await readAppSettings();
+    if (!settings.notificationsEnabled || !settings.desktopNotificationsEnabled) {
+      return { ok: false, mode: "disabled" };
+    }
+
+    new Notification({
+      title: payload?.title ?? "알림",
+      body: payload?.body ?? "",
+      silent: true,
+    }).show();
+
+    return { ok: true };
   });
 
   ipcMain.handle("backups:list", async () => {
