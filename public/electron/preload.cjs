@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("versions", {
 contextBridge.exposeInMainWorld("api", {
   openFile: () => ipcRenderer.invoke("file:open"),
   saveData: (data) => ipcRenderer.invoke("data:save", data),
+  getLatestData: () => ipcRenderer.invoke("data:latest"),
   saveFileAs: (file) => ipcRenderer.invoke("file:save-as", file),
   getDatabaseHealth: () => ipcRenderer.invoke("db:health"),
   getDatabaseSummary: () => ipcRenderer.invoke("db:summary"),

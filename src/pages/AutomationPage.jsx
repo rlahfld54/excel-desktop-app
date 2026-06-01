@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
@@ -6,11 +6,123 @@ import {
   createSampleSalesRows,
   findDuplicateGroups,
   parseNumber,
+  sampleColumns,
   sampleCustomers,
   sampleProducts,
 } from '../data/sampleSalesData';
+import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 
 const sampleRows = createSampleSalesRows(1200);
+const automationRowsStorageKey = 'excel-workspace:automationRows';
+
+function readSavedAutomationRows() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(automationRowsStorageKey));
+    if (Array.isArray(saved?.rows) && saved.rows.length > 0) return saved.rows;
+    return Array.isArray(saved) && saved.length > 0 ? saved : sampleRows;
+  } catch {
+    return sampleRows;
+  }
+}
+
+function countAppliedRows(rows) {
+  return rows.filter((row) => ['수정 반영', '중복 검토', '검토 필요'].includes(row[7])).length;
+}
+
+function readSavedAutomationMeta() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(automationRowsStorageKey));
+    const rows = Array.isArray(saved?.rows) ? saved.rows : Array.isArray(saved) ? saved : [];
+    return {
+      appliedCount: Number(saved?.appliedCount) || countAppliedRows(rows),
+      savedAt: saved?.savedAt ?? null,
+    };
+  } catch {
+    return { appliedCount: 0, savedAt: null };
+  }
+}
+
+function saveAutomationRows(rows, meta = {}) {
+  localStorage.setItem(automationRowsStorageKey, JSON.stringify({
+    rows,
+    appliedCount: Number(meta.appliedCount) || 0,
+    savedAt: meta.savedAt ?? new Date().toISOString(),
+  }));
+}
+
+async function saveAutomationRowsToDatabase(rows, results = {}, fileName = 'automation-applied-sales-rows.xlsx') {
+  if (!window.api?.saveData) return { ok: false, mode: 'browser-only' };
+
+  const validationIssues = {};
+  Object.values(results).forEach((result) => {
+    result.issues.forEach((issue) => {
+      const rowIndex = issue.rowNumber - 1;
+      validationIssues[rowIndex] = [...(validationIssues[rowIndex] ?? []), issue.message];
+    });
+  });
+
+  try {
+    return await window.api.saveData({
+      fileName,
+      columns: sampleColumns,
+      rows,
+      validationIssues,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    return { ok: false, mode: 'sqlite-error', message: error.message };
+  }
+}
+
+async function loadLatestAutomationData() {
+  if (!window.api?.getLatestData) {
+    const rows = readSavedAutomationRows();
+    return {
+      ok: true,
+      mode: 'browser-storage',
+      rows,
+      appliedCount: readSavedAutomationMeta().appliedCount || countAppliedRows(rows),
+      savedAt: readSavedAutomationMeta().savedAt,
+    };
+  }
+
+  const result = await window.api.getLatestData();
+  const payload = result?.data?.payload;
+  if (result?.ok && Array.isArray(payload?.rows) && payload.rows.length > 0) {
+    return {
+      ok: true,
+      mode: 'sqlite',
+      rows: payload.rows,
+      appliedCount: countAppliedRows(payload.rows),
+      savedAt: result.data.savedAt ?? payload.savedAt ?? null,
+    };
+  }
+
+  if (result?.ok && !result.data) {
+    const seedResult = await saveAutomationRowsToDatabase(sampleRows, {}, 'sample_sales_1200.xlsx');
+    if (seedResult?.ok) {
+      const seeded = await window.api.getLatestData();
+      const seededPayload = seeded?.data?.payload;
+      if (seeded?.ok && Array.isArray(seededPayload?.rows) && seededPayload.rows.length > 0) {
+        return {
+          ok: true,
+          mode: 'sqlite-seeded',
+          rows: seededPayload.rows,
+          appliedCount: countAppliedRows(seededPayload.rows),
+          savedAt: seeded.data.savedAt ?? seededPayload.savedAt ?? null,
+        };
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    mode: 'sample',
+    rows: sampleRows,
+    appliedCount: 0,
+    savedAt: null,
+  };
+}
 
 const defaultSettings = {
   highAmount: 1000000,
@@ -236,6 +348,102 @@ function runClosingPreflight(rows, settings) {
   };
 }
 
+function applyAutomationFixes(rows, selectedIds, settings, currentUser) {
+  let appliedCount = 0;
+  const nextRows = rows.map((row) => [...row]);
+  const markChanged = (row) => {
+    row[7] = '수정 반영';
+    appliedCount += 1;
+  };
+
+  if (selectedIds.includes('empty-values')) {
+    nextRows.forEach((row) => {
+      if (String(row[8] ?? '').trim() === '') {
+        row[8] = currentUser.name;
+        markChanged(row);
+      }
+    });
+  }
+
+  if (selectedIds.includes('customer-standard')) {
+    nextRows.forEach((row) => {
+      const customer = getCustomerByName(row[1]);
+      if (customer && row[1] !== customer.name) {
+        row[1] = customer.name;
+        markChanged(row);
+      }
+    });
+  }
+
+  if (selectedIds.includes('product-mapping')) {
+    nextRows.forEach((row) => {
+      const productByCode = getProductByCode(row[2]);
+      const productByName = sampleProducts.find((product) => product.name === row[3] || product.aliases.includes(row[3]));
+
+      if (!row[2] && productByName) {
+        row[2] = productByName.code;
+        markChanged(row);
+        return;
+      }
+
+      if (productByCode && row[3] !== productByCode.name) {
+        row[3] = productByCode.name;
+        markChanged(row);
+      }
+    });
+  }
+
+  if (selectedIds.includes('price-standard')) {
+    nextRows.forEach((row) => {
+      const product = getProductByCode(row[2]);
+      if (!product) return;
+
+      const quantity = parseNumber(row[4]);
+      const actualPrice = parseNumber(row[5]);
+      const diff = Math.abs(actualPrice - product.price);
+      if (diff <= settings.priceTolerance) return;
+
+      row[5] = toNumberText(product.price);
+      row[6] = toNumberText(quantity * product.price);
+      markChanged(row);
+    });
+  }
+
+  if (selectedIds.includes('amount-recalc')) {
+    nextRows.forEach((row) => {
+      const quantity = parseNumber(row[4]);
+      const unitPrice = parseNumber(row[5]);
+      const amount = parseNumber(row[6]);
+      const expected = quantity * unitPrice;
+
+      if (amount !== expected) {
+        row[6] = toNumberText(expected);
+        markChanged(row);
+      }
+    });
+  }
+
+  if (selectedIds.includes('duplicates')) {
+    findDuplicateGroups(nextRows).forEach((group) => {
+      group.items.slice(1).forEach((item) => {
+        nextRows[item.rowIndex][7] = '중복 검토';
+      });
+    });
+  }
+
+  if (selectedIds.includes('closing-preflight')) {
+    nextRows.forEach((row) => {
+      const amount = parseNumber(row[6]);
+      const quantity = parseNumber(row[4]);
+      if (amount >= settings.highAmount || quantity >= settings.bulkQuantity) {
+        row[7] = '검토 필요';
+      }
+    });
+  }
+
+  return { rows: nextRows, appliedCount };
+}
+
 const automationDefinitions = [
   {
     id: 'empty-values',
@@ -300,6 +508,12 @@ function summarizeResults(results) {
 
 export default function AutomationPage() {
   const currentUser = getCurrentUser();
+  const dataRows = useWorkspaceDataStore((state) => state.rows);
+  const savedAt = useWorkspaceDataStore((state) => state.savedAt);
+  const appliedCount = useWorkspaceDataStore((state) => state.appliedCount);
+  const loadLatest = useWorkspaceDataStore((state) => state.loadLatest);
+  const saveRows = useWorkspaceDataStore((state) => state.saveRows);
+  const resetSample = useWorkspaceDataStore((state) => state.resetSample);
   const [settings, setSettings] = useState(defaultSettings);
   const [selectedIds, setSelectedIds] = useState(automationDefinitions.map((item) => item.id));
   const [results, setResults] = useState({});
@@ -316,8 +530,31 @@ export default function AutomationPage() {
     })
     .slice(0, 10);
 
+  const refreshFromLatestData = async (message) => {
+    const latest = await loadLatest();
+    if (message) {
+      setStatusText(message(latest));
+    }
+    return latest;
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    loadLatest().then((latest) => {
+      if (!active) return;
+      if (latest.sourceMode === 'sqlite' || latest.mode === 'sqlite' || latest.mode === 'sqlite-seeded') {
+        setStatusText(`SQLite 최신 데이터 ${latest.rows.length.toLocaleString('ko-KR')}건을 불러왔습니다.`);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [loadLatest]);
+
   const runAutomation = (definition) => {
-    const result = definition.run(sampleRows, settings);
+    const result = definition.run(dataRows, settings);
     setResults((current) => ({ ...current, [definition.id]: result }));
     setLastRun(new Date().toLocaleString('ko-KR', { hour12: false }));
     setStatusText(`${definition.title} 실행 완료: 확인 필요 ${result.issueCount.toLocaleString('ko-KR')}건`);
@@ -326,13 +563,45 @@ export default function AutomationPage() {
 
   const runSelectedAutomations = () => {
     const selectedDefinitions = automationDefinitions.filter((definition) => selectedIds.includes(definition.id));
-    const nextResults = Object.fromEntries(selectedDefinitions.map((definition) => [definition.id, definition.run(sampleRows, settings)]));
+    const nextResults = Object.fromEntries(selectedDefinitions.map((definition) => [definition.id, definition.run(dataRows, settings)]));
     const nextSummary = summarizeResults(nextResults);
 
     setResults(nextResults);
     setLastRun(new Date().toLocaleString('ko-KR', { hour12: false }));
     setStatusText(`선택 자동화 ${selectedDefinitions.length.toLocaleString('ko-KR')}개 실행 완료`);
     addActivityLog('INFO', '자동화 일괄 실행', `확인 필요 ${nextSummary.issues.toLocaleString('ko-KR')}건 / 보정 후보 ${nextSummary.fixed.toLocaleString('ko-KR')}건`);
+  };
+
+  const applySelectedAutomations = async () => {
+    const selectedDefinitions = automationDefinitions.filter((definition) => selectedIds.includes(definition.id));
+    const applied = applyAutomationFixes(dataRows, selectedIds, settings, currentUser);
+    const nextResults = Object.fromEntries(selectedDefinitions.map((definition) => [definition.id, definition.run(applied.rows, settings)]));
+    const databaseResult = await saveRows({
+      rows: applied.rows,
+      columns: sampleColumns,
+      fileName: 'automation-applied-sales-rows.xlsx',
+      results: nextResults,
+    });
+    setResults(nextResults);
+    setLastRun(new Date().toLocaleString('ko-KR', { hour12: false }));
+    await refreshFromLatestData((latest) => (
+      latest?.sourceMode === 'sqlite'
+        ? `선택 자동화 반영 완료: ${applied.appliedCount.toLocaleString('ko-KR')}건 수정 / SQLite 최신 데이터 ${latest.rows.length.toLocaleString('ko-KR')}건 재조회`
+        : `선택 자동화 반영 완료: ${applied.appliedCount.toLocaleString('ko-KR')}건 수정 / 브라우저 저장`
+    ));
+    addActivityLog('INFO', '자동화 반영', `수정 ${applied.appliedCount.toLocaleString('ko-KR')}건`);
+  };
+
+  const resetAutomationData = async () => {
+    const latest = await resetSample();
+    setResults({});
+    setLastRun(null);
+    await refreshFromLatestData(() => (
+      databaseResult.ok
+        ? '원본 데이터로 되돌리고 SQLite 최신 데이터로 다시 불러왔습니다.'
+        : '자동화 샘플 데이터를 원래 상태로 되돌렸습니다.'
+    ));
+    addActivityLog('INFO', '자동화 데이터 초기화', '샘플 데이터 원복');
   };
 
   const toggleSelected = (id) => {
@@ -353,6 +622,12 @@ export default function AutomationPage() {
         <button className="btn btn-primary" type="button" onClick={runSelectedAutomations}>
           선택 자동화 실행
         </button>
+        <button className="btn btn-secondary" type="button" onClick={applySelectedAutomations} disabled={selectedIds.length === 0}>
+          선택 항목 반영
+        </button>
+        <button className="btn btn-secondary" type="button" onClick={resetAutomationData}>
+          원본으로 되돌리기
+        </button>
         <button className="btn btn-secondary" type="button" onClick={() => setSelectedIds(automationDefinitions.map((item) => item.id))}>
           전체 선택
         </button>
@@ -360,6 +635,10 @@ export default function AutomationPage() {
           선택 해제
         </button>
         <span className="text-sm text-gray-500 dark:text-gray-400">{statusText}</span>
+        <span className="text-sm font-semibold text-teal-700 dark:text-teal-300">반영 {appliedCount.toLocaleString('ko-KR')}건</span>
+        {savedAt && (
+          <span className="text-sm text-gray-500 dark:text-gray-400">저장됨 {new Date(savedAt).toLocaleString('ko-KR', { hour12: false })}</span>
+        )}
       </div>
 
       <div className="mb-4 grid gap-4 md:grid-cols-4">

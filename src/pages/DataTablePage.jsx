@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { createSampleSalesRows, parseNumber, sampleColumns, validationTypes } from '../data/sampleSalesData';
+import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 import { exportRowsToXlsx } from '../utils/spreadsheetExport';
 import { validateRows } from '../utils/validationRules';
 
@@ -43,7 +44,10 @@ function MetricCard({ label, value, detail, tone = 'default' }) {
 }
 
 export default function DataTablePage() {
-  const [rows, setRows] = useState(() => createSampleSalesRows(1200));
+  const rows = useWorkspaceDataStore((state) => state.rows);
+  const setRows = useWorkspaceDataStore((state) => state.setRows);
+  const loadLatest = useWorkspaceDataStore((state) => state.loadLatest);
+  const saveRows = useWorkspaceDataStore((state) => state.saveRows);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('전체');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -51,6 +55,39 @@ export default function DataTablePage() {
   const [summary, setSummary] = useState({ ruleCounts: {} });
   const [actionState, setActionState] = useState('1,200건 샘플 데이터가 준비되었습니다.');
   const [exportTitle, setExportTitle] = useState('sales-data-review-1200');
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadLatestRows() {
+      if (!window.api?.getLatestData) return;
+
+      const result = await window.api.getLatestData();
+      let payload = result?.data?.payload;
+
+      if (result?.ok && !payload?.rows?.length && window.api?.saveData) {
+        await window.api.saveData({
+          fileName: 'sample_sales_1200.xlsx',
+          columns: sampleColumns,
+          rows: createSampleSalesRows(1200),
+          savedAt: new Date().toISOString(),
+        });
+        const seeded = await window.api.getLatestData();
+        payload = seeded?.data?.payload;
+      }
+
+      if (!active || !Array.isArray(payload?.rows) || payload.rows.length === 0) return;
+
+      setRows(payload.rows);
+      setActionState(`SQLite 최신 데이터 ${payload.rows.length.toLocaleString('ko-KR')}건을 불러왔습니다.`);
+    }
+
+    loadLatestRows();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -124,7 +161,11 @@ export default function DataTablePage() {
     if (window.api?.saveData) {
       try {
         await window.api.saveData(payload);
-        setActionState('현재 데이터와 검증 이슈를 SQLite에 저장했습니다.');
+        const latest = await window.api.getLatestData?.();
+        if (Array.isArray(latest?.data?.payload?.rows) && latest.data.payload.rows.length > 0) {
+          setRows(latest.data.payload.rows);
+        }
+        setActionState('현재 데이터와 검증 이슈를 SQLite에 저장하고 최신 데이터로 다시 불러왔습니다.');
         return;
       } catch (error) {
         setActionState(`브라우저 보관은 완료, SQLite 저장은 실패: ${error.message}`);

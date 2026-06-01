@@ -3,6 +3,12 @@ const Database = require("better-sqlite3");
 
 let db;
 
+function ensureColumn(database, tableName, columnName, definition) {
+  const columns = database.prepare(`PRAGMA table_info(${tableName})`).all();
+  if (columns.some((column) => column.name === columnName)) return;
+  database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+}
+
 function getDatabase(app) {
   if (db) return db;
 
@@ -647,6 +653,9 @@ CREATE TABLE IF NOT EXISTS send_exports (
 
 `);
 
+  ensureColumn(db, "sales_rows", "transaction_date", "TEXT");
+  ensureColumn(db, "sales_rows", "owner_name", "TEXT");
+
   return db;
 }
 
@@ -662,13 +671,87 @@ function getCell(row, index) {
   return index >= 0 ? row[index] : undefined;
 }
 
+function getCellOr(row, index, fallbackIndex) {
+  const value = getCell(row, index);
+  return value !== undefined && value !== null && value !== "" ? value : getCell(row, fallbackIndex);
+}
+
 function parseNumber(value) {
   const number = Number(String(value ?? "").replaceAll(",", ""));
   return Number.isFinite(number) ? number : null;
 }
 
+function formatNumber(value) {
+  if (value === null || value === undefined) return "";
+  return Number(value).toLocaleString("ko-KR");
+}
+
 function getClosingMonth() {
   return new Date().toISOString().slice(0, 7);
+}
+
+function getLatestSalesData(database) {
+  const upload = database
+    .prepare(
+      `
+      SELECT upload_id AS uploadId, file_name AS fileName, uploaded_at AS uploadedAt
+      FROM sales_uploads
+      ORDER BY uploaded_at DESC, upload_id DESC
+      LIMIT 1
+    `,
+    )
+    .get();
+
+  if (!upload) {
+    return { ok: true, data: null };
+  }
+
+  const rows = database
+    .prepare(
+      `
+      SELECT
+        transaction_date AS transactionDate,
+        raw_customer_name AS rawCustomerName,
+        raw_product_name AS rawProductName,
+        product_code AS productCode,
+        quantity,
+        unit_price AS unitPrice,
+        sales_amount AS salesAmount,
+        validation_status AS validationStatus,
+        owner_name AS ownerName
+      FROM sales_rows
+      WHERE upload_id = @uploadId
+      ORDER BY row_no ASC
+    `,
+    )
+    .all({ uploadId: upload.uploadId })
+    .map((row) => [
+      row.transactionDate ?? "",
+      row.rawCustomerName ?? "",
+      row.productCode ?? "",
+      row.rawProductName ?? "",
+      formatNumber(row.quantity),
+      formatNumber(row.unitPrice),
+      formatNumber(row.salesAmount),
+      row.validationStatus ?? "",
+      row.ownerName ?? "",
+    ]);
+
+  return {
+    ok: true,
+    data: {
+      id: upload.uploadId,
+      fileName: upload.fileName,
+      savedAt: upload.uploadedAt,
+      payload: {
+        fileName: upload.fileName,
+        columns: ["거래일", "거래처", "품목 코드", "품목명", "수량", "단가", "금액", "검증", "담당자"],
+        rows,
+        savedAt: upload.uploadedAt,
+        source: "sales_rows",
+      },
+    },
+  };
 }
 
 const seedDepartments = [
@@ -1446,6 +1529,11 @@ function registerDatabaseIpc(ipcMain, app) {
     };
   });
 
+  ipcMain.handle("data:latest", () => {
+    const database = getDatabase(app);
+    return getLatestSalesData(database);
+  });
+
   ipcMain.handle("data:save", (_, data) => {
     const database = getDatabase(app);
     const insertSnapshot = database.prepare(`
@@ -1468,6 +1556,7 @@ function registerDatabaseIpc(ipcMain, app) {
       INSERT INTO sales_rows (
         upload_id,
         row_no,
+        transaction_date,
         raw_customer_name,
         raw_product_name,
         customer_code,
@@ -1476,11 +1565,13 @@ function registerDatabaseIpc(ipcMain, app) {
         unit_price,
         sales_amount,
         validation_status,
-        review_status
+        review_status,
+        owner_name
       )
       VALUES (
         @uploadId,
         @rowNo,
+        @transactionDate,
         @rawCustomerName,
         @rawProductName,
         @customerCode,
@@ -1489,7 +1580,8 @@ function registerDatabaseIpc(ipcMain, app) {
         @unitPrice,
         @salesAmount,
         @validationStatus,
-        @reviewStatus
+        @reviewStatus,
+        @ownerName
       )
     `);
     const insertIssue = database.prepare(`
@@ -1562,15 +1654,17 @@ function registerDatabaseIpc(ipcMain, app) {
         const rowResult = insertRow.run({
           uploadId: upload.lastInsertRowid,
           rowNo: rowIndex + 1,
-          rawCustomerName: getCell(row, indexes.customerName),
-          rawProductName: getCell(row, indexes.productName),
+          transactionDate: getCell(row, 0),
+          rawCustomerName: getCellOr(row, indexes.customerName, 1),
+          rawProductName: getCellOr(row, indexes.productName, 3),
           customerCode: getCell(row, indexes.customerCode),
-          productCode: getCell(row, indexes.productCode),
-          quantity: parseNumber(getCell(row, indexes.quantity)),
-          unitPrice: parseNumber(getCell(row, indexes.unitPrice)),
-          salesAmount: parseNumber(getCell(row, indexes.amount)),
-          validationStatus: status,
+          productCode: getCellOr(row, indexes.productCode, 2),
+          quantity: parseNumber(getCellOr(row, indexes.quantity, 4)),
+          unitPrice: parseNumber(getCellOr(row, indexes.unitPrice, 5)),
+          salesAmount: parseNumber(getCellOr(row, indexes.amount, 6)),
+          validationStatus: status === "PENDING" ? (getCell(row, 7) ?? status) : status,
           reviewStatus,
+          ownerName: getCell(row, 8),
         });
 
         const issues = data?.validationIssues?.[rowIndex] ?? [];
