@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("api", {
   openFile: () => ipcRenderer.invoke("file:open"),
   saveData: (data) => ipcRenderer.invoke("data:save", data),
   getLatestData: () => ipcRenderer.invoke("data:latest"),
+  getDailySalesTrend: (options) => ipcRenderer.invoke("dashboard:sales-daily", options),
   saveFileAs: (file) => ipcRenderer.invoke("file:save-as", file),
   getDatabaseHealth: () => ipcRenderer.invoke("db:health"),
   getDatabaseSummary: () => ipcRenderer.invoke("db:summary"),
@@ -29,4 +30,7 @@ contextBridge.exposeInMainWorld("api", {
   getAppSettings: () => ipcRenderer.invoke("app-settings:get"),
   saveAppSettings: (settings) => ipcRenderer.invoke("app-settings:save", settings),
   chooseDirectory: (options) => ipcRenderer.invoke("app-settings:choose-directory", options),
+  listBackups: () => ipcRenderer.invoke("backups:list"),
+  createBackup: (payload) => ipcRenderer.invoke("backups:create", payload),
+  restoreBackup: (payload) => ipcRenderer.invoke("backups:restore", payload),
 });

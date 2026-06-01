@@ -19,7 +19,6 @@ import DuplicateCheckerPage from './pages/DuplicateCheckerPage';
 import ActivityLogsPage from './pages/ActivityLogsPage';
 import LocalBackupPage from './pages/LocalBackupPage';
 import CloudBackupPage from './pages/CloudBackupPage';
-import RestorePage from './pages/RestorePage';
 import RequestDashboardPage from './pages/RequestDashboardPage';
 import ContactListPage from './pages/ContactListPage';
 import MessageTemplatesPage from './pages/MessageTemplatesPage';
@@ -50,7 +49,6 @@ const routeComponents = {
   ActivityLogsPage,
   LocalBackupPage,
   CloudBackupPage,
-  RestorePage,
   RequestDashboardPage,
   ContactListPage,
   MessageTemplatesPage,

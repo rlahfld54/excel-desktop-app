@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import PageShell from './PageShell';
@@ -106,6 +106,8 @@ function HorizontalBars({ title, items, valueFormatter = toCurrency, colorClass 
 }
 
 function DailyChart({ items, maxValue }) {
+  const safeMaxValue = Math.max(maxValue || 0, 1);
+
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-2">
       <div className="flex items-center justify-between gap-3">
@@ -117,7 +119,7 @@ function DailyChart({ items, maxValue }) {
           <div key={item.day} className="flex min-w-2 flex-1 flex-col items-center justify-end gap-2">
             <div
               className="w-full rounded-t bg-teal-600 transition hover:bg-teal-500"
-              style={{ height: `${Math.max((item.amount / maxValue) * 100, 5)}%` }}
+              style={{ height: `${Math.max((item.amount / safeMaxValue) * 100, 5)}%` }}
               title={`${item.day} ${toCurrency(item.amount)}`}
             />
           </div>
@@ -129,7 +131,46 @@ function DailyChart({ items, maxValue }) {
 
 export default function Dashboard() {
   const currentUser = getCurrentUser();
-  const metrics = useMemo(() => getDashboardMetrics(rows), []);
+  const [dailySalesTrend, setDailySalesTrend] = useState(null);
+  const metrics = useMemo(() => {
+    const baseMetrics = getDashboardMetrics(rows);
+
+    if (!dailySalesTrend?.items?.length) {
+      return baseMetrics;
+    }
+
+    return {
+      ...baseMetrics,
+      daily: dailySalesTrend.items,
+      maxDaily: dailySalesTrend.maxValue,
+    };
+  }, [dailySalesTrend]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadDailySalesTrend() {
+      if (!window.api?.getDailySalesTrend) return;
+
+      const result = await window.api.getDailySalesTrend({ limit: 45 });
+      if (!isMounted || !result?.ok || !result.items?.length) return;
+
+      setDailySalesTrend({
+        items: result.items,
+        maxValue: result.maxValue,
+        source: result.source,
+      });
+    }
+
+    loadDailySalesTrend().catch(() => {
+      // Browser-only development keeps the sample chart when Electron IPC is unavailable.
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const actionItems = [
     { title: '매출 마감 비교', path: '/validate/sales-compare', detail: '전월/당월 마감 차이 확인' },
     { title: '데이터 오류 확인', path: '/collect/data-table', detail: `${metrics.issueCount.toLocaleString('ko-KR')}건 검토 필요` },

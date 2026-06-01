@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-const pageSize = 10;
 const rowHeight = 28;
 const cleanStatuses = ['정상', '승인 완료'];
 const issueStatuses = ['확인 필요', '중복 의심', '수정 필요', '보류'];
@@ -39,6 +38,8 @@ function ExcelTable({
   selectedRowIndex = 0,
   onRowSelect,
   resetKey = 0,
+  visibleRowCount = 10,
+  fillAvailableHeight = false,
 }) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('전체');
@@ -47,6 +48,8 @@ function ExcelTable({
   const [activeTab, setActiveTab] = useState('Sheet 1');
   const [isFirstColumnPinned, setIsFirstColumnPinned] = useState(false);
   const tableViewportRef = useRef(null);
+  const pageSize = Math.max(Number(visibleRowCount) || 10, 1);
+  const tableViewportHeight = pageSize * rowHeight + 24;
 
   const statusColumnIndex = columns.findIndex((column) => ['검증', '상태', '결과'].includes(column));
   const statusOptions = useMemo(() => {
@@ -152,7 +155,7 @@ function ExcelTable({
   };
 
   return (
-    <section className="flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+    <section className={`flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 ${fillAvailableHeight ? 'min-h-0 flex-1' : ''}`}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-2.5 dark:border-gray-700/60">
         <div className="flex items-center gap-2">
           {['Sheet 1', '정제 결과', '오류 목록'].map((tab) => (
@@ -210,7 +213,7 @@ function ExcelTable({
             ))}
           </select>
           <span className="inline-flex h-9 items-center rounded-md border border-gray-200 bg-gray-50 px-2.5 text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900/30 dark:text-gray-400">
-            10행 고정
+            {fillAvailableHeight ? '화면 높이 맞춤' : `${pageSize}행 보기`}
           </span>
           {hasActiveTools && (
             <button className="h-9 rounded-md px-2.5 text-sm font-medium text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60" type="button" onClick={resetTools}>
@@ -234,7 +237,8 @@ function ExcelTable({
 
       <div
         ref={tableViewportRef}
-        className="h-[304px] overflow-auto"
+        className={`overflow-auto ${fillAvailableHeight ? 'min-h-[360px] flex-1' : ''}`}
+        style={fillAvailableHeight ? undefined : { height: tableViewportHeight }}
         onScroll={handleTableScroll}
       >
         {isLoading ? (

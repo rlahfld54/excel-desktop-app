@@ -8,7 +8,7 @@ const fallbackSettings = {
   exportPath: 'C:\\Users\\user\\Documents\\ExcelDesktopApp\\Exports',
   backupPath: 'C:\\Users\\user\\Documents\\ExcelDesktopApp\\Backups',
   tempPath: 'C:\\Users\\user\\Documents\\ExcelDesktopApp\\Temp',
-  retentionDays: 30,
+  retentionDays: 31,
   maxBackupSizeMb: 2048,
   autoBackupEnabled: true,
   autoBackupIntervalMinutes: 30,
@@ -204,7 +204,7 @@ export default function SaveSettingsPage() {
               <input
                 className="form-input mt-2 w-full"
                 min="7"
-                max="180"
+                max="31"
                 type="number"
                 value={settings.retentionDays}
                 onChange={(event) => updateSetting('retentionDays', Number(event.target.value))}

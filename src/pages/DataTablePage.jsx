@@ -263,35 +263,6 @@ export default function DataTablePage() {
           </table>
         </div>
       </section>
-
-      <section className="grid grid-cols-12 gap-5">
-        <aside className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">선택 행</p>
-              <h2 className="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{selectedRow[1] || '거래처 누락'}</h2>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{selectedRow[0]} / {selectedRow[2] || '품목 코드 누락'}</p>
-            </div>
-            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass(selectedRow[7])}`}>{selectedRow[7]}</span>
-          </div>
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            <button className="h-9 rounded-md bg-accent-600 px-2 text-xs font-semibold text-white hover:bg-accent-700" type="button" onClick={() => handleResolve('승인 완료')}>승인</button>
-            <button className="h-9 rounded-md border border-yellow-200 bg-yellow-50 px-2 text-xs font-semibold text-yellow-700 hover:bg-yellow-100 dark:border-yellow-500/30 dark:bg-yellow-500/10 dark:text-yellow-300" type="button" onClick={() => handleResolve('보류')}>보류</button>
-            <button className="h-9 rounded-md border border-red-200 bg-red-50 px-2 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300" type="button" onClick={() => handleResolve('수정 필요')}>수정 필요</button>
-          </div>
-        </aside>
-
-        <aside className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-7">
-          <h2 className="font-semibold text-gray-900 dark:text-gray-100">검증 이슈</h2>
-          <div className="mt-4 space-y-2">
-            {selectedIssues.length ? selectedIssues.map((issue) => (
-              <div key={issue} className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark:border-yellow-500/30 dark:bg-yellow-500/10 dark:text-yellow-200">{issue}</div>
-            )) : (
-              <div className="rounded-md border border-gray-100 px-3 py-2 text-sm text-gray-500 dark:border-gray-700/60 dark:text-gray-400">선택한 행에 기록된 검증 이슈가 없습니다. 검증 실행 후 상세 사유가 표시됩니다.</div>
-            )}
-          </div>
-        </aside>
-      </section>
     </PageShell>
   );
 }

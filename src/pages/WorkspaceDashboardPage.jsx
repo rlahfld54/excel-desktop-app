@@ -319,8 +319,8 @@ function Dashboard() {
           lastSavedAt={lastSavedAt}
         />
 
-        <main className="grow">
-          <div className="w-full max-w-9xl px-4 py-3 sm:px-6 lg:px-8">
+        <main className="flex grow flex-col">
+          <div className="flex min-h-full w-full max-w-9xl flex-1 flex-col px-4 py-3 sm:px-6 lg:px-8">
             <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
               <div>
                 <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 md:text-2xl">
@@ -375,93 +375,11 @@ function Dashboard() {
               selectedRowIndex={selectedRowIndex}
               onRowSelect={handleSelectRow}
               resetKey={tableRevision}
+              visibleRowCount={24}
+              fillAvailableHeight
             />
-
-            <div className="h-32" aria-hidden="true" />
           </div>
         </main>
-
-        <section className="pointer-events-none fixed bottom-3 left-4 right-4 z-30 lg:left-24 2xl:left-[17rem]">
-          <div className="pointer-events-auto overflow-hidden rounded-lg border border-gray-200 bg-white/95 shadow-lg shadow-gray-900/10 backdrop-blur dark:border-gray-700/60 dark:bg-gray-800/95">
-            <div className="grid gap-0 xl:grid-cols-[minmax(300px,0.95fr)_minmax(280px,0.85fr)_minmax(0,1.2fr)]">
-              <div className="border-b border-gray-200 px-3 py-2 dark:border-gray-700/60 xl:border-b-0 xl:border-r">
-                <div className="mb-1.5 flex items-center justify-between gap-3">
-                  <h2 className="font-semibold text-gray-900 dark:text-gray-100">선택 행 상세</h2>
-                  <span className="rounded bg-accent-50 px-2 py-1 text-xs font-semibold text-accent-700 dark:bg-accent-500/10 dark:text-accent-300">
-                    #{selectedRowIndex + 1} · {selectedAction ? actionLabels[selectedAction] : selectedStatus || '상태 없음'}
-                  </span>
-                </div>
-                <div className="mb-2 grid grid-cols-3 gap-2">
-                  {selectedRowDetails.slice(0, 3).map((detail) => (
-                    <div key={detail.column} className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-gray-400 dark:text-gray-500">{detail.column}</p>
-                      <p className="truncate text-xs font-medium text-gray-800 dark:text-gray-100">{detail.value}</p>
-                    </div>
-                  ))}
-                </div>
-                {selectedIssues.length > 0 && (
-                  <p className="mt-2 truncate text-xs text-yellow-700 dark:text-yellow-300">
-                    {selectedIssues[0]}
-                  </p>
-                )}
-                <div className="grid grid-cols-3 gap-2">
-                  <button className="h-8 rounded-md bg-accent-600 px-2 text-xs font-semibold text-white hover:bg-accent-700" type="button" onClick={() => handleResolveSelectedRow('approved')}>
-                    승인
-                  </button>
-                  <button className="h-8 rounded-md border border-yellow-200 bg-yellow-50 px-2 text-xs font-semibold text-yellow-700 hover:bg-yellow-100 dark:border-yellow-500/30 dark:bg-yellow-500/10 dark:text-yellow-300" type="button" onClick={() => handleResolveSelectedRow('hold')}>
-                    보류
-                  </button>
-                  <button className="h-8 rounded-md border border-red-200 bg-red-50 px-2 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300" type="button" onClick={() => handleResolveSelectedRow('needsEdit')}>
-                    수정 필요
-                  </button>
-                </div>
-              </div>
-
-              <div className="border-b border-gray-200 px-3 py-2 dark:border-gray-700/60 xl:border-b-0 xl:border-r">
-                <div className="mb-1.5 flex items-center justify-between gap-3">
-                  <h2 className="font-semibold text-gray-900 dark:text-gray-100">자동화 큐</h2>
-                  <span className="truncate text-xs text-gray-500 dark:text-gray-400">활성 파일: {tableData.fileName}</span>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {automationQueue.map((step, index) => (
-                    <div key={step.title} className="min-w-0">
-                      <div className="mb-1 flex items-center gap-1.5">
-                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${index === 0 ? 'bg-accent-600 text-white' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>
-                          {index + 1}
-                        </span>
-                        <span className="truncate text-xs font-medium text-gray-700 dark:text-gray-200">{step.title}</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700">
-                        <div className="h-1.5 rounded-full bg-accent-500" style={{ width: `${step.progress}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="px-3 py-2">
-                <div className="mb-1.5 flex items-center justify-between gap-3">
-                  <h2 className="font-semibold text-gray-900 dark:text-gray-100">로그 및 자동화 상태</h2>
-                  <span className="truncate text-xs text-gray-500 dark:text-gray-400">{uploadState} · {downloadState}</span>
-                </div>
-                <div className="grid gap-2 md:grid-cols-4">
-                  {logs.slice(0, 4).map((log) => (
-                    <div key={`${log.time}-${log.text}`} className="min-w-0 rounded-md bg-gray-50 px-2.5 py-1.5 text-sm dark:bg-gray-900/30">
-                      <div className="mb-1 flex items-center gap-2">
-                        <span className="font-mono text-xs text-gray-400">{log.time}</span>
-                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${log.type === 'ERROR' ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300' : log.type === 'WARN' ? 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300' : 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300'}`}>
-                          {log.type}
-                        </span>
-                      </div>
-                      <p className="truncate text-gray-600 dark:text-gray-300">{log.text}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
       </div>
     </div>
   );

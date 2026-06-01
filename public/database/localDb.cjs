@@ -754,6 +754,61 @@ function getLatestSalesData(database) {
   };
 }
 
+function getDailySalesTrend(database, limit = 45) {
+  const upload = database
+    .prepare(
+      `
+      SELECT upload_id AS uploadId, file_name AS fileName, uploaded_at AS uploadedAt
+      FROM sales_uploads
+      ORDER BY uploaded_at DESC, upload_id DESC
+      LIMIT 1
+    `,
+    )
+    .get();
+
+  if (!upload) {
+    return { ok: true, items: [], maxValue: 0, source: null };
+  }
+
+  const items = database
+    .prepare(
+      `
+      SELECT
+        substr(transaction_date, 1, 10) AS date,
+        substr(transaction_date, 6, 5) AS day,
+        COALESCE(SUM(sales_amount), 0) AS amount
+      FROM sales_rows
+      WHERE upload_id = @uploadId
+        AND transaction_date IS NOT NULL
+        AND transaction_date <> ''
+      GROUP BY substr(transaction_date, 1, 10)
+      ORDER BY date DESC
+      LIMIT @limit
+    `,
+    )
+    .all({
+      uploadId: upload.uploadId,
+      limit: Math.max(Number(limit) || 45, 1),
+    })
+    .reverse()
+    .map((item) => ({
+      date: item.date,
+      day: item.day || item.date,
+      amount: Number(item.amount) || 0,
+    }));
+
+  return {
+    ok: true,
+    items,
+    maxValue: Math.max(0, ...items.map((item) => item.amount)),
+    source: {
+      uploadId: upload.uploadId,
+      fileName: upload.fileName,
+      uploadedAt: upload.uploadedAt,
+    },
+  };
+}
+
 const seedDepartments = [
   { departmentCode: "GENERAL_AFFAIRS", departmentName: "총무팀" },
   { departmentCode: "SALES", departmentName: "영업팀" },
@@ -1360,6 +1415,15 @@ function initializeDatabase(app) {
   };
 }
 
+function getDatabasePath(app) {
+  return getDatabase(app).name;
+}
+
+function backupDatabase(app, destinationPath) {
+  const database = getDatabase(app);
+  return database.backup(destinationPath);
+}
+
 function registerDatabaseIpc(ipcMain, app) {
   ipcMain.handle("db:health", () => {
     const database = getDatabase(app);
@@ -1532,6 +1596,11 @@ function registerDatabaseIpc(ipcMain, app) {
   ipcMain.handle("data:latest", () => {
     const database = getDatabase(app);
     return getLatestSalesData(database);
+  });
+
+  ipcMain.handle("dashboard:sales-daily", (_, options) => {
+    const database = getDatabase(app);
+    return getDailySalesTrend(database, options?.limit);
   });
 
   ipcMain.handle("data:save", (_, data) => {
@@ -1715,7 +1784,9 @@ function closeDatabase() {
 }
 
 module.exports = {
+  backupDatabase,
   closeDatabase,
+  getDatabasePath,
   initializeDatabase,
   registerDatabaseIpc,
 };

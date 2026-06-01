@@ -5,86 +5,266 @@ import PageShell from './PageShell';
 
 const fallbackSettings = {
   databasePath: 'C:\\Users\\user\\AppData\\Roaming\\excel-desktop-app\\excel-desktop-app.sqlite',
+  settingsPath: 'C:\\Users\\user\\AppData\\Roaming\\excel-desktop-app\\app-settings.json',
   backupPath: 'C:\\Users\\user\\Documents\\ExcelDesktopApp\\Backups',
-  exportPath: 'C:\\Users\\user\\Documents\\ExcelDesktopApp\\Exports',
-  retentionDays: 30,
-  maxBackupSizeMb: 2048,
+  retentionDays: 31,
   autoBackupEnabled: true,
-  autoBackupIntervalMinutes: 30,
+  autoBackupTime: '23:50',
 };
 
-const backupTargets = [
-  { label: 'SQLite DB', type: 'database', fileName: 'excel-desktop-app.sqlite', priority: '필수' },
-  { label: '설정 파일', type: 'settings', fileName: 'app-settings.json', priority: '필수' },
-  { label: '내보내기 산출물', type: 'exports', fileName: 'Exports 폴더', priority: '선택' },
+const sampleBackups = [
+  {
+    id: 'sample_auto_yesterday',
+    message: '자동 백업 - 어제 23:50',
+    type: 'auto',
+    createdBy: '시스템',
+    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    retentionUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    sizeBytes: 68400000,
+    folderPath: fallbackSettings.backupPath,
+  },
+  {
+    id: 'sample_manual_final',
+    message: '5월 마감 전 최종본',
+    type: 'manual',
+    createdBy: '사용자',
+    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    retentionUntil: new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString(),
+    sizeBytes: 72100000,
+    folderPath: fallbackSettings.backupPath,
+  },
 ];
+
+function formatDate(value) {
+  if (!value) return '-';
+  return new Intl.DateTimeFormat('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value));
+}
+
+function formatSize(bytes = 0) {
+  if (!bytes) return '-';
+  const mb = bytes / 1024 / 1024;
+  return `${mb.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}MB`;
+}
+
+function backupTypeLabel(type) {
+  if (type === 'auto') return '자동 백업';
+  if (type === 'restore_point') return '복구 전 저장';
+  return '수동 백업';
+}
+
+function backupTypeClass(type) {
+  if (type === 'auto') return 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300';
+  if (type === 'restore_point') return 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
+  return 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300';
+}
+
+function getYesterdayBackup(backups) {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const key = yesterday.toISOString().slice(0, 10);
+
+  return backups
+    .filter((backup) => backup.createdAt?.slice(0, 10) === key)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+}
 
 function MetricCard({ label, value, detail }) {
   return (
     <section className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
       <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
       <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{value}</p>
-      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
+      <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">{detail}</p>
     </section>
   );
 }
 
-function priorityClass(priority) {
-  return priority === '필수'
-    ? 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300'
-    : 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300';
+function BackupRow({ backup, selected, onPreview, onRestore }) {
+  return (
+    <article className={`rounded-lg border bg-white p-4 shadow-xs dark:bg-gray-800 ${selected ? 'border-accent-300 ring-2 ring-accent-100 dark:border-accent-500/60 dark:ring-accent-500/20' : 'border-gray-200 dark:border-gray-700/60'}`}>
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="truncate text-base font-semibold text-gray-900 dark:text-gray-100">{backup.message}</h2>
+            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${backupTypeClass(backup.type)}`}>
+              {backupTypeLabel(backup.type)}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            {backup.createdBy || '사용자'} · {formatDate(backup.createdAt)} · {formatSize(backup.sizeBytes)}
+          </p>
+          <p className="mt-2 break-all text-xs text-gray-400 dark:text-gray-500">{backup.folderPath}</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button className="btn btn-secondary" type="button" onClick={() => onPreview(backup)}>
+            미리보기
+          </button>
+          <button className="btn btn-primary" type="button" onClick={() => onRestore(backup)}>
+            이 시점으로 복구
+          </button>
+        </div>
+      </div>
+    </article>
+  );
 }
 
 export default function LocalBackupPage() {
   const [settings, setSettings] = useState(fallbackSettings);
-  const [loadState, setLoadState] = useState('브라우저 미리보기');
+  const [backups, setBackups] = useState(sampleBackups);
+  const [selectedBackup, setSelectedBackup] = useState(sampleBackups[0]);
+  const [message, setMessage] = useState('');
+  const [query, setQuery] = useState('');
+  const [statusText, setStatusText] = useState('브라우저 미리보기 데이터입니다.');
+  const [isBusy, setIsBusy] = useState(false);
 
-  const metrics = useMemo(() => [
-    { label: '백업 폴더', value: 'Local', detail: settings.backupPath },
-    { label: '보관 기간', value: `${settings.retentionDays}일`, detail: '이후 정리 후보' },
-    { label: '최대 용량', value: `${settings.maxBackupSizeMb.toLocaleString('ko-KR')}MB`, detail: 'SSD 여유 공간 보호' },
-    { label: '자동 백업', value: settings.autoBackupEnabled ? '켜짐' : '꺼짐', detail: `${settings.autoBackupIntervalMinutes}분 간격` },
-  ], [settings]);
+  const electronReady = Boolean(window.api?.listBackups);
 
-  const loadSettings = async () => {
-    if (!window.api?.getAppSettings) {
-      setSettings(fallbackSettings);
-      setLoadState('브라우저 미리보기');
+  const loadBackups = async () => {
+    if (!window.api?.listBackups) {
+      setBackups(sampleBackups);
+      setSelectedBackup(sampleBackups[0]);
+      setStatusText('Electron 실행 시 실제 백업 파일과 연결됩니다.');
       return;
     }
 
+    setIsBusy(true);
     try {
-      const result = await window.api.getAppSettings();
-      setSettings(result.settings);
-      setLoadState('Electron 설정 연결됨');
+      const result = await window.api.listBackups();
+      const loadedBackups = result.backups ?? [];
+      setSettings({ ...fallbackSettings, ...(result.settings ?? {}) });
+      setBackups(loadedBackups);
+      setSelectedBackup((current) => loadedBackups.find((backup) => backup.id === current?.id) ?? loadedBackups[0] ?? null);
+      setStatusText(loadedBackups.length > 0 ? '백업 목록을 불러왔습니다.' : '아직 저장된 백업이 없습니다.');
     } catch (error) {
-      setSettings(fallbackSettings);
-      setLoadState(`설정 확인 필요: ${error.message}`);
+      setStatusText(`백업 목록 확인 실패: ${error.message}`);
+    } finally {
+      setIsBusy(false);
     }
   };
 
   useEffect(() => {
-    loadSettings();
+    loadBackups();
   }, []);
 
+  const filteredBackups = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return backups;
+
+    return backups.filter((backup) => [
+      backup.message,
+      backup.type,
+      backup.createdBy,
+      backup.createdAt,
+    ].some((value) => String(value ?? '').toLowerCase().includes(normalizedQuery)));
+  }, [backups, query]);
+
+  const yesterdayBackup = useMemo(() => getYesterdayBackup(backups), [backups]);
+
+  const metrics = useMemo(() => [
+    { label: '보관 기간', value: '최대 1개월', detail: `${Math.min(settings.retentionDays ?? 31, 31)}일 이후 자동 정리` },
+    { label: '자동 백업', value: settings.autoBackupEnabled ? '켜짐' : '꺼짐', detail: `매일 ${settings.autoBackupTime ?? '23:50'}` },
+    { label: '백업 수', value: `${backups.length.toLocaleString('ko-KR')}개`, detail: '수동/자동/복구 전 저장 포함' },
+    { label: '최근 백업', value: backups[0] ? formatDate(backups[0].createdAt) : '-', detail: backups[0]?.message ?? '아직 없음' },
+  ], [backups, settings]);
+
+  const handleCreateBackup = async () => {
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage) {
+      setStatusText('백업 메모를 입력해 주세요.');
+      return;
+    }
+
+    if (!window.api?.createBackup) {
+      const previewBackup = {
+        id: `preview_${Date.now()}`,
+        message: trimmedMessage,
+        type: 'manual',
+        createdBy: '사용자',
+        createdAt: new Date().toISOString(),
+        retentionUntil: new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString(),
+        sizeBytes: 0,
+        folderPath: fallbackSettings.backupPath,
+      };
+      setBackups((current) => [previewBackup, ...current]);
+      setSelectedBackup(previewBackup);
+      setMessage('');
+      setStatusText('미리보기 백업을 추가했습니다. Electron에서 실행하면 실제 파일로 저장됩니다.');
+      return;
+    }
+
+    setIsBusy(true);
+    try {
+      const result = await window.api.createBackup({ message: trimmedMessage, type: 'manual', createdBy: '사용자' });
+      setMessage('');
+      await loadBackups();
+      setSelectedBackup(result.backup);
+      setStatusText('수동 백업을 저장했습니다.');
+    } catch (error) {
+      setStatusText(`수동 백업 실패: ${error.message}`);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleRestore = async (backup) => {
+    setSelectedBackup(backup);
+
+    if (!window.confirm(`"${backup.message}" 시점으로 복구할까요?\n현재 상태는 복구 전에 자동 백업됩니다.`)) {
+      return;
+    }
+
+    if (!window.api?.restoreBackup) {
+      setStatusText('Electron 실행 시 실제 복구가 가능합니다. 현재는 UI 미리보기입니다.');
+      return;
+    }
+
+    setIsBusy(true);
+    try {
+      await window.api.restoreBackup({ backupId: backup.id });
+      await loadBackups();
+      setStatusText('복구가 완료되었습니다. 복구 직전 상태도 자동 저장했습니다.');
+    } catch (error) {
+      setStatusText(`복구 실패: ${error.message}`);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleRestoreYesterday = () => {
+    if (!yesterdayBackup) {
+      setStatusText('어제 날짜의 백업이 없습니다. 매일 23:50 자동 백업 이후부터 사용할 수 있습니다.');
+      return;
+    }
+
+    handleRestore(yesterdayBackup);
+  };
+
   return (
-    <PageShell title="로컬 백업" description="이 PC의 SSD 용량을 고려해 SQLite, 설정 파일, 산출물 백업 위치와 보관 정책을 확인합니다.">
+    <PageShell title="백업 및 복구" description="월 마감 전후의 데이터를 GitHub 커밋처럼 메모와 함께 남기고, 필요한 날짜의 백업으로 되돌립니다. 백업본은 최대 한 달만 보관합니다.">
       <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Local backup</p>
-            <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{loadState}</p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">119GB SSD 환경에서는 백업 위치와 용량 제한을 먼저 정해두는 편이 안전합니다.</p>
+            <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Backup timeline</p>
+            <p className="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{statusText}</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              자동 백업은 매일 23:50에 생성되고, 수동 백업은 커밋 메시지처럼 메모를 남깁니다.
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn btn-secondary" type="button" onClick={loadSettings}>
+            <button className="btn btn-secondary" type="button" onClick={loadBackups} disabled={isBusy}>
               새로고침
             </button>
             <Link className="btn btn-secondary" to="/settings/save">
-              경로 설정
+              저장 경로 설정
             </Link>
-            <button className="btn btn-primary" type="button">
-              즉시 백업
+            <button className="btn btn-primary" type="button" onClick={handleRestoreYesterday} disabled={isBusy}>
+              어제 기준 복구
             </button>
           </div>
         </div>
@@ -97,75 +277,111 @@ export default function LocalBackupPage() {
       </div>
 
       <div className="grid grid-cols-12 gap-5">
-        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8">
-          <header className="border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
-            <h2 className="font-semibold text-gray-900 dark:text-gray-100">백업 대상</h2>
-          </header>
-          <div className="overflow-x-auto">
-            <table className="min-w-[760px] w-full border-separate border-spacing-0 text-sm">
-              <thead>
-                <tr>
-                  {['대상', '유형', '원본 위치', '우선순위'].map((column) => (
-                    <th key={column} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-400">
-                      {column}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {backupTargets.map((target) => {
-                  const sourcePath = target.type === 'database'
-                    ? settings.databasePath
-                    : target.type === 'exports'
-                      ? settings.exportPath
-                      : settings.settingsPath ?? 'app-settings.json';
+        <section className="col-span-12 space-y-4 xl:col-span-8">
+          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+              <label className="block">
+                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">백업 메모</span>
+                <input
+                  className="form-input mt-2 w-full"
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  placeholder="예: 6월 마감 전 최종본"
+                />
+              </label>
+              <button className="btn btn-primary h-10" type="button" onClick={handleCreateBackup} disabled={isBusy}>
+                최종본 백업 남기기
+              </button>
+            </div>
+            {!electronReady && (
+              <p className="mt-3 text-xs text-amber-600 dark:text-amber-300">
+                현재 브라우저 미리보기입니다. 데스크톱 앱으로 실행하면 SQLite와 설정 파일이 실제 백업됩니다.
+              </p>
+            )}
+          </div>
 
-                  return (
-                    <tr key={target.type} className="group">
-                      <td className="border-b border-r border-gray-200 px-3 py-2 font-medium text-gray-800 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-100 dark:group-hover:bg-accent-500/10">
-                        {target.label}
-                      </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
-                        {target.fileName}
-                      </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
-                        {sourcePath}
-                      </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${priorityClass(target.priority)}`}>
-                          {target.priority}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100">백업 히스토리</h2>
+              <input
+                className="form-input h-9 w-full sm:w-64"
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="메모, 날짜, 유형 검색"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {filteredBackups.map((backup) => (
+              <BackupRow
+                key={backup.id}
+                backup={backup}
+                selected={selectedBackup?.id === backup.id}
+                onPreview={setSelectedBackup}
+                onRestore={handleRestore}
+              />
+            ))}
+            {filteredBackups.length === 0 && (
+              <section className="rounded-lg border border-dashed border-gray-300 bg-white px-4 py-10 text-center text-sm text-gray-500 dark:border-gray-700/60 dark:bg-gray-800 dark:text-gray-400">
+                조건에 맞는 백업이 없습니다.
+              </section>
+            )}
           </div>
         </section>
 
-        <aside className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4">
-          <h2 className="font-semibold text-gray-900 dark:text-gray-100">백업 정책</h2>
-          <div className="mt-4 space-y-3">
-            {[
-              ['백업 폴더', settings.backupPath],
-              ['보관 기간', `${settings.retentionDays}일`],
-              ['용량 제한', `${settings.maxBackupSizeMb.toLocaleString('ko-KR')}MB`],
-              ['자동 백업', settings.autoBackupEnabled ? `${settings.autoBackupIntervalMinutes}분 간격` : '꺼짐'],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
-                <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
-                <p className="mt-1 break-all text-sm font-medium text-gray-800 dark:text-gray-100">{value}</p>
+        <aside className="col-span-12 space-y-5 xl:col-span-4">
+          <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+            <h2 className="font-semibold text-gray-900 dark:text-gray-100">선택한 복구 지점</h2>
+            {selectedBackup ? (
+              <div className="mt-4 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">메모</p>
+                  <p className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">{selectedBackup.message}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">생성 시각</p>
+                  <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{formatDate(selectedBackup.createdAt)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">보관 만료</p>
+                  <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{formatDate(selectedBackup.retentionUntil)}</p>
+                </div>
+                <button className="btn btn-primary w-full" type="button" onClick={() => handleRestore(selectedBackup)} disabled={isBusy}>
+                  선택 백업으로 복구
+                </button>
               </div>
-            ))}
-          </div>
+            ) : (
+              <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">백업을 선택하면 복구 정보를 확인할 수 있습니다.</p>
+            )}
+          </section>
 
-          <div className="mt-5 rounded-lg border border-accent-200 bg-accent-50/70 p-4 dark:border-accent-500/30 dark:bg-accent-500/10">
-            <p className="text-xs font-semibold uppercase text-accent-700 dark:text-accent-300">다음 구현</p>
-            <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-200">
-              즉시 백업 버튼은 다음 단계에서 SQLite와 설정 파일을 백업 폴더로 복사하고 backup_history에 기록하도록 연결하면 됩니다.
-            </p>
-          </div>
+          <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+            <h2 className="font-semibold text-gray-900 dark:text-gray-100">운영 규칙</h2>
+            <div className="mt-4 space-y-3 text-sm text-gray-600 dark:text-gray-300">
+              <p>매일 23:50에 자동 백업을 생성합니다.</p>
+              <p>사용자가 남기는 수동 백업은 메모와 생성자를 함께 기록합니다.</p>
+              <p>복구 전에는 현재 상태를 자동 저장해 되돌릴 지점을 남깁니다.</p>
+              <p>모든 백업은 월 마감 기준에 맞춰 최대 한 달만 보관합니다.</p>
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+            <h2 className="font-semibold text-gray-900 dark:text-gray-100">저장 위치</h2>
+            <div className="mt-4 space-y-3">
+              {[
+                ['백업 폴더', settings.backupPath],
+                ['SQLite DB', settings.databasePath],
+                ['설정 파일', settings.settingsPath],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
+                  <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
+                  <p className="mt-1 break-all text-sm text-gray-700 dark:text-gray-300">{value}</p>
+                </div>
+              ))}
+            </div>
+          </section>
         </aside>
       </div>
     </PageShell>
