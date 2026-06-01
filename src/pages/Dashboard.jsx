@@ -131,10 +131,10 @@ export default function Dashboard() {
   const currentUser = getCurrentUser();
   const metrics = useMemo(() => getDashboardMetrics(rows), []);
   const actionItems = [
-    { title: '매출 마감 비교', path: '/closing/sales-compare', detail: '전월/당월 마감 차이 확인' },
-    { title: '데이터 오류 확인', path: '/closing/data-table', detail: `${metrics.issueCount.toLocaleString('ko-KR')}건 검토 필요` },
-    { title: '중복 검사', path: '/closing/duplicate-checker', detail: `${metrics.duplicateCount.toLocaleString('ko-KR')}건 중복 의심` },
-    { title: '보고서 생성', path: '/reports/generator', detail: '월간 매출/거래처 비율 양식 준비' },
+    { title: '매출 마감 비교', path: '/validate/sales-compare', detail: '전월/당월 마감 차이 확인' },
+    { title: '데이터 오류 확인', path: '/collect/data-table', detail: `${metrics.issueCount.toLocaleString('ko-KR')}건 검토 필요` },
+    { title: '중복 검사', path: '/validate/duplicate-checker', detail: `${metrics.duplicateCount.toLocaleString('ko-KR')}건 중복 의심` },
+    { title: '보고서 생성', path: '/results/report-generator', detail: '월간 매출/거래처 비율 양식 준비' },
   ];
 
   return (
@@ -203,7 +203,7 @@ export default function Dashboard() {
           <p className="mt-2 text-sm leading-6 text-teal-800 dark:text-teal-200">
             현재 대시보드는 총무팀 보고 기준으로 구성되어 있으며, 보고서 생성 페이지의 회사 공통 양식과 같은 포인트 색상을 사용합니다.
           </p>
-          <Link className="btn btn-primary mt-4 w-full" to="/reports/generator">보고서 생성으로 이동</Link>
+          <Link className="btn btn-primary mt-4 w-full" to="/results/report-generator">보고서 생성으로 이동</Link>
         </section>
       </div>
     </PageShell>

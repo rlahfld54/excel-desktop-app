@@ -10,10 +10,13 @@ function getSegmentLabel(pathnames, index, value) {
   if (group) return group.title;
 
   const segmentLabels = {
+    collect: '자료 취합',
+    validate: '데이터 검증',
     project: '프로젝트',
     data: '데이터',
     backup: '백업',
     request: '요청 센터',
+    results: '결과·이력',
     settings: '설정',
     admin: '관리자',
   };

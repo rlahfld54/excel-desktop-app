@@ -17,7 +17,7 @@ function NotFoundPage() {
           <Link className="btn btn-primary" to="/">
             대시보드로 이동
           </Link>
-          <Link className="btn btn-secondary" to="/project/recent-tasks">
+          <Link className="btn btn-secondary" to="/results/recent-tasks">
             최근 작업 보기
           </Link>
         </div>

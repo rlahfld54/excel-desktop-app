@@ -145,7 +145,7 @@ export default function ReportGeneratorPage() {
     <PageShell title="보고서 작성" description="총무팀에서 바로 사용할 수 있는 회사 공통 양식의 보고서를 생성하고 내려받습니다.">
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button className="btn btn-primary" type="button" onClick={handleCreateReport}>보고서 생성</button>
-        <Link className="btn btn-secondary" to="/reports/templates">템플릿 추가</Link>
+        <Link className="btn btn-secondary" to="/results/report-templates">템플릿 추가</Link>
         <button className="btn btn-secondary" type="button" onClick={handleExportCsv}>CSV 내보내기</button>
         <span className="text-sm text-gray-500 dark:text-gray-400">{statusText}</span>
       </div>
