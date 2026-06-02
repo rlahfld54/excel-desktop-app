@@ -5,6 +5,8 @@ import './css/style.css';
 import './charts/ChartjsConfig';
 
 import Dashboard from './pages/Dashboard';
+import WelcomePage from './pages/WelcomePage';
+import LoginPage from './pages/LoginPage';
 import WorkspaceDashboardPage from './pages/WorkspaceDashboardPage';
 import RecentTasksPage from './pages/RecentTasksPage';
 import FileManagerPage from './pages/FileManagerPage';
@@ -95,7 +97,9 @@ function App() {
 
   return (
     <Routes>
-      <Route exact path="/" element={<Dashboard />} />
+      <Route exact path="/" element={<WelcomePage />} />
+      <Route exact path="/login" element={<LoginPage />} />
+      <Route exact path="/dashboard" element={<Dashboard />} />
 
       {menuGroups.map((group) => {
         const FirstPage = routeComponents[group.items[0].component];

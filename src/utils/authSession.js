@@ -78,6 +78,15 @@ export function createAdminSession() {
   };
 }
 
+export function createUserSession(user) {
+  return {
+    userId: user.id,
+    role: user.role,
+    autoLogin: true,
+    loggedInAt: new Date().toISOString(),
+  };
+}
+
 export function ensureAdminUser(users) {
   const source = Array.isArray(users) ? users : defaultUsers;
   const normalized = source.map((user) => ({
@@ -124,7 +133,7 @@ export function saveUsers(users) {
 
 export function getSession() {
   const saved = readJson(sessionStorageKey, null);
-  if (saved?.userId === adminUserId && saved?.role === 'ADMIN') return saved;
+  if (saved?.userId && saved?.role) return saved;
 
   const session = createAdminSession();
   writeJson(sessionStorageKey, session);
@@ -132,11 +141,11 @@ export function getSession() {
 }
 
 export function saveSession(session) {
+  const users = getUsers();
+  const requestedUser = users.find((user) => user.id === session?.userId) ?? users[0];
   const nextSession = {
-    ...createAdminSession(),
+    ...createUserSession(requestedUser),
     ...session,
-    userId: adminUserId,
-    role: 'ADMIN',
     autoLogin: true,
   };
   writeJson(sessionStorageKey, nextSession);
