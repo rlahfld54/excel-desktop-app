@@ -50,11 +50,11 @@
 }
 
 .btn-primary {
-    @apply border-accent-600 bg-accent-600 text-white shadow-accent-900/10 hover:border-accent-700 hover:bg-accent-700 focus-visible:ring-2 focus-visible:ring-accent-500/50 dark:border-accent-500 dark:bg-accent-500 dark:text-white dark:hover:border-accent-400 dark:hover:bg-accent-400;
+    @apply border-teal-700 bg-teal-700 text-white shadow-teal-900/10 hover:border-teal-800 hover:bg-teal-800 focus-visible:ring-2 focus-visible:ring-teal-500/50 dark:border-accent-400 dark:bg-accent-400 dark:text-gray-950 dark:hover:border-accent-300 dark:hover:bg-accent-300;
 }
 
 .btn-secondary {
-    @apply border-gray-200 bg-white text-gray-700 hover:border-accent-200 hover:bg-accent-50 hover:text-accent-700 focus-visible:ring-2 focus-visible:ring-accent-500/30 dark:border-gray-700/60 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-accent-500/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-300;
+    @apply border-gray-200 bg-white text-gray-700 hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700 focus-visible:ring-2 focus-visible:ring-teal-500/30 dark:border-gray-700/60 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-accent-500/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-300;
 }
 
 .btn-ghost-accent {

@@ -1,7 +1,7 @@
 ﻿import React, { useState, useRef, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Transition from '../utils/Transition';
-import { addActivityLog, authChangedEvent, getCurrentUser, saveSession } from '../utils/authSession';
+import { addActivityLog, authChangedEvent, clearSession, getCurrentUser, saveSession } from '../utils/authSession';
 
 import UserAvatar from '../images/user-avatar-32.png';
 
@@ -9,6 +9,7 @@ function DropdownProfile({
   align
 }) {
 
+  const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
 
@@ -41,6 +42,13 @@ function DropdownProfile({
     addActivityLog('INFO', '자동 로그인 유지', currentUser.id);
     setCurrentUser(getCurrentUser());
     setDropdownOpen(false);
+  };
+
+  const handleLogout = () => {
+    addActivityLog('INFO', '로그아웃', currentUser.id, currentUser.id);
+    clearSession();
+    setDropdownOpen(false);
+    navigate('/login', { replace: true });
   };
 
   // close if the esc key is pressed
@@ -120,6 +128,15 @@ function DropdownProfile({
                 onClick={handleKeepLogin}
               >
                 자동 로그인 유지
+              </button>
+            </li>
+            <li className="mt-1 border-t border-gray-200 pt-1 dark:border-gray-700/60">
+              <button
+                className="flex w-full items-center px-3 py-1 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-300 dark:hover:text-red-200"
+                type="button"
+                onClick={handleLogout}
+              >
+                로그아웃
               </button>
             </li>
           </ul>

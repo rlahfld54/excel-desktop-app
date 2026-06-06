@@ -9,9 +9,9 @@ import { authChangedEvent, getCurrentUser } from '../utils/authSession';
 
 const toolbarItems = [
   {
-    label: '업로드',
+    label: '파일 업로드',
     icon: 'M8 1 3 6h3v5h4V6h3L8 1ZM3 13v2h10v-2H3Z',
-    help: '엑셀/CSV를 화면에만 불러옵니다. 저장 버튼을 누르기 전까지 SQLite에는 반영되지 않습니다.',
+    help: 'CSV/XLSX 파일을 업로드 전 검증 화면으로 불러옵니다. 검증 내용을 적용하기 전까지 SQLite에는 반영되지 않습니다.',
   },
   {
     label: '저장',
@@ -58,9 +58,9 @@ function Header({
   };
 
   return (
-    <header className={`sticky top-0 before:absolute before:inset-0 before:backdrop-blur-md max-lg:before:bg-white/90 dark:max-lg:before:bg-gray-800/90 before:-z-10 z-30 ${variant === 'v2' || variant === 'v3' ? 'before:bg-white after:absolute after:h-px after:inset-x-0 after:top-full after:bg-gray-200 dark:after:bg-gray-700/60 after:-z-10' : 'max-lg:shadow-xs lg:before:bg-gray-100/90 dark:lg:before:bg-gray-900/90'} ${variant === 'v2' ? 'dark:before:bg-gray-800' : ''} ${variant === 'v3' ? 'dark:before:bg-gray-900' : ''}`}>
+    <header className={`sticky top-0 before:absolute before:inset-0 before:backdrop-blur-md max-lg:before:bg-white/92 dark:max-lg:before:bg-gray-800/90 before:-z-10 z-30 ${variant === 'v2' || variant === 'v3' ? 'before:bg-white after:absolute after:h-px after:inset-x-0 after:top-full after:bg-gray-200 dark:after:bg-gray-700/60 after:-z-10' : 'before:bg-white/86 dark:before:bg-gray-900/88 after:absolute after:h-px after:inset-x-0 after:top-full after:bg-gray-200/80 dark:after:bg-gray-700/60 after:-z-10'} ${variant === 'v2' ? 'dark:before:bg-gray-800' : ''} ${variant === 'v3' ? 'dark:before:bg-gray-900' : ''}`}>
       <div className="px-4 sm:px-6 lg:px-8">
-        <div className={`flex h-16 items-center justify-between gap-4 ${variant === 'v2' || variant === 'v3' ? '' : 'border-gray-200 dark:border-gray-700/60 lg:border-b'}`}>
+        <div className="flex h-16 items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <button
               className="text-gray-500 hover:text-accent-600 dark:hover:text-accent-300 lg:hidden"

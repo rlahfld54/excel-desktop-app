@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
 
 import './css/style.css';
 import './charts/ChartjsConfig';
@@ -34,6 +34,7 @@ import TaskHistoryPage from './pages/TaskHistoryPage';
 import SystemStatusPage from './pages/SystemStatusPage';
 import CacheManagerPage from './pages/CacheManagerPage';
 import NotFoundPage from './pages/NotFoundPage';
+import { hasActiveSession } from './utils/authSession';
 import { menuGroups, pageRoutes } from './routesConfig'; // 메뉴 라우터 모음
 
 const routeComponents = {
@@ -64,6 +65,16 @@ const routeComponents = {
   SystemStatusPage,
   CacheManagerPage,
 };
+
+function ProtectedRoute({ children }) {
+  const location = useLocation();
+
+  if (!hasActiveSession()) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+
+  return children;
+}
 
 function App() {
   // import { Routes, Route, useLocation } from 'react-router-dom';
@@ -99,16 +110,16 @@ function App() {
     <Routes>
       <Route exact path="/" element={<WelcomePage />} />
       <Route exact path="/login" element={<LoginPage />} />
-      <Route exact path="/dashboard" element={<Dashboard />} />
+      <Route exact path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
 
       {menuGroups.map((group) => {
         const FirstPage = routeComponents[group.items[0].component];
-        return <Route key={group.basePath} exact path={group.basePath} element={<FirstPage />} />;
+        return <Route key={group.basePath} exact path={group.basePath} element={<ProtectedRoute><FirstPage /></ProtectedRoute>} />;
       })}
 
       {pageRoutes.map((route) => {
         const PageComponent = routeComponents[route.component];
-        return <Route key={route.path} exact path={route.path} element={<PageComponent />} />;
+        return <Route key={route.path} exact path={route.path} element={<ProtectedRoute><PageComponent /></ProtectedRoute>} />;
       })}
 
       <Route path="*" element={<NotFoundPage />} />

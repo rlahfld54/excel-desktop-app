@@ -65,6 +65,10 @@ function writeJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function removeJson(key) {
+  localStorage.removeItem(key);
+}
+
 function notifyAuthChanged() {
   window.dispatchEvent(new CustomEvent(authChangedEvent));
 }
@@ -140,17 +144,29 @@ export function getSession() {
   return session;
 }
 
+export function hasActiveSession() {
+  const saved = readJson(sessionStorageKey, null);
+  if (!saved?.userId || !saved?.role) return false;
+
+  const user = getUsers().find((item) => item.id === saved.userId);
+  return Boolean(user && user.status !== 'INACTIVE');
+}
+
 export function saveSession(session) {
   const users = getUsers();
   const requestedUser = users.find((user) => user.id === session?.userId) ?? users[0];
   const nextSession = {
     ...createUserSession(requestedUser),
     ...session,
-    autoLogin: true,
+    autoLogin: session?.autoLogin ?? true,
   };
   writeJson(sessionStorageKey, nextSession);
   notifyAuthChanged();
   return nextSession;
+}
+
+export function clearSession() {
+  removeJson(sessionStorageKey);
 }
 
 export function getCurrentUser() {

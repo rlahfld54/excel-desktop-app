@@ -107,6 +107,30 @@ function HorizontalBars({ title, items, valueFormatter = toCurrency, colorClass 
 
 function DailyChart({ items, maxValue }) {
   const safeMaxValue = Math.max(maxValue || 0, 1);
+  const chartWidth = 640;
+  const chartHeight = 220;
+  const padding = { top: 18, right: 18, bottom: 28, left: 42 };
+  const plotWidth = chartWidth - padding.left - padding.right;
+  const plotHeight = chartHeight - padding.top - padding.bottom;
+  const points = items.map((item, index) => {
+    const x = padding.left + (items.length <= 1 ? plotWidth : (index / (items.length - 1)) * plotWidth);
+    const y = padding.top + plotHeight - (item.amount / safeMaxValue) * plotHeight;
+    return { ...item, x, y };
+  });
+  const linePath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
+  const areaPath = points.length
+    ? `${linePath} L ${points[points.length - 1].x.toFixed(2)} ${padding.top + plotHeight} L ${padding.left} ${padding.top + plotHeight} Z`
+    : '';
+  const guideValues = [1, 0.75, 0.5, 0.25, 0].map((ratio) => ({
+    ratio,
+    y: padding.top + plotHeight - ratio * plotHeight,
+    label: toCurrency(safeMaxValue * ratio),
+  }));
+  const labelPoints = points.filter((_, index) => (
+    index === 0 ||
+    index === points.length - 1 ||
+    index % Math.max(Math.ceil(points.length / 4), 1) === 0
+  ));
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-2">
@@ -114,18 +138,143 @@ function DailyChart({ items, maxValue }) {
         <h2 className="font-bold text-gray-900 dark:text-gray-100">일자별 매출 흐름</h2>
         <span className="text-xs font-semibold text-teal-700 dark:text-teal-300">최근 45일 기준</span>
       </div>
-      <div className="mt-4 flex h-56 items-end gap-1 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 px-3 py-3 dark:border-gray-700/60 dark:bg-gray-900/30">
-        {items.map((item) => (
-          <div key={item.day} className="flex min-w-2 flex-1 flex-col items-center justify-end gap-2">
-            <div
-              className="w-full rounded-t bg-teal-600 transition hover:bg-teal-500"
-              style={{ height: `${Math.max((item.amount / safeMaxValue) * 100, 5)}%` }}
-              title={`${item.day} ${toCurrency(item.amount)}`}
-            />
+      <div className="mt-4 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 px-3 py-3 dark:border-gray-700/60 dark:bg-gray-900/30">
+        <svg
+          className="h-56 w-full"
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          role="img"
+          aria-label="일자별 매출 흐름 선 차트"
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <linearGradient id="dailySalesArea" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="#0d9488" stopOpacity="0.24" />
+              <stop offset="100%" stopColor="#0d9488" stopOpacity="0" />
+            </linearGradient>
+            <filter id="dailySalesGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="3" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          {guideValues.map((guide) => (
+            <g key={guide.ratio}>
+              <line
+                x1={padding.left}
+                x2={chartWidth - padding.right}
+                y1={guide.y}
+                y2={guide.y}
+                stroke="currentColor"
+                className="text-gray-200 dark:text-gray-700"
+                strokeDasharray="4 6"
+              />
+              <text
+                x={padding.left - 8}
+                y={guide.y + 4}
+                textAnchor="end"
+                className="fill-gray-400 text-[10px] dark:fill-gray-500"
+              >
+                {guide.label}
+              </text>
+            </g>
+          ))}
+          {areaPath && <path d={areaPath} fill="url(#dailySalesArea)" />}
+          {linePath && (
+            <g key={linePath}>
+              <path
+                d={linePath}
+                fill="none"
+                stroke="#0f766e"
+                strokeWidth="4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="sales-trend-line"
+                vectorEffect="non-scaling-stroke"
+              />
+              <path
+                d={linePath}
+                fill="none"
+                stroke="#5eead4"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="sales-trend-line sales-trend-line-highlight"
+                vectorEffect="non-scaling-stroke"
+                filter="url(#dailySalesGlow)"
+              />
+              <circle r="5" fill="#0f766e" className="sales-trend-runner">
+                <animateMotion dur="5s" repeatCount="indefinite" path={linePath} />
+              </circle>
+            </g>
+          )}
+          {points.map((point) => (
+            <circle
+              key={point.day}
+              cx={point.x}
+              cy={point.y}
+              r="3"
+              fill="#ffffff"
+              stroke="#0f766e"
+              strokeWidth="2"
+              vectorEffect="non-scaling-stroke"
+            >
+              <title>{`${point.day} ${toCurrency(point.amount)}`}</title>
+            </circle>
+          ))}
+          {labelPoints.map((point) => (
+            <text
+              key={`label-${point.day}`}
+              x={point.x}
+              y={chartHeight - 8}
+              textAnchor="middle"
+              className="fill-gray-500 text-[10px] dark:fill-gray-400"
+            >
+              {point.day}
+            </text>
+          ))}
+        </svg>
+      </div>
+    </section>
+  );
+}
+
+function ClosingSummary({ currentUser, metrics }) {
+  const readyCount = metrics.transactionCount - metrics.issueCount;
+  const issueRatio = metrics.issueRate * 100;
+  const summaryItems = [
+    { label: '검증 통과', value: `${readyCount.toLocaleString('ko-KR')}건`, detail: '보고서 반영 가능' },
+    { label: '추가 확인', value: `${metrics.issueCount.toLocaleString('ko-KR')}건`, detail: '담당자 검토 필요' },
+    { label: '고액 승인', value: `${metrics.highValueCount.toLocaleString('ko-KR')}건`, detail: '총무팀 승인 대상' },
+  ];
+
+  return (
+    <aside className="rounded-lg border border-teal-100 bg-teal-50 p-4 shadow-xs dark:border-teal-500/20 dark:bg-teal-500/10">
+      <p className="text-xs font-bold uppercase text-teal-700 dark:text-teal-300">Closing Brief</p>
+      <h2 className="mt-2 text-lg font-bold text-teal-950 dark:text-teal-100">
+        {currentUser.name} 관리자
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-teal-800 dark:text-teal-200">
+        현재 오류율은 {issueRatio.toFixed(1)}%입니다. 오류 확인과 고액 거래 승인만 마무리하면 월간 매출 보고서 생성 단계로 넘길 수 있습니다.
+      </p>
+
+      <div className="mt-4 space-y-2">
+        {summaryItems.map((item) => (
+          <div key={item.label} className="rounded-md border border-white/70 bg-white/70 p-3 dark:border-teal-500/20 dark:bg-gray-900/40">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-semibold text-teal-900 dark:text-teal-100">{item.label}</span>
+              <span className="text-sm font-bold text-teal-700 dark:text-teal-200">{item.value}</span>
+            </div>
+            <p className="mt-1 text-xs text-teal-700/80 dark:text-teal-200/80">{item.detail}</p>
           </div>
         ))}
       </div>
-    </section>
+
+      <Link className="btn btn-primary mt-4 w-full" to="/results/report-generator">
+        보고서 생성으로 이동
+      </Link>
+    </aside>
   );
 }
 
@@ -237,15 +386,7 @@ export default function Dashboard() {
             </table>
           </div>
         </section>
-
-        <section className="rounded-lg border border-teal-100 bg-teal-50 p-4 shadow-xs dark:border-teal-500/20 dark:bg-teal-500/10">
-          <p className="text-xs font-semibold uppercase text-teal-700 dark:text-teal-300">Signed in</p>
-          <h2 className="mt-2 text-lg font-bold text-teal-950 dark:text-teal-100">{currentUser.name} 관리자</h2>
-          <p className="mt-2 text-sm leading-6 text-teal-800 dark:text-teal-200">
-            현재 대시보드는 총무팀 보고 기준으로 구성되어 있으며, 보고서 생성 페이지의 회사 공통 양식과 같은 포인트 색상을 사용합니다.
-          </p>
-          <Link className="btn btn-primary mt-4 w-full" to="/results/report-generator">보고서 생성으로 이동</Link>
-        </section>
+        <ClosingSummary currentUser={currentUser} metrics={metrics} />
       </div>
     </PageShell>
   );

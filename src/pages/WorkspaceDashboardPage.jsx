@@ -7,6 +7,7 @@ import ExcelTable from '../useComponents/ExcelTable';
 import { sampleColumns, createSampleSalesRows } from '../data/sampleSalesData';
 import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 import { parseSpreadsheetFile } from '../utils/fileParsers';
+import { analyzeUploadData, applyUploadPreflight } from '../utils/uploadPreflight';
 import { notifyUser } from '../utils/notifications';
 import { exportRowsToXlsx } from '../utils/spreadsheetExport';
 import { validateRows } from '../utils/validationRules';
@@ -81,6 +82,108 @@ function ChangeNotice({ notice }) {
   );
 }
 
+function UploadPreflightModal({
+  analysis,
+  includedIndexes,
+  dateIndexes,
+  onToggleColumn,
+  onToggleDate,
+  onApply,
+  onCancel,
+}) {
+  if (!analysis) return null;
+
+  const includedCount = includedIndexes.length;
+  const dateCount = dateIndexes.length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/50 px-4 py-6">
+      <section className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-700/60 dark:bg-gray-900">
+        <header className="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-700/60 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Upload preflight</p>
+            <h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">업로드 전 검증</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{analysis.fileName} · {analysis.rows.length.toLocaleString('ko-KR')}행 · {analysis.columns.length.toLocaleString('ko-KR')}개 컬럼</p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs font-semibold">
+            <span className="rounded bg-accent-50 px-2 py-1 text-accent-700 dark:bg-accent-500/10 dark:text-accent-200">반영 컬럼 {includedCount.toLocaleString('ko-KR')}</span>
+            <span className="rounded bg-sky-50 px-2 py-1 text-sky-700 dark:bg-sky-500/10 dark:text-sky-200">날짜 정리 {dateCount.toLocaleString('ko-KR')}</span>
+          </div>
+        </header>
+
+        <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700/60">
+            <div className="max-h-[520px] overflow-auto">
+              <table className="min-w-[860px] w-full border-separate border-spacing-0 text-sm">
+                <thead className="sticky top-0 z-10">
+                  <tr>
+                    {['반영', '컬럼', '값 있음', '빈 값', '고유값', '날짜 정리', '샘플'].map((column) => (
+                      <th key={column} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-950 dark:text-gray-400">{column}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {analysis.profiles.map((profile) => (
+                    <tr key={profile.index} className="group">
+                      <td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60">
+                        <input type="checkbox" checked={includedIndexes.includes(profile.index)} onChange={() => onToggleColumn(profile.index)} />
+                      </td>
+                      <td className="border-b border-r border-gray-200 px-3 py-2 font-semibold text-gray-800 dark:border-gray-700/60 dark:text-gray-100">
+                        <div className="flex flex-col">
+                          <span>{profile.name}</span>
+                          {(profile.isEmpty || profile.isMostlyEmpty || profile.headerLooksUnnecessary) && (
+                            <span className="mt-1 text-xs font-medium text-yellow-700 dark:text-yellow-300">확인 필요</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 dark:border-gray-700/60 dark:text-gray-200">{profile.filledCount.toLocaleString('ko-KR')}</td>
+                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 dark:border-gray-700/60 dark:text-gray-200">{profile.emptyCount.toLocaleString('ko-KR')}</td>
+                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 dark:border-gray-700/60 dark:text-gray-200">{profile.uniqueCount.toLocaleString('ko-KR')}</td>
+                      <td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60">
+                        <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                          <input type="checkbox" checked={dateIndexes.includes(profile.index)} disabled={!profile.isDateLike} onChange={() => onToggleDate(profile.index)} />
+                          <span>{profile.isDateLike ? 'YYYY-MM-DD' : '-'}</span>
+                        </label>
+                      </td>
+                      <td className="max-w-80 truncate border-b border-r border-gray-200 px-3 py-2 text-gray-600 dark:border-gray-700/60 dark:text-gray-300" title={profile.sampleValues.join(', ')}>
+                        {profile.sampleValues.join(', ') || '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <aside className="space-y-3">
+            <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700/60">
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100">검증 결과</h3>
+              <div className="mt-3 max-h-64 space-y-2 overflow-auto text-sm text-gray-600 dark:text-gray-300">
+                {analysis.warnings.length > 0 ? analysis.warnings.map((warning) => (
+                  <p key={warning} className="rounded-md bg-yellow-50 px-3 py-2 text-yellow-800 dark:bg-yellow-500/10 dark:text-yellow-200">{warning}</p>
+                )) : (
+                  <p className="rounded-md bg-accent-50 px-3 py-2 text-accent-700 dark:bg-accent-500/10 dark:text-accent-200">큰 문제 없이 업로드할 수 있습니다.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 p-4 text-sm text-gray-600 dark:border-gray-700/60 dark:text-gray-300">
+              <p className="font-semibold text-gray-900 dark:text-gray-100">적용되는 정리</p>
+              <p className="mt-2">선택 해제한 컬럼은 업로드 데이터에서 제외됩니다.</p>
+              <p className="mt-2">날짜 정리는 `2026.6.2`, `20260602`, `2026/06/02` 형식을 `YYYY-MM-DD`로 맞춥니다.</p>
+            </div>
+          </aside>
+        </div>
+
+        <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-gray-200 px-5 py-4 dark:border-gray-700/60">
+          <button className="btn btn-secondary" type="button" onClick={onCancel}>취소</button>
+          <button className="btn btn-primary" type="button" onClick={onApply} disabled={includedIndexes.length === 0}>검증 내용 적용 후 업로드</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const fileName = useWorkspaceDataStore((state) => state.fileName);
@@ -106,6 +209,9 @@ function Dashboard() {
   const [selectedRowIndex, setSelectedRowIndex] = useState(0);
   const [tableRevision, setTableRevision] = useState(0);
   const [notice, setNotice] = useState(null);
+  const [pendingUpload, setPendingUpload] = useState(null);
+  const [includedUploadColumns, setIncludedUploadColumns] = useState([]);
+  const [dateUploadColumns, setDateUploadColumns] = useState([]);
   const automationTimersRef = useRef([]);
   const noticeTimerRef = useRef(null);
   const tableData = useMemo(() => ({
@@ -176,16 +282,17 @@ function Dashboard() {
 
     try {
       const parsed = await parseSpreadsheetFile(file);
-      stageWorkspace({
-        ...parsed,
-        rowActions: {},
-        validationIssues: {},
-      });
-      setSelectedRowIndex(0);
-      setTableRevision((revision) => revision + 1);
-      setUploadState('업로드 완료 · 아직 SQLite 미저장');
-      addLog('INFO', `${file.name} 파일을 화면에 불러왔습니다. 저장 버튼을 누르면 SQLite에 반영됩니다.`);
-      showNotice('info', '업로드 완료', `${parsed.rows.length.toLocaleString('ko-KR')}행을 화면에 반영했습니다. 저장 전까지 DB에는 들어가지 않습니다.`);
+      const analysis = analyzeUploadData(parsed);
+      const includedIndexes = parsed.columns
+        .map((_, index) => index)
+        .filter((index) => !analysis.suggestedExcludedIndexes.includes(index));
+
+      setPendingUpload({ parsed, analysis });
+      setIncludedUploadColumns(includedIndexes);
+      setDateUploadColumns(analysis.suggestedDateIndexes);
+      setUploadState('업로드 전 검증 대기');
+      addLog('INFO', `${file.name} 파일을 분석했습니다. 업로드 전 검증에서 컬럼과 날짜 형식을 확인하세요.`);
+      showNotice('info', '업로드 전 검증', `${analysis.warnings.length.toLocaleString('ko-KR')}개 확인 항목을 찾았습니다. 적용 전에는 DB에 반영되지 않습니다.`);
     } catch (error) {
       setUploadState('업로드 실패');
       addLog('ERROR', error.message);
@@ -255,6 +362,52 @@ function Dashboard() {
       addLog('WARN', message);
       showNotice(error.name === 'AbortError' ? 'warning' : 'error', '저장 실패', message);
     }
+  };
+
+  const handleToggleUploadColumn = (columnIndex) => {
+    setIncludedUploadColumns((current) => (
+      current.includes(columnIndex)
+        ? current.filter((index) => index !== columnIndex)
+        : [...current, columnIndex].sort((a, b) => a - b)
+    ));
+  };
+
+  const handleToggleUploadDate = (columnIndex) => {
+    setDateUploadColumns((current) => (
+      current.includes(columnIndex)
+        ? current.filter((index) => index !== columnIndex)
+        : [...current, columnIndex].sort((a, b) => a - b)
+    ));
+  };
+
+  const handleApplyUploadPreflight = () => {
+    if (!pendingUpload) return;
+
+    const cleaned = applyUploadPreflight({
+      parsed: pendingUpload.parsed,
+      includedIndexes: includedUploadColumns,
+      dateIndexes: dateUploadColumns,
+    });
+
+    stageWorkspace({
+      ...cleaned,
+      rowActions: {},
+      validationIssues: {},
+    });
+    setPendingUpload(null);
+    setSelectedRowIndex(0);
+    setTableRevision((revision) => revision + 1);
+    setUploadState('업로드 완료 · 아직 SQLite 미저장');
+    addLog('INFO', `${cleaned.fileName} 파일을 검증 후 화면에 반영했습니다.`);
+    showNotice('success', '업로드 반영 완료', `${cleaned.rows.length.toLocaleString('ko-KR')}행, ${cleaned.columns.length.toLocaleString('ko-KR')}개 컬럼을 반영했습니다.`);
+  };
+
+  const handleCancelUploadPreflight = () => {
+    setPendingUpload(null);
+    setIncludedUploadColumns([]);
+    setDateUploadColumns([]);
+    setUploadState('업로드 취소됨');
+    addLog('WARN', '업로드 전 검증 단계에서 파일 반영을 취소했습니다.');
   };
 
   const handleNewTask = () => {
@@ -359,8 +512,17 @@ function Dashboard() {
     <div className="flex h-screen overflow-hidden">
       <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
 
-      <div className="relative flex flex-1 flex-col overflow-y-auto overflow-x-hidden bg-gray-50 dark:bg-gray-900">
+      <div className="relative flex flex-1 flex-col overflow-y-auto overflow-x-hidden bg-[#f7faf9] dark:bg-gray-900">
         <ChangeNotice notice={notice} />
+        <UploadPreflightModal
+          analysis={pendingUpload?.analysis}
+          includedIndexes={includedUploadColumns}
+          dateIndexes={dateUploadColumns}
+          onToggleColumn={handleToggleUploadColumn}
+          onToggleDate={handleToggleUploadDate}
+          onApply={handleApplyUploadPreflight}
+          onCancel={handleCancelUploadPreflight}
+        />
         <Header
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
@@ -380,6 +542,14 @@ function Dashboard() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <label className="btn btn-secondary cursor-pointer">
+                  파일 업로드
+                  <input className="sr-only" type="file" accept=".csv,.xlsx" onChange={(event) => {
+                    const [file] = event.target.files;
+                    if (file) handleFileUpload(file);
+                    event.target.value = '';
+                  }} />
+                </label>
                 <label className="flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-600 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 dark:text-gray-300">
                   <span className="shrink-0 text-xs font-semibold text-gray-400 dark:text-gray-500">다운로드 제목</span>
                   <input
@@ -404,12 +574,12 @@ function Dashboard() {
               </div>
             </div>
 
-            <div className="mb-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
               {quickStats.map((stat) => (
-                <div key={stat.label} className="rounded-lg border border-gray-200 bg-white px-4 py-2 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+                <div key={stat.label} className="min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
                   <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{stat.label}</p>
-                  <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{stat.value}</p>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{stat.detail}</p>
+                  <p className="mt-1 truncate text-base font-semibold text-gray-900 dark:text-gray-100" title={stat.value}>{stat.value}</p>
+                  <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400" title={stat.detail}>{stat.detail}</p>
                 </div>
               ))}
             </div>

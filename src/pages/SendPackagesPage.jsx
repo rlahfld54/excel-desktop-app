@@ -340,8 +340,8 @@ export default function SendPackagesPage() {
             </span>
           </header>
 
-          <div className="grid grid-cols-12">
-            <div className="col-span-12 max-h-[30rem] overflow-auto border-b border-gray-200 no-scrollbar dark:border-gray-700/60 lg:col-span-7 lg:border-b-0 lg:border-r">
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_22rem]">
+            <div data-table-tools="false" className="max-h-[30rem] overflow-auto border-b border-gray-200 no-scrollbar dark:border-gray-700/60 lg:border-b-0 lg:border-r">
               <table className="min-w-[760px] w-full border-separate border-spacing-0 text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr>
@@ -395,7 +395,7 @@ export default function SendPackagesPage() {
               </table>
             </div>
 
-            <aside className="col-span-12 p-4 lg:col-span-5">
+            <aside className="p-4">
               <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">선택 대상</p>
               <h3 className="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{selectedItem?.customerName}</h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{selectedItem?.customerCode}</p>

@@ -148,3 +148,40 @@
     border-color: var(--color-gray-200, currentColor);
   }
 }
+
+@keyframes sales-trend-draw {
+  from {
+    stroke-dashoffset: 720;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes sales-trend-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+.sales-trend-line {
+  stroke-dasharray: 720;
+  stroke-dashoffset: 720;
+  animation: sales-trend-draw 1.6s ease-out forwards;
+}
+
+.sales-trend-line-highlight {
+  animation:
+    sales-trend-draw 1.6s ease-out forwards,
+    sales-trend-pulse 2.4s ease-in-out 1.6s infinite;
+}
+
+.sales-trend-runner {
+  filter: drop-shadow(0 0 8px rgb(13 148 136 / 0.45));
+}
