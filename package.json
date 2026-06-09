@@ -4,6 +4,7 @@
   "description": "Desktop workspace for Excel automation, validation, backup, and reporting workflows.",
   "type": "module",
   "main": "public/electron/electron.cjs",
+  "author": "rlahfld54",
   "private": true,
   "repository": {
     "type": "git",
@@ -17,11 +18,14 @@
     "check": "npm run build",
     "dist": "npm run build && electron-builder",
     "dist:dir": "npm run build && electron-builder --dir",
+    "postinstall": "electron-builder install-app-deps",
     "preview": "vite preview",
-    "rebuild": "cross-env npm_config_python=C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python312\\python.exe electron-rebuild -f -w better-sqlite3",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
     "start": "electron ."
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/noto-sans-kr": "^5.2.9",
     "@radix-ui/react-popover": "^1.1.2",
     "@tailwindcss/forms": "^0.5.7",
     "ag-grid-community": "^35.3.0",

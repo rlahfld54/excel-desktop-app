@@ -51,6 +51,8 @@ function DropdownProfile({
     navigate('/login', { replace: true });
   };
 
+  const isAdmin = currentUser.role === 'ADMIN';
+
   // close if the esc key is pressed
   useEffect(() => {
     const keyHandler = ({ keyCode }) => {
@@ -106,21 +108,23 @@ function DropdownProfile({
             <li>
               <Link
                 className="font-medium text-sm text-accent-500 hover:text-accent-600 dark:hover:text-accent-400 flex items-center py-1 px-3"
-                to="/settings/preferences"
+                to={isAdmin ? '/admin/preferences' : '/settings/preferences'}
                 onClick={() => setDropdownOpen(!dropdownOpen)}
               >
                 마이페이지
               </Link>
             </li>
-            <li>
-              <Link
-                className="font-medium text-sm text-accent-500 hover:text-accent-600 dark:hover:text-accent-400 flex items-center py-1 px-3"
-                to="/results/activity-logs"
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-              >
-                사용자 관리
-              </Link>
-            </li>
+            {isAdmin && (
+              <li>
+                <Link
+                  className="font-medium text-sm text-accent-500 hover:text-accent-600 dark:hover:text-accent-400 flex items-center py-1 px-3"
+                  to="/results/activity-logs"
+                  onClick={() => setDropdownOpen(!dropdownOpen)}
+                >
+                  사용자 관리
+                </Link>
+              </li>
+            )}
             <li>
               <button
                 className="w-full font-medium text-sm text-accent-500 hover:text-accent-600 dark:hover:text-accent-400 flex items-center py-1 px-3"

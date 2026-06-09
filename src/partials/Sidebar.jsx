@@ -2,7 +2,8 @@
 import { NavLink, useLocation } from "react-router-dom";
 
 import SidebarLinkGroup from "./SidebarLinkGroup";
-import { menuGroups } from "../routesConfig";
+import { getVisibleMenuGroups, menuGroups } from "../routesConfig";
+import { authChangedEvent, getCurrentUser } from "../utils/authSession";
 import logo from "../images/logo.svg";
 
 const groupIcons = [
@@ -41,6 +42,8 @@ function Sidebar({
   const sidebar = useRef(null);
 
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const [currentRole, setCurrentRole] = useState(() => getCurrentUser().role);
+  const visibleMenuGroups = getVisibleMenuGroups(currentRole);
 
   useEffect(() => {
     const clickHandler = ({ target }) => {
@@ -70,6 +73,16 @@ function Sidebar({
     }
   }, [sidebarExpanded]);
 
+  useEffect(() => {
+    const refreshRole = () => setCurrentRole(getCurrentUser().role);
+    window.addEventListener(authChangedEvent, refreshRole);
+    window.addEventListener("storage", refreshRole);
+    return () => {
+      window.removeEventListener(authChangedEvent, refreshRole);
+      window.removeEventListener("storage", refreshRole);
+    };
+  }, []);
+
   return (
     <div className="min-w-fit">
       <div
@@ -98,7 +111,7 @@ function Sidebar({
             </svg>
           </button>
 
-          <NavLink end to="/" className="block">
+          <NavLink end to="/dashboard" className="block">
             <img className="h-9 w-9" src={logo} alt="Excel Desktop App" />
           </NavLink>
         </div>
@@ -112,10 +125,10 @@ function Sidebar({
               <span className="lg:hidden lg:sidebar-expanded:block 2xl:block">메뉴</span>
             </h3>
             <ul className="mt-3">
-              <li className={`pl-4 pr-3 py-2 rounded-lg mb-0.5 bg-linear-to-r ${pathname === "/" ? 'from-accent-500/[0.12] dark:from-accent-500/[0.24] to-accent-500/[0.04]' : ''}`}>
+              <li className={`pl-4 pr-3 py-2 rounded-lg mb-0.5 bg-linear-to-r ${pathname === "/dashboard" ? 'from-accent-500/[0.12] dark:from-accent-500/[0.24] to-accent-500/[0.04]' : ''}`}>
                 <NavLink
                   end
-                  to="/"
+                  to="/dashboard"
                   className={({ isActive }) =>
                     `block text-gray-800 dark:text-gray-100 truncate transition duration-150 ${isActive ? '' : 'hover:text-gray-900 dark:hover:text-white'}`
                   }
@@ -135,8 +148,9 @@ function Sidebar({
                 </NavLink>
               </li>
 
-              {menuGroups.map((group, groupIndex) => {
+              {visibleMenuGroups.map((group) => {
                 const active = isGroupActive(pathname, group);
+                const groupIndex = menuGroups.findIndex((item) => item.basePath === group.basePath);
 
                 return (
                   <SidebarLinkGroup key={group.basePath} activecondition={active}>

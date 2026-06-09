@@ -15,8 +15,35 @@ function getSettingsPath() {
   return path.join(app.getPath("userData"), "app-settings.json");
 }
 
+function getWorkspaceRoot() {
+  return path.join(app.getPath("documents"), "ExcelDesktopApp");
+}
+
+function getReportFolders(workspaceRoot, year = new Date().getFullYear()) {
+  const reportTypes = [
+    "MonthlySales",
+    "CustomerErrors",
+    "DuplicateChecks",
+    "BackupValidation",
+    "RequestPackages",
+  ];
+
+  return reportTypes.flatMap((type) => [
+    path.join(workspaceRoot, "Reports", type),
+    ...Array.from({ length: 12 }, (_, index) =>
+      path.join(
+        workspaceRoot,
+        "Reports",
+        type,
+        String(year),
+        String(index + 1).padStart(2, "0"),
+      ),
+    ),
+  ]);
+}
+
 function getDefaultAppSettings() {
-  const workspaceRoot = path.join(app.getPath("documents"), "ExcelDesktopApp");
+  const workspaceRoot = getWorkspaceRoot();
 
   return {
     databasePath: path.join(
@@ -24,9 +51,16 @@ function getDefaultAppSettings() {
       "excel-desktop-app.sqlite",
     ),
     settingsPath: getSettingsPath(),
+    workspaceRoot,
+    inboxPath: path.join(workspaceRoot, "Inbox"),
+    workspacePath: path.join(workspaceRoot, "Workspace"),
+    masterDataPath: path.join(workspaceRoot, "MasterData"),
+    reportsPath: path.join(workspaceRoot, "Reports"),
+    requestsPath: path.join(workspaceRoot, "Requests"),
     exportPath: path.join(workspaceRoot, "Exports"),
     backupPath: path.join(workspaceRoot, "Backups"),
     tempPath: path.join(workspaceRoot, "Temp"),
+    logsPath: path.join(workspaceRoot, "Logs"),
     retentionDays: 31,
     maxBackupSizeMb: 2048,
     autoBackupEnabled: true,
@@ -41,11 +75,27 @@ function getDefaultAppSettings() {
 }
 
 async function ensureAppFolders(settings) {
-  await Promise.all([
-    fs.mkdir(settings.exportPath, { recursive: true }),
-    fs.mkdir(settings.backupPath, { recursive: true }),
-    fs.mkdir(settings.tempPath, { recursive: true }),
-  ]);
+  const workspaceRoot = settings.workspaceRoot || getWorkspaceRoot();
+  const folders = [
+    app.getPath("userData"),
+    workspaceRoot,
+    settings.inboxPath || path.join(workspaceRoot, "Inbox"),
+    settings.workspacePath || path.join(workspaceRoot, "Workspace"),
+    settings.masterDataPath || path.join(workspaceRoot, "MasterData"),
+    settings.reportsPath || path.join(workspaceRoot, "Reports"),
+    settings.requestsPath || path.join(workspaceRoot, "Requests"),
+    settings.exportPath,
+    settings.backupPath,
+    settings.tempPath,
+    settings.logsPath || path.join(workspaceRoot, "Logs"),
+    ...getReportFolders(workspaceRoot),
+  ];
+
+  await Promise.all(
+    [...new Set(folders.filter(Boolean))].map((folderPath) =>
+      fs.mkdir(folderPath, { recursive: true }),
+    ),
+  );
 }
 
 async function readAppSettings() {
@@ -423,10 +473,11 @@ function registerIpcHandlers() {
 }
 
 // 5. 앱 생명주기
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // preload.js 메서드 가져옴
   registerIpcHandlers();
   registerDatabaseIpc(ipcMain, app);
+  await readAppSettings();
 
   //Electron 시작 시 DB 초기화.
   initializeDatabase(app);

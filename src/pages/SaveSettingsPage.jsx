@@ -4,11 +4,18 @@ import PageShell from './PageShell';
 import { notifyUser } from '../utils/notifications';
 
 const fallbackSettings = {
-  databasePath: 'C:\\Users\\user\\AppData\\Roaming\\excel-desktop-app\\excel-desktop-app.sqlite',
-  settingsPath: 'C:\\Users\\user\\AppData\\Roaming\\excel-desktop-app\\app-settings.json',
-  exportPath: 'C:\\Users\\user\\Documents\\ExcelDesktopApp\\Exports',
-  backupPath: 'C:\\Users\\user\\Documents\\ExcelDesktopApp\\Backups',
-  tempPath: 'C:\\Users\\user\\Documents\\ExcelDesktopApp\\Temp',
+  databasePath: 'AppData/Excel Desktop App/excel-desktop-app.sqlite',
+  settingsPath: 'AppData/Excel Desktop App/app-settings.json',
+  workspaceRoot: 'Documents/ExcelDesktopApp',
+  inboxPath: 'Documents/ExcelDesktopApp/Inbox',
+  workspacePath: 'Documents/ExcelDesktopApp/Workspace',
+  masterDataPath: 'Documents/ExcelDesktopApp/MasterData',
+  reportsPath: 'Documents/ExcelDesktopApp/Reports',
+  requestsPath: 'Documents/ExcelDesktopApp/Requests',
+  exportPath: 'Documents/ExcelDesktopApp/Exports',
+  backupPath: 'Documents/ExcelDesktopApp/Backups',
+  tempPath: 'Documents/ExcelDesktopApp/Temp',
+  logsPath: 'Documents/ExcelDesktopApp/Logs',
   retentionDays: 31,
   maxBackupSizeMb: 2048,
   autoBackupEnabled: true,

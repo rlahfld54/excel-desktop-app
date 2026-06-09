@@ -1,6 +1,14 @@
 import React, { useEffect } from 'react';
 import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
 
+import '@fontsource/inter/latin-400.css';
+import '@fontsource/inter/latin-500.css';
+import '@fontsource/inter/latin-600.css';
+import '@fontsource/inter/latin-700.css';
+import '@fontsource/noto-sans-kr/korean-400.css';
+import '@fontsource/noto-sans-kr/korean-500.css';
+import '@fontsource/noto-sans-kr/korean-600.css';
+import '@fontsource/noto-sans-kr/korean-700.css';
 import './css/style.css';
 import './charts/ChartjsConfig';
 
@@ -26,6 +34,7 @@ import ContactListPage from './pages/ContactListPage';
 import MessageTemplatesPage from './pages/MessageTemplatesPage';
 import SendPackagesPage from './pages/SendPackagesPage';
 import SendHistoryPage from './pages/SendHistoryPage';
+import AdminPreferencesPage from './pages/AdminPreferencesPage';
 import UserPreferencesPage from './pages/UserPreferencesPage';
 import SaveSettingsPage from './pages/SaveSettingsPage';
 import SyncSettingsPage from './pages/SyncSettingsPage';
@@ -34,7 +43,7 @@ import TaskHistoryPage from './pages/TaskHistoryPage';
 import SystemStatusPage from './pages/SystemStatusPage';
 import CacheManagerPage from './pages/CacheManagerPage';
 import NotFoundPage from './pages/NotFoundPage';
-import { hasActiveSession } from './utils/authSession';
+import { getCurrentUser, hasActiveSession } from './utils/authSession';
 import { menuGroups, pageRoutes } from './routesConfig'; // 메뉴 라우터 모음
 
 const routeComponents = {
@@ -57,6 +66,7 @@ const routeComponents = {
   MessageTemplatesPage,
   SendPackagesPage,
   SendHistoryPage,
+  AdminPreferencesPage,
   UserPreferencesPage,
   SaveSettingsPage,
   SyncSettingsPage,
@@ -66,11 +76,15 @@ const routeComponents = {
   CacheManagerPage,
 };
 
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children, allowedRoles }) {
   const location = useLocation();
 
   if (!hasActiveSession()) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(getCurrentUser().role)) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children;
@@ -119,7 +133,7 @@ function App() {
 
       {pageRoutes.map((route) => {
         const PageComponent = routeComponents[route.component];
-        return <Route key={route.path} exact path={route.path} element={<ProtectedRoute><PageComponent /></ProtectedRoute>} />;
+        return <Route key={route.path} exact path={route.path} element={<ProtectedRoute allowedRoles={route.allowedRoles}><PageComponent /></ProtectedRoute>} />;
       })}
 
       <Route path="*" element={<NotFoundPage />} />
