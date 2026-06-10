@@ -35,6 +35,17 @@ export const defaultReportTemplates = [
     status: '사용 중',
   },
   {
+    id: 'customer-closing-send',
+    title: '거래처 발송용 마감 확인서',
+    purpose: '거래처 담당자에게 발송할 마감 금액, 세금계산서 대조 결과, 확인 요청 사항을 정리합니다.',
+    color: '#2563eb',
+    font: 'Noto Sans KR',
+    badge: '업체 발송',
+    sections: ['마감 금액', '세금계산서 대조', '확인 요청', '담당자 서명'],
+    tableStyle: '상태 배지형',
+    status: '사용 중',
+  },
+  {
     id: 'purchase-admin',
     title: '총무 구매 집행 보고서',
     purpose: '사무용품, 소모품, 전산 장비 구매와 예산 사용률을 정리합니다.',
@@ -66,9 +77,14 @@ export function normalizeTemplate(template) {
 export function readReportTemplates() {
   try {
     const saved = JSON.parse(localStorage.getItem(reportTemplateStorageKey));
-    return Array.isArray(saved) && saved.length > 0
-      ? saved.map(normalizeTemplate)
-      : defaultReportTemplates;
+    if (Array.isArray(saved) && saved.length > 0) {
+      const normalizedSaved = saved.map(normalizeTemplate);
+      const savedIds = new Set(normalizedSaved.map((template) => template.id));
+      const missingDefaults = defaultReportTemplates.filter((template) => !savedIds.has(template.id));
+      return [...normalizedSaved, ...missingDefaults];
+    }
+
+    return defaultReportTemplates;
   } catch {
     return defaultReportTemplates;
   }

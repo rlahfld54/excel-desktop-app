@@ -21,6 +21,7 @@ import FileManagerPage from './pages/FileManagerPage';
 import AutomationPage from './pages/AutomationPage';
 import ReportGeneratorPage from './pages/ReportGeneratorPage';
 import ReportTemplatesPage from './pages/ReportTemplatesPage';
+import ClosingWorkspacePage from './pages/ClosingWorkspacePage';
 import SalesClosingComparePage from './pages/SalesClosingComparePage';
 import ExcelTemplatesPage from './pages/ExcelTemplatesPage';
 import DataTablePage from './pages/DataTablePage';
@@ -36,6 +37,7 @@ import SendPackagesPage from './pages/SendPackagesPage';
 import SendHistoryPage from './pages/SendHistoryPage';
 import AdminPreferencesPage from './pages/AdminPreferencesPage';
 import UserPreferencesPage from './pages/UserPreferencesPage';
+import SchedulePage from './pages/SchedulePage';
 import SaveSettingsPage from './pages/SaveSettingsPage';
 import SyncSettingsPage from './pages/SyncSettingsPage';
 import SecurityPage from './pages/SecurityPage';
@@ -47,6 +49,7 @@ import { getCurrentUser, hasActiveSession } from './utils/authSession';
 import { menuGroups, pageRoutes } from './routesConfig'; // 메뉴 라우터 모음
 
 const routeComponents = {
+  ClosingWorkspacePage,
   SalesClosingComparePage,
   ExcelTemplatesPage,
   WorkspaceDashboardPage,
@@ -68,6 +71,7 @@ const routeComponents = {
   SendHistoryPage,
   AdminPreferencesPage,
   UserPreferencesPage,
+  SchedulePage,
   SaveSettingsPage,
   SyncSettingsPage,
   SecurityPage,

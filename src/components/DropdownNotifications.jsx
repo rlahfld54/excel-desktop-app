@@ -1,20 +1,43 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+
 import Transition from '../utils/Transition';
+import {
+  clearNotifications,
+  markNotificationRead,
+  notificationChangedEvent,
+  readNotifications,
+  refreshNotificationsFromDatabase,
+} from '../utils/appNotifications';
 
-function DropdownNotifications({
-  align
-}) {
+function levelClass(level) {
+  if (level === 'ERROR') return 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300';
+  if (level === 'WARN') return 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
+  if (level === 'SUCCESS') return 'bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300';
+  return 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300';
+}
 
+function formatTime(value) {
+  return new Date(value).toLocaleString('ko-KR', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function DropdownNotifications({ align }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [notifications, setNotifications] = useState(() => readNotifications());
 
   const trigger = useRef(null);
   const dropdown = useRef(null);
+  const unreadCount = notifications.filter((notification) => !notification.read).length;
 
-  // close on click outside
   useEffect(() => {
     const clickHandler = ({ target }) => {
-      if (!dropdown.current) return;
+      if (!dropdown.current || !trigger.current) return;
       if (!dropdownOpen || dropdown.current.contains(target) || trigger.current.contains(target)) return;
       setDropdownOpen(false);
     };
@@ -22,7 +45,6 @@ function DropdownNotifications({
     return () => document.removeEventListener('click', clickHandler);
   });
 
-  // close if the esc key is pressed
   useEffect(() => {
     const keyHandler = ({ keyCode }) => {
       if (!dropdownOpen || keyCode !== 27) return;
@@ -32,31 +54,51 @@ function DropdownNotifications({
     return () => document.removeEventListener('keydown', keyHandler);
   });
 
+  useEffect(() => {
+    const refreshNotifications = () => setNotifications(readNotifications());
+
+    refreshNotificationsFromDatabase().then(setNotifications).catch(refreshNotifications);
+    window.addEventListener(notificationChangedEvent, refreshNotifications);
+    window.addEventListener('storage', refreshNotifications);
+    return () => {
+      window.removeEventListener(notificationChangedEvent, refreshNotifications);
+      window.removeEventListener('storage', refreshNotifications);
+    };
+  }, []);
+
+  const handleOpenNotification = (notification) => {
+    markNotificationRead(notification.id);
+    setNotifications(readNotifications());
+    setDropdownOpen(false);
+  };
+
+  const handleClear = () => {
+    clearNotifications();
+    setNotifications([]);
+  };
+
   return (
     <div className="relative inline-flex">
       <button
         ref={trigger}
-        className={`w-8 h-8 flex items-center justify-center hover:bg-accent-50 hover:text-accent-700 dark:hover:bg-accent-500/10 dark:hover:text-accent-300 rounded-full ${dropdownOpen && 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300'}`}
+        className={`relative flex h-8 w-8 items-center justify-center rounded-full hover:bg-accent-50 hover:text-accent-700 dark:hover:bg-accent-500/10 dark:hover:text-accent-300 ${dropdownOpen ? 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300' : ''}`}
         aria-haspopup="true"
         onClick={() => setDropdownOpen(!dropdownOpen)}
         aria-expanded={dropdownOpen}
       >
-        <span className="sr-only">Notifications</span>
-        <svg
-          className="fill-current text-gray-500/80 dark:text-gray-400/80"
-          width={16}
-          height={16}
-          viewBox="0 0 16 16"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path d="M7 0a7 7 0 0 0-7 7c0 1.202.308 2.33.84 3.316l-.789 2.368a1 1 0 0 0 1.265 1.265l2.595-.865a1 1 0 0 0-.632-1.898l-.698.233.3-.9a1 1 0 0 0-.104-.85A4.97 4.97 0 0 1 2 7a5 5 0 0 1 5-5 4.99 4.99 0 0 1 4.093 2.135 1 1 0 1 0 1.638-1.148A6.99 6.99 0 0 0 7 0Z" />
-          <path d="M11 6a5 5 0 0 0 0 10c.807 0 1.567-.194 2.24-.533l1.444.482a1 1 0 0 0 1.265-1.265l-.482-1.444A4.962 4.962 0 0 0 16 11a5 5 0 0 0-5-5Zm-3 5a3 3 0 0 1 6 0c0 .588-.171 1.134-.466 1.6a1 1 0 0 0-.115.82 1 1 0 0 0-.82.114A2.973 2.973 0 0 1 11 14a3 3 0 0 1-3-3Z" />
+        <span className="sr-only">알림</span>
+        <svg className="fill-current text-gray-500/80 dark:text-gray-400/80" width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 16a2.5 2.5 0 0 0 2.45-2H5.55A2.5 2.5 0 0 0 8 16Zm6-4-1.4-1.4V6.7A4.61 4.61 0 0 0 9 2.2V1a1 1 0 1 0-2 0v1.2a4.61 4.61 0 0 0-3.6 4.5v3.9L2 12v1h12v-1Z" />
         </svg>
-        <div className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 border-2 border-gray-100 dark:border-gray-900 rounded-full"></div>
+        {unreadCount > 0 && (
+          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+            {unreadCount}
+          </span>
+        )}
       </button>
 
       <Transition
-        className={`origin-top-right z-10 absolute top-full -mr-48 sm:mr-0 min-w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/60 py-1.5 rounded-lg shadow-lg overflow-hidden mt-1 ${align === 'right' ? 'right-0' : 'left-0'}`}
+        className={`absolute top-full z-10 mt-1 min-w-80 origin-top-right overflow-hidden rounded-lg border border-gray-200 bg-white py-1.5 shadow-lg dark:border-gray-700/60 dark:bg-gray-800 sm:min-w-96 ${align === 'right' ? 'right-0' : 'left-0'}`}
         show={dropdownOpen}
         enter="transition ease-out duration-200 transform"
         enterStart="opacity-0 -translate-y-2"
@@ -65,48 +107,54 @@ function DropdownNotifications({
         leaveStart="opacity-100"
         leaveEnd="opacity-0"
       >
-        <div
-          ref={dropdown}
-          onFocus={() => setDropdownOpen(true)}
-          onBlur={() => setDropdownOpen(false)}
-        >
-          <div className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase pt-1.5 pb-2 px-4">Notifications</div>
-          <ul>
-            <li className="border-b border-gray-200 dark:border-gray-700/60 last:border-0">
-              <Link
-                className="block py-2 px-4 hover:bg-gray-50 dark:hover:bg-gray-700/20"
-                to="#0"
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-              >
-                <span className="block text-sm mb-2">📣 <span className="font-medium text-gray-800 dark:text-gray-100">Edit your information in a swipe</span> Sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim.</span>
-                <span className="block text-xs font-medium text-gray-400 dark:text-gray-500">Feb 12, 2024</span>
-              </Link>
-            </li>
-            <li className="border-b border-gray-200 dark:border-gray-700/60 last:border-0">
-              <Link
-                className="block py-2 px-4 hover:bg-gray-50 dark:hover:bg-gray-700/20"
-                to="#0"
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-              >
-                <span className="block text-sm mb-2">📣 <span className="font-medium text-gray-800 dark:text-gray-100">Edit your information in a swipe</span> Sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim.</span>
-                <span className="block text-xs font-medium text-gray-400 dark:text-gray-500">Feb 9, 2024</span>
-              </Link>
-            </li>
-            <li className="border-b border-gray-200 dark:border-gray-700/60 last:border-0">
-              <Link
-                className="block py-2 px-4 hover:bg-gray-50 dark:hover:bg-gray-700/20"
-                to="#0"
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-              >
-                <span className="block text-sm mb-2">🚀<span className="font-medium text-gray-800 dark:text-gray-100">Say goodbye to paper receipts!</span> Sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim.</span>
-                <span className="block text-xs font-medium text-gray-400 dark:text-gray-500">Jan 24, 2024</span>
-              </Link>
-            </li>
+        <div ref={dropdown} onFocus={() => setDropdownOpen(true)}>
+          <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
+            <div>
+              <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">알림</p>
+              <p className="mt-1 text-sm font-bold text-gray-900 dark:text-gray-100">작업 진행 상태 {notifications.length.toLocaleString('ko-KR')}건</p>
+            </div>
+            {notifications.length > 0 && (
+              <button className="rounded-md px-2 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700" type="button" onClick={handleClear}>
+                비우기
+              </button>
+            )}
+          </div>
+          <ul className="max-h-[420px] overflow-auto no-scrollbar">
+            {notifications.length > 0 ? notifications.map((notification) => {
+              const content = (
+                <div className={`block px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/20 ${notification.read ? 'opacity-70' : ''}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="font-semibold text-gray-900 dark:text-gray-100">{notification.title}</p>
+                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold ${levelClass(notification.level)}`}>
+                      {notification.level}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm leading-5 text-gray-500 dark:text-gray-400">{notification.message}</p>
+                  <p className="mt-2 text-xs font-medium text-gray-400 dark:text-gray-500">{formatTime(notification.createdAt)} {notification.target ? `· ${notification.target}` : ''}</p>
+                </div>
+              );
+
+              return (
+                <li key={notification.id} className="border-b border-gray-200 last:border-0 dark:border-gray-700/60">
+                  {notification.href ? (
+                    <Link to={notification.href} onClick={() => handleOpenNotification(notification)}>
+                      {content}
+                    </Link>
+                  ) : (
+                    <button className="w-full text-left" type="button" onClick={() => handleOpenNotification(notification)}>
+                      {content}
+                    </button>
+                  )}
+                </li>
+              );
+            }) : (
+              <li className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400">아직 표시할 작업 알림이 없습니다.</li>
+            )}
           </ul>
         </div>
       </Transition>
     </div>
-  )
+  );
 }
 
 export default DropdownNotifications;

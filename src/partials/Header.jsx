@@ -2,10 +2,13 @@ import React, { useEffect, useState } from 'react';
 
 import SearchModal from '../components/ModalSearch';
 import Notifications from '../components/DropdownNotifications';
+import Todo from '../components/DropdownTodo';
 import Help from '../components/DropdownHelp';
 import UserMenu from '../components/DropdownProfile';
 import ThemeToggle from '../components/ThemeToggle';
+import { addNotification, readNotifications } from '../utils/appNotifications';
 import { authChangedEvent, getCurrentUser } from '../utils/authSession';
+import { getTodoSummary, todoChangedEvent } from '../utils/todoSchedule';
 
 const toolbarItems = [
   {
@@ -38,6 +41,7 @@ function Header({
 }) {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
+  const [reminderToast, setReminderToast] = useState(null);
 
   useEffect(() => {
     const refreshUser = () => setCurrentUser(getCurrentUser());
@@ -48,6 +52,81 @@ function Header({
       window.removeEventListener('storage', refreshUser);
     };
   }, []);
+
+  useEffect(() => {
+    const checkReminders = () => {
+      const now = new Date();
+      const today = now.toISOString().slice(0, 10);
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      const dismissedKey = `excel-workspace:todoReminderDismissed:${currentUser.id}:${today}`;
+      const dismissed = JSON.parse(localStorage.getItem(dismissedKey) ?? '[]');
+      const dueReminder = getTodoSummary(currentUser.id).reminders.find((todo) => {
+        if (todo.dueDate !== today || !todo.reminderAt || dismissed.includes(todo.id)) return false;
+        const [hour, minute] = todo.reminderAt.split(':').map(Number);
+        return currentMinutes >= hour * 60 + minute;
+      });
+
+      if (dueReminder) {
+        const notifiedKey = `excel-workspace:todoReminderNotified:${currentUser.id}:${today}`;
+        const notified = JSON.parse(localStorage.getItem(notifiedKey) ?? '[]');
+        const existingNotification = readNotifications().some((notification) => (
+          notification.target === '일정관리'
+          && notification.title === dueReminder.title
+          && notification.message?.includes(`${dueReminder.dueDate} ${dueReminder.reminderAt}`)
+        ));
+
+        if (!notified.includes(dueReminder.id) || !existingNotification) {
+          addNotification({
+            title: dueReminder.title,
+            message: `${dueReminder.dueDate} ${dueReminder.reminderAt} 일정 알림`,
+            level: dueReminder.priority === 'HIGH' ? 'WARN' : 'INFO',
+            target: '일정관리',
+            href: dueReminder.path || '/schedule/todos',
+          });
+          localStorage.setItem(notifiedKey, JSON.stringify([...notified, dueReminder.id]));
+        }
+      }
+
+      setReminderToast(dueReminder ?? null);
+    };
+
+    checkReminders();
+    window.addEventListener(todoChangedEvent, checkReminders);
+    window.addEventListener('storage', checkReminders);
+    const timer = window.setInterval(checkReminders, 60000);
+
+    return () => {
+      window.removeEventListener(todoChangedEvent, checkReminders);
+      window.removeEventListener('storage', checkReminders);
+      window.clearInterval(timer);
+    };
+  }, [currentUser.id]);
+
+  const rememberReminderDismissed = (reminder) => {
+    if (!reminder) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const dismissedKey = `excel-workspace:todoReminderDismissed:${currentUser.id}:${today}`;
+    const dismissed = JSON.parse(localStorage.getItem(dismissedKey) ?? '[]');
+    localStorage.setItem(dismissedKey, JSON.stringify([...new Set([...dismissed, reminder.id])]));
+  };
+
+  useEffect(() => {
+    if (!reminderToast) return undefined;
+
+    const timer = window.setTimeout(() => {
+      rememberReminderDismissed(reminderToast);
+      setReminderToast(null);
+    }, 6000);
+
+    return () => window.clearTimeout(timer);
+  }, [currentUser.id, reminderToast]);
+
+  const dismissReminder = () => {
+    if (!reminderToast) return;
+
+    rememberReminderDismissed(reminderToast);
+    setReminderToast(null);
+  };
 
   const handleFileChange = (event) => {
     const [file] = event.target.files;
@@ -130,6 +209,7 @@ function Header({
               </button>
               <SearchModal id="search-modal" searchId="search" modalOpen={searchModalOpen} setModalOpen={setSearchModalOpen} />
             </div>
+            <Todo align="right" />
             <Notifications align="right" />
             <Help align="right" />
             <ThemeToggle />
@@ -138,6 +218,20 @@ function Header({
           </div>
         </div>
       </div>
+      {reminderToast && (
+        <div className="absolute right-4 top-[4.5rem] z-50 w-[min(24rem,calc(100vw-2rem))] rounded-lg border border-amber-200 bg-white p-4 shadow-lg dark:border-amber-500/30 dark:bg-gray-800">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase text-amber-600 dark:text-amber-300">일정 알림</p>
+              <p className="mt-1 font-semibold text-gray-900 dark:text-gray-100">{reminderToast.title}</p>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{reminderToast.dueDate} {reminderToast.reminderAt}</p>
+            </div>
+            <button className="rounded-md px-2 py-1 text-sm font-semibold text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700" type="button" onClick={dismissReminder}>
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

@@ -6,6 +6,7 @@ import { createSampleSalesRows, parseNumber } from '../data/sampleSalesData';
 import { readReportTemplates } from '../data/reportTemplates';
 import { exportStyledReportToXlsx } from '../utils/spreadsheetExport';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
+import { addNotification } from '../utils/appNotifications';
 
 const company = {
   name: 'Aster Works',
@@ -76,6 +77,7 @@ export default function ReportGeneratorPage() {
   const metrics = useMemo(() => getReportMetrics(rows), []);
   const topCustomers = metrics.customers.slice(0, 5);
   const topStatuses = metrics.statuses.slice(0, 5);
+  const isCustomerClosingTemplate = selectedTemplate?.id === 'customer-closing-send';
 
   const summary = useMemo(() => [
     { label: '총 매출액', value: toCurrency(metrics.totalSales), detail: '월간 거래 기준' },
@@ -101,9 +103,30 @@ export default function ReportGeneratorPage() {
     currentUser.name,
     'D+1',
   ]), [currentUser.name, topStatuses]);
+  const closingSendRows = useMemo(() => topCustomers.map((customer, index) => {
+    const closingAmount = customer.amount;
+    const taxAmount = index % 3 === 0 ? closingAmount + 85000 : closingAmount;
+    const diff = taxAmount - closingAmount;
+
+    return [
+      customer.name,
+      toCurrency(closingAmount),
+      toCurrency(taxAmount),
+      diff === 0 ? '일치' : `차이 ${toCurrency(diff)}`,
+      index % 2 === 0 ? '담당자 확인 완료' : '회신 요청',
+      currentUser.name,
+    ];
+  }), [currentUser.name, topCustomers]);
 
   const handleCreateReport = async () => {
     setStatusText('보고서 파일을 생성하는 중입니다.');
+    addNotification({
+      title: '보고서 생성 시작',
+      message: `${selectedTemplate.title} 파일 생성을 시작했습니다.`,
+      level: 'INFO',
+      target: selectedTemplate.title,
+      href: '/results/report-generator',
+    });
     try {
       const result = await exportStyledReportToXlsx({
         title: reportTitle,
@@ -115,10 +138,24 @@ export default function ReportGeneratorPage() {
       });
       addActivityLog('INFO', '보고서 생성', selectedTemplate.title);
       setStatusText(`${result.fileName} 파일을 생성했습니다.`);
+      addNotification({
+        title: '보고서 생성 완료',
+        message: `${result.fileName} 파일을 생성했습니다.`,
+        level: 'SUCCESS',
+        target: selectedTemplate.title,
+        href: '/results/report-generator',
+      });
     } catch (error) {
       const message = error.name === 'AbortError' ? '보고서 저장이 취소되었습니다.' : error.message;
       setStatusText(message);
       addActivityLog('WARN', '보고서 생성 실패', message);
+      addNotification({
+        title: '보고서 생성 실패',
+        message,
+        level: error.name === 'AbortError' ? 'WARN' : 'ERROR',
+        target: selectedTemplate.title,
+        href: '/results/report-generator',
+      });
     }
   };
 
@@ -128,8 +165,15 @@ export default function ReportGeneratorPage() {
       ['작성자', currentUser.name, '권한', currentUser.role, '기준 데이터', `${metrics.transactionCount.toLocaleString('ko-KR')}건`],
       ['총 매출액', toCurrency(metrics.totalSales), '평균 거래액', toCurrency(metrics.averageAmount), '오류율', `${(metrics.issueRate * 100).toFixed(1)}%`],
       [],
-      ['거래처', '매출액', '비율', '관리 포인트', '상태', '비고'],
-      ...customerRows,
+      ...(isCustomerClosingTemplate
+        ? [
+            ['거래처', '마감 금액', '세금계산서 금액', '대조 결과', '거래처 확인', '담당자'],
+            ...closingSendRows,
+          ]
+        : [
+            ['거래처', '매출액', '비율', '관리 포인트', '상태', '비고'],
+            ...customerRows,
+          ]),
       [],
       ['검증 종류', '건수', '비율', '처리 기준', '담당', '완료 예정'],
       ...statusRows,
@@ -139,6 +183,13 @@ export default function ReportGeneratorPage() {
     downloadBlob(blob, `${company.koreanName}_${selectedTemplate.title}.csv`);
     addActivityLog('INFO', 'CSV 내보내기', selectedTemplate.title);
     setStatusText('CSV 파일을 내보냈습니다.');
+    addNotification({
+      title: 'CSV 내보내기 완료',
+      message: `${selectedTemplate.title} CSV 파일을 내보냈습니다.`,
+      level: 'SUCCESS',
+      target: selectedTemplate.title,
+      href: '/results/report-generator',
+    });
   };
 
   return (
@@ -212,9 +263,27 @@ export default function ReportGeneratorPage() {
             </div>
 
             <div className="mt-6 grid gap-6 xl:grid-cols-2">
-              <ReportTable title="거래처별 거래 현황" columns={['거래처', '매출액', '비율']} rows={customerRows.map((row) => row.slice(0, 3))} accent={selectedTemplate.color} />
+              {isCustomerClosingTemplate ? (
+                <ReportTable title="거래처 발송용 마감 자료" columns={['거래처', '마감 금액', '세금계산서', '대조 결과']} rows={closingSendRows.map((row) => row.slice(0, 4))} accent={selectedTemplate.color} />
+              ) : (
+                <ReportTable title="거래처별 거래 현황" columns={['거래처', '매출액', '비율']} rows={customerRows.map((row) => row.slice(0, 3))} accent={selectedTemplate.color} />
+              )}
               <ReportTable title="검증 종류별 현황" columns={['검증 종류', '건수', '비율']} rows={statusRows.map((row) => row.slice(0, 3))} accent={selectedTemplate.color} />
             </div>
+
+            {isCustomerClosingTemplate && (
+              <div className="mt-6 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-500/30 dark:bg-blue-500/10">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h3 className="font-bold text-blue-950 dark:text-blue-100">메일 발송용 포함 내용</h3>
+                    <p className="mt-2 text-sm leading-6 text-blue-800 dark:text-blue-200">
+                      업체별 마감 금액, 세금계산서 대조 결과, 회신 요청 상태를 한 장으로 정리합니다. 메일 발송 단계에서는 마이페이지 명함 정보가 하단 서명으로 자동 반영됩니다.
+                    </p>
+                  </div>
+                  <Link className="btn btn-primary shrink-0" to="/settings/preferences">명함 정보 확인</Link>
+                </div>
+              </div>
+            )}
 
             <div className="mt-6 rounded-lg border p-4" style={{ borderColor: `${selectedTemplate.color}33`, backgroundColor: `${selectedTemplate.color}10` }}>
               <h3 className="font-bold text-gray-900 dark:text-gray-100">보고서 구성</h3>

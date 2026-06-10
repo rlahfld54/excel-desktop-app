@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { buildMasterDataFromRows, createSampleSalesRows } from '../data/sampleSalesData';
+import { addNotification } from '../utils/appNotifications';
 
 const masterStorageKey = 'excel-workspace:masterData';
 
@@ -88,6 +89,7 @@ export default function CodeMappingPage() {
   const [masterData, setMasterData] = useState(getInitialMasterData);
   const [loadState, setLoadState] = useState('1,200건 샘플 데이터에서 거래처/제품/단가 기준을 생성했습니다.');
   const [isSeeding, setIsSeeding] = useState(false);
+  const [activeView, setActiveView] = useState('customerAliases');
 
   const metrics = useMemo(() => {
     const aliasCount = masterData.customerAliases.length + masterData.productAliases.length;
@@ -104,22 +106,50 @@ export default function CodeMappingPage() {
   }, [masterData]);
 
   const loadMasterData = async () => {
+    addNotification({
+      title: '기준 데이터 조회 시작',
+      message: '거래처/제품/단가 기준 데이터를 불러오는 중입니다.',
+      level: 'INFO',
+      target: '코드 매핑',
+      href: '/validate/code-mapping',
+    });
     if (window.api?.getMasterData) {
       try {
         const data = await window.api.getMasterData();
         if (data.customers?.length) {
           setMasterData(data);
           setLoadState('SQLite에서 기준 데이터를 불러왔습니다.');
+          addNotification({
+            title: '기준 데이터 조회 완료',
+            message: 'SQLite에서 기준 데이터를 불러왔습니다.',
+            level: 'SUCCESS',
+            target: '코드 매핑',
+            href: '/validate/code-mapping',
+          });
           return;
         }
       } catch (error) {
         setLoadState(`SQLite 조회 실패, 샘플 기준 사용: ${error.message}`);
+        addNotification({
+          title: 'SQLite 조회 실패',
+          message: error.message,
+          level: 'WARN',
+          target: '코드 매핑',
+          href: '/validate/code-mapping',
+        });
       }
     }
 
     const data = getInitialMasterData();
     setMasterData(data);
     setLoadState('브라우저 저장소 또는 샘플 데이터에서 기준 데이터를 불러왔습니다.');
+    addNotification({
+      title: '기준 데이터 조회 완료',
+      message: '브라우저 저장소 또는 샘플 데이터에서 기준 데이터를 불러왔습니다.',
+      level: 'SUCCESS',
+      target: '코드 매핑',
+      href: '/validate/code-mapping',
+    });
   };
 
   const handleSeed = async () => {
@@ -132,9 +162,23 @@ export default function CodeMappingPage() {
         await window.api.seedMasterData();
         setMasterData(nextData);
         setLoadState('샘플 기준 데이터를 브라우저 저장소와 SQLite 시드 흐름에 반영했습니다.');
+        addNotification({
+          title: '기준 데이터 저장 완료',
+          message: '샘플 기준 데이터를 SQLite 시드 흐름에 반영했습니다.',
+          level: 'SUCCESS',
+          target: '코드 매핑',
+          href: '/validate/code-mapping',
+        });
       } catch (error) {
         setMasterData(nextData);
         setLoadState(`브라우저 저장은 완료, SQLite 시드는 실패: ${error.message}`);
+        addNotification({
+          title: '기준 데이터 일부 저장',
+          message: `브라우저 저장은 완료, SQLite 시드는 실패했습니다: ${error.message}`,
+          level: 'WARN',
+          target: '코드 매핑',
+          href: '/validate/code-mapping',
+        });
       } finally {
         setIsSeeding(false);
       }
@@ -143,8 +187,79 @@ export default function CodeMappingPage() {
 
     setMasterData(nextData);
     setLoadState('브라우저 개발 모드라 localStorage에 기준 데이터를 저장했습니다. Electron 연결 후 SQLite 저장으로 이어집니다.');
+    addNotification({
+      title: '기준 데이터 저장 완료',
+      message: '브라우저 저장소에 기준 데이터를 저장했습니다.',
+      level: 'SUCCESS',
+      target: '코드 매핑',
+      href: '/validate/code-mapping',
+    });
     setIsSeeding(false);
   };
+
+  const tableViews = useMemo(() => [
+    {
+      id: 'customerAliases',
+      title: '거래처 별칭',
+      count: masterData.customerAliases.length,
+      detail: '원본 거래처명을 표준 거래처 코드로 매핑합니다.',
+      rows: masterData.customerAliases,
+      emptyText: '등록된 거래처 별칭이 없습니다.',
+      columns: [
+        { label: '원본명', key: 'aliasName' },
+        { label: '표준 거래처', key: 'customerName' },
+        { label: '코드', key: 'customerCode' },
+        { label: '신뢰도', render: (row) => formatPercent(row.confidence) },
+        { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
+      ],
+    },
+    {
+      id: 'productAliases',
+      title: '제품 별칭',
+      count: masterData.productAliases.length,
+      detail: '원본 제품명을 표준 제품 코드로 매핑합니다.',
+      rows: masterData.productAliases,
+      emptyText: '등록된 제품 별칭이 없습니다.',
+      columns: [
+        { label: '원본명', key: 'aliasName' },
+        { label: '표준 제품', key: 'productName' },
+        { label: '코드', key: 'productCode' },
+        { label: '신뢰도', render: (row) => formatPercent(row.confidence) },
+        { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
+      ],
+    },
+    {
+      id: 'prices',
+      title: '단가 기준',
+      count: masterData.prices.length,
+      detail: '거래처/제품별 적용 단가와 검토 상태를 확인합니다.',
+      rows: masterData.prices.slice(0, 120),
+      emptyText: '등록된 단가 기준이 없습니다.',
+      columns: [
+        { label: '거래처', key: 'customerName' },
+        { label: '제품', key: 'productName' },
+        { label: '단가', render: (row) => `${formatPrice(row.price)} ${row.currency}` },
+        { label: '시작일', key: 'startDate' },
+        { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
+      ],
+    },
+    {
+      id: 'suggestions',
+      title: '자동 매핑 후보',
+      count: masterData.suggestions.length,
+      detail: '빈값, 누락, 낮은 신뢰도 후보를 검토합니다.',
+      rows: masterData.suggestions,
+      emptyText: '검토 대기 중인 매핑 후보가 없습니다.',
+      columns: [
+        { label: '유형', key: 'targetType' },
+        { label: '원본값', key: 'rawValue' },
+        { label: '추천 코드', key: 'suggestedCode' },
+        { label: '신뢰도', render: (row) => formatPercent(row.confidence) },
+        { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
+      ],
+    },
+  ], [masterData]);
+  const activeTable = tableViews.find((view) => view.id === activeView) ?? tableViews[0];
 
   return (
     <PageShell title="코드 매핑" description="1,200건 거래 데이터를 기초로 거래처명, 제품명, 단가 기준을 만들고 매핑 후보를 확인합니다.">
@@ -167,61 +282,41 @@ export default function CodeMappingPage() {
         {metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}
       </div>
 
-      <div className="grid grid-cols-12 gap-5">
-        <div className="col-span-12 space-y-5 xl:col-span-7">
-          <DataTable
-            title="거래처 별칭"
-            emptyText="등록된 거래처 별칭이 없습니다."
-            rows={masterData.customerAliases}
-            columns={[
-              { label: '원본명', key: 'aliasName' },
-              { label: '표준 거래처', key: 'customerName' },
-              { label: '코드', key: 'customerCode' },
-              { label: '신뢰도', render: (row) => formatPercent(row.confidence) },
-              { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
-            ]}
-          />
-          <DataTable
-            title="제품 별칭"
-            emptyText="등록된 제품 별칭이 없습니다."
-            rows={masterData.productAliases}
-            columns={[
-              { label: '원본명', key: 'aliasName' },
-              { label: '표준 제품', key: 'productName' },
-              { label: '코드', key: 'productCode' },
-              { label: '신뢰도', render: (row) => formatPercent(row.confidence) },
-              { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
-            ]}
-          />
+      <section className="mb-4 rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="flex flex-wrap gap-2">
+          {tableViews.map((view) => (
+            <button
+              key={view.id}
+              className={`rounded-md border px-3 py-2 text-left text-sm transition ${activeView === view.id ? 'border-teal-500 bg-teal-50 text-teal-800 dark:border-teal-400 dark:bg-teal-500/10 dark:text-teal-200' : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900/30'}`}
+              type="button"
+              onClick={() => setActiveView(view.id)}
+            >
+              <span className="block font-semibold">{view.title}</span>
+              <span className="mt-0.5 block text-xs opacity-80">{view.count.toLocaleString('ko-KR')}건</span>
+            </button>
+          ))}
         </div>
+      </section>
 
-        <div className="col-span-12 space-y-5 xl:col-span-5">
-          <DataTable
-            title="단가 기준"
-            emptyText="등록된 단가 기준이 없습니다."
-            rows={masterData.prices.slice(0, 80)}
-            columns={[
-              { label: '거래처', key: 'customerName' },
-              { label: '제품', key: 'productName' },
-              { label: '단가', render: (row) => `${formatPrice(row.price)} ${row.currency}` },
-              { label: '시작일', key: 'startDate' },
-              { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
-            ]}
-          />
-          <DataTable
-            title="자동 매핑 후보"
-            emptyText="검토 대기 중인 매핑 후보가 없습니다."
-            rows={masterData.suggestions}
-            columns={[
-              { label: '유형', key: 'targetType' },
-              { label: '원본값', key: 'rawValue' },
-              { label: '추천 코드', key: 'suggestedCode' },
-              { label: '신뢰도', render: (row) => formatPercent(row.confidence) },
-              { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
-            ]}
-          />
+      <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">Selected view</p>
+            <h2 className="mt-1 font-semibold text-gray-900 dark:text-gray-100">{activeTable.title}</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{activeTable.detail}</p>
+          </div>
+          <span className="rounded-md bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-500 dark:bg-gray-700/60 dark:text-gray-300">
+            한 번에 한 보기
+          </span>
         </div>
-      </div>
+      </section>
+
+      <DataTable
+        title={activeTable.title}
+        emptyText={activeTable.emptyText}
+        rows={activeTable.rows}
+        columns={activeTable.columns}
+      />
     </PageShell>
   );
 }

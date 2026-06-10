@@ -7,6 +7,7 @@ import {
   readReportTemplates,
   saveReportTemplates,
 } from '../data/reportTemplates';
+import { addNotification } from '../utils/appNotifications';
 
 export default function ReportTemplatesPage() {
   const [templates, setTemplates] = useState(() => readReportTemplates());
@@ -43,6 +44,13 @@ export default function ReportTemplatesPage() {
     setSelectedId(next.id);
     setDraft(next);
     addActivityLog('INFO', '보고서 템플릿 추가', '새 템플릿');
+    addNotification({
+      title: '템플릿 추가',
+      message: '새 보고서 템플릿 초안을 만들었습니다.',
+      level: 'INFO',
+      target: '보고서 템플릿',
+      href: '/results/report-templates',
+    });
   };
 
   const handleSave = () => {
@@ -51,6 +59,13 @@ export default function ReportTemplatesPage() {
     setTemplates(saved);
     setDraft(saved.find((template) => template.id === draft.id));
     addActivityLog('INFO', '보고서 템플릿 저장', draft.title);
+    addNotification({
+      title: '템플릿 저장 완료',
+      message: `${draft.title} 설정을 저장했습니다.`,
+      level: 'SUCCESS',
+      target: draft.title,
+      href: '/results/report-templates',
+    });
   };
 
   return (
@@ -133,6 +148,10 @@ export default function ReportTemplatesPage() {
                 <option>상태 배지형</option>
                 <option>예산 비교형</option>
               </select>
+            </label>
+            <label className="block lg:col-span-2">
+              <span className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-200">배지</span>
+              <input className="form-input w-full" value={draft.badge} onChange={(event) => updateDraft('badge', event.target.value)} />
             </label>
           </div>
 

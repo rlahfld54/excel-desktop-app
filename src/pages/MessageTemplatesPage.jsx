@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
+import { getCurrentUser } from '../utils/authSession';
+import { makeSignatureText } from '../utils/businessCard';
 
 const fallbackTemplates = [
   {
@@ -66,6 +68,7 @@ function statusClass(status) {
 }
 
 export default function MessageTemplatesPage() {
+  const currentUser = getCurrentUser();
   const [templates, setTemplates] = useState(fallbackTemplates);
   const [selectedId, setSelectedId] = useState(fallbackTemplates[0].templateId);
   const [loadState, setLoadState] = useState('브라우저 미리보기');
@@ -77,7 +80,7 @@ export default function MessageTemplatesPage() {
   );
 
   const previewSubject = applyPreviewValues(selectedTemplate?.subjectTemplate);
-  const previewBody = applyPreviewValues(selectedTemplate?.bodyTemplate);
+  const previewBody = `${applyPreviewValues(selectedTemplate?.bodyTemplate)}${makeSignatureText(currentUser)}`;
 
   const loadTemplates = async () => {
     if (!window.api?.getMessageTemplates) {
@@ -125,7 +128,7 @@ export default function MessageTemplatesPage() {
               {templates.length.toLocaleString('ko-KR')}개 템플릿 / {loadState}
             </p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              변수: {'{{customer_name}}'}, {'{{closing_month}}'}
+              변수: {'{{customer_name}}'}, {'{{closing_month}}'} · 메일 하단 명함 자동 포함
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

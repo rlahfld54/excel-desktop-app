@@ -26,6 +26,22 @@ function getDatabase(app) {
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS notifications (
+    notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id TEXT UNIQUE,
+    title TEXT NOT NULL,
+    message TEXT,
+    level TEXT NOT NULL DEFAULT 'INFO',
+    target TEXT,
+    href TEXT,
+    read_status INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    read_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_notifications_created
+  ON notifications(read_status, created_at DESC);
+
   CREATE TABLE IF NOT EXISTS recent_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_name TEXT NOT NULL,
@@ -1453,6 +1469,7 @@ function registerDatabaseIpc(ipcMain, app) {
       "message_templates",
       "contacts",
       "app_events",
+      "notifications",
     ];
 
     const counts = tables.map((tableName) => {
@@ -1511,6 +1528,137 @@ function registerDatabaseIpc(ipcMain, app) {
     `,
       )
       .all();
+  });
+
+  ipcMain.handle("notifications:list", (_, options = {}) => {
+    const database = getDatabase(app);
+    const limit = Math.min(Math.max(Number(options?.limit ?? 80), 1), 200);
+    return database
+      .prepare(
+        `
+      SELECT
+        notification_id AS dbId,
+        client_id AS clientId,
+        title,
+        message,
+        level,
+        target,
+        href,
+        read_status AS readStatus,
+        created_at AS createdAt,
+        read_at AS readAt
+      FROM notifications
+      ORDER BY datetime(created_at) DESC, notification_id DESC
+      LIMIT @limit
+    `,
+      )
+      .all({ limit })
+      .map((notification) => ({
+        id: notification.clientId || String(notification.dbId),
+        dbId: notification.dbId,
+        title: notification.title,
+        message: notification.message ?? "",
+        level: notification.level ?? "INFO",
+        target: notification.target ?? "",
+        href: notification.href ?? "",
+        read: notification.readStatus === 1,
+        createdAt: notification.createdAt,
+        readAt: notification.readAt,
+      }));
+  });
+
+  ipcMain.handle("notifications:add", (_, payload = {}) => {
+    const database = getDatabase(app);
+    const clientId = payload?.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const createdAt = payload?.createdAt || new Date().toISOString();
+
+    database
+      .prepare(
+        `
+      INSERT INTO notifications (
+        client_id,
+        title,
+        message,
+        level,
+        target,
+        href,
+        read_status,
+        created_at,
+        read_at
+      )
+      VALUES (
+        @clientId,
+        @title,
+        @message,
+        @level,
+        @target,
+        @href,
+        @readStatus,
+        @createdAt,
+        @readAt
+      )
+      ON CONFLICT(client_id) DO UPDATE SET
+        title = excluded.title,
+        message = excluded.message,
+        level = excluded.level,
+        target = excluded.target,
+        href = excluded.href,
+        read_status = excluded.read_status,
+        created_at = excluded.created_at,
+        read_at = excluded.read_at
+    `,
+      )
+      .run({
+        clientId,
+        title: payload?.title ?? "알림",
+        message: payload?.message ?? "",
+        level: payload?.level ?? "INFO",
+        target: payload?.target ?? "",
+        href: payload?.href ?? "",
+        readStatus: payload?.read ? 1 : 0,
+        createdAt,
+        readAt: payload?.readAt ?? null,
+      });
+
+    return {
+      ok: true,
+      notification: {
+        id: clientId,
+        title: payload?.title ?? "알림",
+        message: payload?.message ?? "",
+        level: payload?.level ?? "INFO",
+        target: payload?.target ?? "",
+        href: payload?.href ?? "",
+        read: Boolean(payload?.read),
+        createdAt,
+      },
+    };
+  });
+
+  ipcMain.handle("notifications:mark-read", (_, notificationId) => {
+    const database = getDatabase(app);
+    database
+      .prepare(
+        `
+      UPDATE notifications
+      SET read_status = 1,
+          read_at = CURRENT_TIMESTAMP
+      WHERE client_id = @notificationId
+         OR notification_id = @numericId
+    `,
+      )
+      .run({
+        notificationId: String(notificationId ?? ""),
+        numericId: Number(notificationId) || -1,
+      });
+
+    return { ok: true };
+  });
+
+  ipcMain.handle("notifications:clear", () => {
+    const database = getDatabase(app);
+    database.prepare("DELETE FROM notifications").run();
+    return { ok: true };
   });
 
   ipcMain.handle("recent-files:get", () => {
