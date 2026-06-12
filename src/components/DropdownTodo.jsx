@@ -66,14 +66,17 @@ function DropdownTodo({ align }) {
   }, []);
 
   const summary = getTodoSummary(currentUser.id);
-  const openTodos = todos.filter((todo) => !todo.done);
+  const todoItems = todos.filter((todo) => (todo.itemType || 'TODO') === 'TODO');
+  const openTodos = todoItems.filter((todo) => !todo.done);
   const highOpenCount = openTodos.filter((todo) => todo.priority === 'HIGH').length;
-  const completedCount = todos.length - openTodos.length;
-  const completionRate = todos.length ? Math.round((completedCount / todos.length) * 100) : 100;
+  const completedCount = todoItems.length - openTodos.length;
+  const completionRate = todoItems.length ? Math.round((completedCount / todoItems.length) * 100) : 100;
 
   const sortedTodos = useMemo(() => {
     const weight = { HIGH: 3, MEDIUM: 2, LOW: 1 };
-    return [...todos].sort((a, b) => Number(a.done) - Number(b.done) || weight[b.priority] - weight[a.priority] || String(a.dueDate).localeCompare(String(b.dueDate)));
+    return [...todos]
+      .filter((todo) => (todo.itemType || 'TODO') === 'TODO')
+      .sort((a, b) => Number(a.done) - Number(b.done) || weight[b.priority] - weight[a.priority] || String(a.dueDate).localeCompare(String(b.dueDate)));
   }, [todos]);
 
   const updateTodo = (todoId, patch) => {
@@ -96,6 +99,7 @@ function DropdownTodo({ align }) {
       createTodo({
         ...newTodo,
         due: newTodo.dueDate,
+        itemType: 'TODO',
       }),
       ...todos,
     ];

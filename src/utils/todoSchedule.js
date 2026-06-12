@@ -31,6 +31,7 @@ export const defaultTodos = [
     reminderAt: '09:00',
     done: false,
     path: '/closing-workspace/overview',
+    itemType: 'TODO',
   },
   {
     id: 'amount-confirm',
@@ -42,6 +43,7 @@ export const defaultTodos = [
     reminderAt: '10:00',
     done: false,
     path: '/closing-workspace/overview',
+    itemType: 'TODO',
   },
   {
     id: 'tax-invoice-check',
@@ -53,6 +55,7 @@ export const defaultTodos = [
     reminderAt: '14:00',
     done: false,
     path: '/closing-workspace/overview',
+    itemType: 'SCHEDULE',
   },
   {
     id: 'remaining-customers',
@@ -64,6 +67,7 @@ export const defaultTodos = [
     reminderAt: '16:00',
     done: false,
     path: '/dashboard',
+    itemType: 'TODO',
   },
   {
     id: 'request-package',
@@ -75,6 +79,7 @@ export const defaultTodos = [
     reminderAt: '',
     done: false,
     path: '/closing-workspace/overview',
+    itemType: 'TODO',
   },
 ];
 
@@ -90,6 +95,7 @@ export const defaultTeamTodos = [
     done: false,
     path: '/schedule/todos',
     scope: 'TEAM',
+    itemType: 'TODO',
   },
   {
     id: 'team-department-requests',
@@ -102,11 +108,12 @@ export const defaultTeamTodos = [
     done: false,
     path: '/schedule/todos',
     scope: 'TEAM',
+    itemType: 'SCHEDULE',
   },
   {
     id: 'team-executive-report',
     title: '사장님 보고 자료 업데이트',
-    detail: '위험 업체, 미확정 금액, 세금계산서 차이 현황을 보고용으로 갱신',
+    detail: '위험 업체, 미확정 금액, 내부 검토 현황을 보고용으로 갱신',
     priority: 'HIGH',
     due: '총무팀',
     dueDate: '2026-06-12',
@@ -114,6 +121,7 @@ export const defaultTeamTodos = [
     done: false,
     path: '/results/executive-dashboard',
     scope: 'TEAM',
+    itemType: 'SCHEDULE',
   },
   {
     id: 'team-closing-25-precheck',
@@ -126,6 +134,7 @@ export const defaultTeamTodos = [
     done: false,
     path: '/closing-workspace/overview',
     scope: 'TEAM',
+    itemType: 'TODO',
   },
 ];
 
@@ -147,7 +156,22 @@ function writeStore(store) {
 }
 
 function todayKey(date = new Date()) {
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeTodo(todo, fallbackType = 'TODO') {
+  const dueDate = todo.dueDate || todo.due || todayKey();
+
+  return {
+    ...todo,
+    dueDate,
+    due: todo.due || dueDate,
+    itemType: todo.itemType || fallbackType,
+    done: Boolean(todo.done),
+  };
 }
 
 export function getTodayKey() {
@@ -160,15 +184,15 @@ export function readTodos(userId) {
 
   if (Array.isArray(userTodos)) {
     const defaultIds = new Set(defaultTodos.map((todo) => todo.id));
-    const mergedDefaults = defaultTodos.map((todo) => ({
+    const mergedDefaults = defaultTodos.map((todo) => normalizeTodo({
       ...todo,
       ...(userTodos.find((item) => item.id === todo.id) ?? {}),
-    }));
-    const customTodos = userTodos.filter((todo) => !defaultIds.has(todo.id));
+    }, todo.itemType));
+    const customTodos = userTodos.filter((todo) => !defaultIds.has(todo.id)).map((todo) => normalizeTodo(todo));
     return [...mergedDefaults, ...customTodos];
   }
 
-  return defaultTodos;
+  return defaultTodos.map((todo) => normalizeTodo(todo, todo.itemType));
 }
 
 export function readTeamTodos() {
@@ -177,15 +201,15 @@ export function readTeamTodos() {
 
   if (Array.isArray(teamTodos)) {
     const defaultIds = new Set(defaultTeamTodos.map((todo) => todo.id));
-    const mergedDefaults = defaultTeamTodos.map((todo) => ({
+    const mergedDefaults = defaultTeamTodos.map((todo) => normalizeTodo({
       ...todo,
       ...(teamTodos.find((item) => item.id === todo.id) ?? {}),
-    }));
-    const customTodos = teamTodos.filter((todo) => !defaultIds.has(todo.id));
+    }, todo.itemType));
+    const customTodos = teamTodos.filter((todo) => !defaultIds.has(todo.id)).map((todo) => normalizeTodo(todo, 'SCHEDULE'));
     return [...mergedDefaults, ...customTodos];
   }
 
-  return defaultTeamTodos;
+  return defaultTeamTodos.map((todo) => normalizeTodo(todo, todo.itemType));
 }
 
 export function saveTodos(userId, todos) {
@@ -259,6 +283,7 @@ export function createTodo(input) {
     createdAt: new Date().toISOString(),
     custom: true,
     scope: input.scope || 'PERSONAL',
+    itemType: input.itemType || 'TODO',
   };
 }
 
@@ -333,8 +358,9 @@ export function toggleTeamTodoDone(todos, todoId, done) {
 
 export function getTodoSummary(userId, date = new Date()) {
   const todos = readTodos(userId);
+  const todoItems = todos.filter((todo) => (todo.itemType || 'TODO') === 'TODO');
   const key = todayKey(date);
-  const openTodos = todos.filter((todo) => !todo.done);
+  const openTodos = todoItems.filter((todo) => !todo.done);
   const todayTodos = todos.filter((todo) => todo.dueDate === key);
   const reminders = todos
     .filter((todo) => !todo.done && todo.dueDate && todo.reminderAt)
@@ -347,15 +373,16 @@ export function getTodoSummary(userId, date = new Date()) {
     todayTodos,
     reminders,
     highOpenCount,
-    completedCount: todos.length - openTodos.length,
-    completionRate: todos.length ? Math.round(((todos.length - openTodos.length) / todos.length) * 100) : 100,
+    completedCount: todoItems.length - openTodos.length,
+    completionRate: todoItems.length ? Math.round(((todoItems.length - openTodos.length) / todoItems.length) * 100) : 100,
   };
 }
 
 export function getTeamTodoSummary(date = new Date()) {
   const todos = readTeamTodos();
+  const todoItems = todos.filter((todo) => (todo.itemType || 'TODO') === 'TODO');
   const key = todayKey(date);
-  const openTodos = todos.filter((todo) => !todo.done);
+  const openTodos = todoItems.filter((todo) => !todo.done);
   const todayTodos = todos.filter((todo) => todo.dueDate === key);
   const reminders = todos
     .filter((todo) => !todo.done && todo.dueDate && todo.reminderAt)
@@ -368,8 +395,8 @@ export function getTeamTodoSummary(date = new Date()) {
     todayTodos,
     reminders,
     highOpenCount,
-    completedCount: todos.length - openTodos.length,
-    completionRate: todos.length ? Math.round(((todos.length - openTodos.length) / todos.length) * 100) : 100,
+    completedCount: todoItems.length - openTodos.length,
+    completionRate: todoItems.length ? Math.round(((todoItems.length - openTodos.length) / todoItems.length) * 100) : 100,
   };
 }
 

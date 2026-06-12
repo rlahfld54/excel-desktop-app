@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import PageShell from './PageShell';
+import { ExecutiveReportContent } from './ExecutiveReportDashboardPage';
 import { parseNumber } from '../data/sampleSalesData';
 import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 import { getCurrentUser } from '../utils/authSession';
@@ -10,7 +11,7 @@ import { priorityMeta, readTeamTodos, todoChangedEvent } from '../utils/todoSche
 const defaultDepartmentRequests = [
   { id: 'REQ-001', department: '영업팀', title: '6월 거래처 마감 금액 확인 요청', due: '오늘 14:00', owner: '김민서', priority: 'HIGH', status: '확인 필요' },
   { id: 'REQ-002', department: '물류팀', title: '반품 처리 기준 자료 공유 요청', due: '오늘 16:00', owner: '박정우', priority: 'MEDIUM', status: '진행 중' },
-  { id: 'REQ-003', department: '구매팀', title: '세금계산서 공급가액 차이 재확인', due: '내일 10:00', owner: '이서연', priority: 'HIGH', status: '대기' },
+  { id: 'REQ-003', department: '구매팀', title: '마감 금액 내부 승인 재확인', due: '내일 10:00', owner: '이서연', priority: 'HIGH', status: '대기' },
   { id: 'REQ-004', department: 'CS팀', title: '거래처 담당자 연락처 변경 반영', due: '06-13', owner: '최현우', priority: 'LOW', status: '접수' },
 ];
 
@@ -179,43 +180,6 @@ function TeamDecisionPanel({ metrics, requests }) {
   );
 }
 
-function TeamExceptionList({ metrics }) {
-  const exceptions = [
-    { label: '오류 확인', value: `${metrics.issueCount.toLocaleString('ko-KR')}건`, detail: '검증 실패/확인 필요 건', tone: 'rose' },
-    { label: '고액 거래', value: `${metrics.highValueCount.toLocaleString('ko-KR')}건`, detail: '관리자 확인 대상', tone: 'amber' },
-    { label: '중복 의심', value: `${metrics.duplicateCount.toLocaleString('ko-KR')}건`, detail: '마감 전 정리 필요', tone: 'teal' },
-  ];
-
-  return (
-    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-2">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-bold text-gray-900 dark:text-gray-100">총무팀 예외 처리 현황</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">사장님 보고 전에 총무팀이 먼저 정리해야 할 항목입니다.</p>
-        </div>
-        <Link className="btn btn-secondary" to="/closing-workspace/overview">마감 워크스페이스</Link>
-      </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        {exceptions.map((item) => (
-          <div key={item.label} className="rounded-md border border-gray-100 bg-gray-50 p-3 dark:border-gray-700/60 dark:bg-gray-900/30">
-            <div className="flex items-start justify-between gap-3">
-              <p className="text-sm font-semibold text-gray-500 dark:text-gray-400">{item.label}</p>
-              <span className={`rounded px-2 py-1 text-xs font-bold ${
-                item.tone === 'rose'
-                  ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300'
-                  : item.tone === 'amber'
-                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'
-                    : 'bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300'
-              }`}>확인</span>
-            </div>
-            <p className="mt-3 text-2xl font-bold text-gray-900 dark:text-gray-100">{item.value}</p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{item.detail}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 function OwnerRiskSummary({ owners }) {
   const visibleOwners = owners.slice(0, 4);
@@ -289,7 +253,7 @@ function TeamScheduleOverview({ schedules }) {
   };
   const dayLabels = ['일', '월', '화', '수', '목', '금', '토'];
   const visibleSchedules = schedules
-    .filter((schedule) => !schedule.done)
+    .filter((schedule) => schedule.itemType === 'SCHEDULE')
     .sort((a, b) => `${a.dueDate} ${a.reminderAt || '99:99'}`.localeCompare(`${b.dueDate} ${b.reminderAt || '99:99'}`))
     .slice(0, 5)
     .map((schedule) => {
@@ -585,16 +549,14 @@ export default function Dashboard() {
 
   return (
     <PageShell title={roleInfo.title} description={roleInfo.description}>
+
+      {/* <ExecutiveReportContent /> */}
+
       <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="총 매출" value={toCurrency(metrics.totalSales)} detail={`전체 업체 · 평균 거래액 ${toCurrency(metrics.averageSales)}`} />
         <MetricCard label="거래 건수" value={`${metrics.transactionCount.toLocaleString('ko-KR')}건`} detail="총무팀 전체 기준 집계" />
         <MetricCard label="오류 확인" value={`${metrics.issueCount.toLocaleString('ko-KR')}건`} detail={`오류율 ${(metrics.issueRate * 100).toFixed(1)}%`} tone="rose" />
         <MetricCard label="고액 거래" value={`${metrics.highValueCount.toLocaleString('ko-KR')}건`} detail="보고 전 확인 대상" tone="amber" />
-      </div>
-
-      <div className="mb-4 grid gap-4 xl:grid-cols-3">
-        <TeamExceptionList metrics={metrics} />
-        <TeamDecisionPanel metrics={metrics} requests={departmentRequests} />
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">

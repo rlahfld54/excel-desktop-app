@@ -36,8 +36,8 @@ const defaultClosingTargets = [
     closingSheetSent: true,
     amountConfirmed: true,
     taxIssued: true,
-    taxMatched: false,
-    reason: '세금계산서 차이',
+    taxMatched: true,
+    reason: '내부 검토',
     amount: 9870000,
     lastContactAt: '2026-06-09 09:20',
     contactCount: 1,
@@ -53,8 +53,8 @@ const defaultClosingTargets = [
     closingSheetSent: true,
     amountConfirmed: true,
     taxIssued: true,
-    taxMatched: false,
-    reason: '세금계산서 차이',
+    taxMatched: true,
+    reason: '내부 검토',
     amount: 43180000,
     lastContactAt: '2026-06-09 14:00',
     contactCount: 1,
@@ -245,7 +245,7 @@ async function createClosingPdfBlob(target, mailTemplates) {
     ['발송 유형', getSendType(target)],
     ['미확정 사유', target.reason],
     ['마지막 연락', `${target.lastContactAt} / ${target.contactCount}회`],
-    ['세금계산서 상태', target.taxMatched ? '일치' : target.taxIssued ? '차이 확인 필요' : '발행 전'],
+    ['세금계산서 상태', target.taxIssued ? '발행 확인' : '발행 전'],
   ].forEach(([label, value]) => {
     page.drawRectangle({ x: margin, y: y - 12, width: width - margin * 2, height: 30, borderColor: border, borderWidth: 0.8 });
     page.drawText(label, { x: margin + 12, y, size: 10, font, color: gray });
@@ -361,7 +361,6 @@ function getSendType(target) {
   if (!target.closingSheetSent) return '마감장 최초 발송';
   if (!target.amountConfirmed) return '금액 확인 재연락';
   if (target.amountConfirmed && !target.taxIssued) return '세금계산서 발행 요청';
-  if (target.amountConfirmed && target.taxIssued && !target.taxMatched) return '세금계산서 차이 확인';
   return '마감 완료 안내';
 }
 
@@ -387,10 +386,6 @@ function getMessagePreview(target) {
     return `${target.company} ${target.contactName}님, 마감 금액 확정이 완료되어 세금계산서 발행 확인 요청드립니다. 발행 후 공급가액 일치 여부 확인 부탁드립니다.`;
   }
 
-  if (sendType === '세금계산서 차이 확인') {
-    return `${target.company} ${target.contactName}님, 마감 확정 금액과 세금계산서 금액 차이가 확인되어 재확인 요청드립니다. 차이 사유와 수정 가능 여부 회신 부탁드립니다.`;
-  }
-
   return `${target.company} ${target.contactName}님, 마감 금액과 세금계산서 확인이 완료되었습니다. 협조 감사합니다.`;
 }
 
@@ -399,7 +394,6 @@ function getDefaultTemplateBySendType(sendType) {
     '마감장 최초 발송': '첨부드린 마감장 엑셀과 PDF를 확인하신 뒤 금액 이상 여부를 회신 부탁드립니다.',
     '금액 확인 재연락': '이전에 전달드린 마감장 금액 확인이 아직 완료되지 않아 재연락드립니다. 금액 확정 가능 여부를 회신 부탁드립니다.',
     '세금계산서 발행 요청': '마감 금액 확정이 완료되어 세금계산서 발행 확인을 요청드립니다. 발행 후 공급가액 일치 여부를 확인 부탁드립니다.',
-    '세금계산서 차이 확인': '마감 확정 금액과 세금계산서 금액 차이가 확인되어 재확인을 요청드립니다. 차이 사유와 수정 가능 여부를 회신 부탁드립니다.',
     '마감 완료 안내': '마감 금액과 세금계산서 확인이 완료되었습니다. 협조 감사합니다.',
   };
 
@@ -415,19 +409,28 @@ function makeDefaultMailTemplates() {
       '마감장 최초 발송': getDefaultTemplateBySendType('마감장 최초 발송'),
       '금액 확인 재연락': getDefaultTemplateBySendType('금액 확인 재연락'),
       '세금계산서 발행 요청': getDefaultTemplateBySendType('세금계산서 발행 요청'),
-      '세금계산서 차이 확인': getDefaultTemplateBySendType('세금계산서 차이 확인'),
       '마감 완료 안내': getDefaultTemplateBySendType('마감 완료 안내'),
     },
+    targetSubjects: {},
+    targetBodies: {},
     targetNotes: {},
   };
 }
 
 function getTargetMailSubject(target, templates = makeDefaultMailTemplates()) {
+  if (Object.prototype.hasOwnProperty.call(templates.targetSubjects ?? {}, target.id)) {
+    return templates.targetSubjects[target.id];
+  }
+
   const sendType = getSendType(target);
   return `${target.company} ${sendType} ${templates.subjectSuffix || '의 건'}`;
 }
 
 function getTargetMailBody(target, templates = makeDefaultMailTemplates()) {
+  if (Object.prototype.hasOwnProperty.call(templates.targetBodies ?? {}, target.id)) {
+    return templates.targetBodies[target.id];
+  }
+
   const sendType = getSendType(target);
   const commonBody = templates.commonByType?.[sendType] || getDefaultTemplateBySendType(sendType);
   const targetNote = templates.targetNotes?.[target.id]?.trim();
@@ -764,8 +767,8 @@ function AttachmentPreviewModal({ preview, onClose, onDownload }) {
   );
 }
 
-function MailTemplateModal({ templates, targets, onChange, onClose }) {
-  const sendTypes = ['마감장 최초 발송', '금액 확인 재연락', '세금계산서 발행 요청', '세금계산서 차이 확인', '마감 완료 안내'];
+function MailTemplateModal({ templates, onChange, onClose }) {
+  const sendTypes = ['마감장 최초 발송', '금액 확인 재연락', '세금계산서 발행 요청', '마감 완료 안내'];
 
   const updateField = (field, value) => {
     onChange({ ...templates, [field]: value });
@@ -781,16 +784,6 @@ function MailTemplateModal({ templates, targets, onChange, onClose }) {
     });
   };
 
-  const updateTargetNote = (targetId, value) => {
-    onChange({
-      ...templates,
-      targetNotes: {
-        ...templates.targetNotes,
-        [targetId]: value,
-      },
-    });
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/40 px-4">
       <div className="flex h-[min(88vh,820px)] w-full max-w-6xl flex-col rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
@@ -798,7 +791,7 @@ function MailTemplateModal({ templates, targets, onChange, onClose }) {
           <div>
             <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">메일 문구 서식 설정</h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              공통 서식과 발송 유형별 본문, 업체별 추가 안내를 수정합니다.
+              공통 서식과 발송 유형별 본문을 수정합니다.
             </p>
           </div>
           <button className="btn btn-secondary" type="button" onClick={onClose}>닫기</button>
@@ -835,24 +828,103 @@ function MailTemplateModal({ templates, targets, onChange, onClose }) {
               ))}
             </div>
           </section>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-          <section className="mt-5">
-            <h3 className="font-bold text-gray-900 dark:text-gray-100">업체별 추가 내용</h3>
-            <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              {targets.map((target) => (
-                <label key={target.id} className="block rounded-lg border border-gray-200 p-3 dark:border-gray-700/60">
-                  <span className="mb-1 block text-sm font-bold text-gray-900 dark:text-gray-100">{getContactLabel(target)}</span>
-                  <span className="mb-2 block text-xs text-gray-500 dark:text-gray-400">{getSendType(target)} · {formatCurrency(target.amount)}</span>
-                  <textarea
-                    className="form-textarea min-h-20 w-full"
-                    placeholder="이 업체에만 추가할 안내를 입력하세요."
-                    value={templates.targetNotes[target.id] || ''}
-                    onChange={(event) => updateTargetNote(target.id, event.target.value)}
-                  />
-                </label>
-              ))}
-            </div>
-          </section>
+function TargetMailNoteModal({ target, templates, onChange, onClose }) {
+  if (!target) return null;
+
+  const defaultSubject = getTargetMailSubject(target, {
+    ...templates,
+    targetSubjects: Object.fromEntries(
+      Object.entries(templates.targetSubjects ?? {}).filter(([targetId]) => targetId !== target.id)
+    ),
+  });
+  const defaultBody = getTargetMailBody(target, {
+    ...templates,
+    targetBodies: Object.fromEntries(
+      Object.entries(templates.targetBodies ?? {}).filter(([targetId]) => targetId !== target.id)
+    ),
+  });
+  const subjectValue = Object.prototype.hasOwnProperty.call(templates.targetSubjects ?? {}, target.id)
+    ? templates.targetSubjects[target.id]
+    : defaultSubject;
+  const bodyValue = Object.prototype.hasOwnProperty.call(templates.targetBodies ?? {}, target.id)
+    ? templates.targetBodies[target.id]
+    : defaultBody;
+
+  const updateTargetSubject = (value) => {
+    onChange({
+      ...templates,
+      targetSubjects: {
+        ...(templates.targetSubjects ?? {}),
+        [target.id]: value,
+      },
+    });
+  };
+
+  const updateTargetBody = (value) => {
+    onChange({
+      ...templates,
+      targetBodies: {
+        ...(templates.targetBodies ?? {}),
+        [target.id]: value,
+      },
+    });
+  };
+
+  const resetTargetCopy = () => {
+    const nextTargetSubjects = { ...(templates.targetSubjects ?? {}) };
+    const nextTargetBodies = { ...(templates.targetBodies ?? {}) };
+    const nextTargetNotes = { ...(templates.targetNotes ?? {}) };
+
+    delete nextTargetSubjects[target.id];
+    delete nextTargetBodies[target.id];
+    delete nextTargetNotes[target.id];
+
+    onChange({
+      ...templates,
+      targetSubjects: nextTargetSubjects,
+      targetBodies: nextTargetBodies,
+      targetNotes: nextTargetNotes,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/40 px-4">
+      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
+        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-700/60">
+          <div className="min-w-0">
+            <h2 className="truncate text-lg font-bold text-gray-900 dark:text-gray-100">{target.company} 메일 문구 수정</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{target.email} · {getSendType(target)}</p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button className="btn btn-secondary" type="button" onClick={resetTargetCopy}>기본값</button>
+            <button className="btn btn-secondary" type="button" onClick={onClose}>닫기</button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-gray-900 dark:text-gray-100">메일 제목</span>
+            <input
+              className="form-input w-full"
+              value={subjectValue}
+              onChange={(event) => updateTargetSubject(event.target.value)}
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-gray-900 dark:text-gray-100">메일 본문 전체</span>
+            <textarea
+              className="form-textarea min-h-80 w-full resize-y leading-6"
+              value={bodyValue}
+              onChange={(event) => updateTargetBody(event.target.value)}
+            />
+          </label>
         </div>
       </div>
     </div>
@@ -905,6 +977,7 @@ export default function ClosingSendQueuePage() {
   const [sendResultModal, setSendResultModal] = useState(null);
   const [attachmentPreview, setAttachmentPreview] = useState(null);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [editingTargetId, setEditingTargetId] = useState(null);
   const [mailTemplates, setMailTemplates] = useState(() => makeDefaultMailTemplates());
   const [mailDraftStatus, setMailDraftStatus] = useState('첨부 파일을 생성하면 메일 초안 파일을 만들 수 있습니다.');
   const [statusText, setStatusText] = useState('오늘 연락할 업체를 모아서 한 번에 검토합니다.');
@@ -953,6 +1026,10 @@ export default function ClosingSendQueuePage() {
   const preflightChecks = useMemo(
     () => makePreflightChecks({ mailSettings, mailTemplates, selectedTargets, emailTargets, isGenerated }),
     [mailSettings, mailTemplates, selectedTargets, emailTargets, isGenerated]
+  );
+  const editingTarget = useMemo(
+    () => selectedTargets.find((target) => target.id === editingTargetId) || null,
+    [selectedTargets, editingTargetId]
   );
   const isPreflightReady = preflightChecks.every((check) => check.ok);
 
@@ -1010,7 +1087,7 @@ export default function ClosingSendQueuePage() {
       addNotification({
         title: '발송 큐 첨부 생성 완료',
         message: saveResult?.folderPath
-          ? `${selectedTargets.length}개 업체의 엑셀/PDF 파일을 저장했습니다: ${saveResult.folderPath}`
+          ? `${selectedTargets.length}개 업체의 엑셀/PDF 파일을 저장했습니다.`
           : `${selectedTargets.length}개 업체의 엑셀/PDF 파일을 생성했습니다.`,
         level: 'SUCCESS',
         target: 'closing-send-queue',
@@ -1032,6 +1109,15 @@ export default function ClosingSendQueuePage() {
 
   const handleDownloadFile = async (file) => {
     await downloadBlob(file.blob, file.fileName);
+  };
+
+  const handleOpenFileLocation = async (file) => {
+    if (!file?.filePath || !window.api?.openFileLocation) return;
+
+    const result = await window.api.openFileLocation(file.filePath);
+    if (!result?.ok) {
+      setStatusText(result?.message || '파일 위치를 열 수 없습니다.');
+    }
   };
 
   const handleCreateMailDraft = async () => {
@@ -1424,19 +1510,21 @@ export default function ClosingSendQueuePage() {
                         { type: 'XLSX', fileName: '엑셀 마감장', size: 0 },
                         { type: 'PDF', fileName: 'PDF 확인본', size: 0 },
                       ]).map((file) => (
-                        <div key={`${target.id}-${file.type}`} className="flex items-center justify-between gap-3 rounded-md bg-gray-50 px-3 py-2 text-sm dark:bg-gray-900/30">
-                          <div className="min-w-0">
+                        <div key={`${target.id}-${file.type}`} className="grid gap-2 rounded-md bg-gray-50 px-3 py-2 text-sm dark:bg-gray-900/30 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                          <div className="min-w-0 overflow-hidden">
                             <p className="truncate font-semibold text-gray-700 dark:text-gray-200">{file.fileName}</p>
                             <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{file.type} · {formatBytes(file.size)}</p>
-                            {file.filePath && (
-                              <p className="mt-0.5 truncate text-[11px] text-teal-700 dark:text-teal-300">저장됨: {file.filePath}</p>
-                            )}
                           </div>
                           {file.blob ? (
-                            <div className="flex shrink-0 gap-1">
+                            <div className="flex flex-wrap gap-1 sm:justify-end">
                               <button className="btn btn-secondary h-8 px-3 text-xs" type="button" onClick={() => setAttachmentPreview({ company: target.company, file })}>
                                 미리보기
                               </button>
+                              {file.filePath && (
+                                <button className="btn btn-secondary h-8 px-3 text-xs" type="button" onClick={() => handleOpenFileLocation(file)}>
+                                  위치 열기
+                                </button>
+                              )}
                               <button className="btn btn-secondary h-8 px-3 text-xs" type="button" onClick={() => handleDownloadFile(file)}>
                                 저장
                               </button>
@@ -1494,17 +1582,25 @@ export default function ClosingSendQueuePage() {
 
             <div className="grid gap-3 lg:grid-cols-2">
               {selectedTargets.map((target) => (
-                <article key={target.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-700/60">
+                <button
+                  key={target.id}
+                  className="w-full rounded-lg border border-gray-200 p-3 text-left transition-colors hover:border-teal-300 hover:bg-teal-50/40 focus:outline-none focus:ring-2 focus:ring-teal-500/40 dark:border-gray-700/60 dark:hover:border-teal-500/50 dark:hover:bg-teal-500/10"
+                  type="button"
+                  onClick={() => setEditingTargetId(target.id)}
+                >
                   <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-gray-900 dark:text-gray-100">{target.company}</p>
-                    <p className="text-xs text-gray-500">{target.channel === 'EMAIL' ? '메일 발송' : '카톡 문구 복사'} · {target.email}</p>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-gray-900 dark:text-gray-100">{target.company}</p>
+                      <p className="truncate text-xs text-gray-500">{target.channel === 'EMAIL' ? '메일 발송' : '카톡 문구 복사'} · {target.email}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <StatusPill className={getSendTone(getSendType(target))}>{getSendType(target)}</StatusPill>
+                      <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-500 dark:bg-gray-700 dark:text-gray-300">수정</span>
+                    </div>
                   </div>
-                  <StatusPill className={getSendTone(getSendType(target))}>{getSendType(target)}</StatusPill>
-                  </div>
-                  <p className="mt-3 text-xs font-semibold text-gray-400 dark:text-gray-500">{getMailSubject(target, mailTemplates)}</p>
+                  <p className="mt-3 truncate text-xs font-semibold text-gray-400 dark:text-gray-500">{getMailSubject(target, mailTemplates)}</p>
                   <p className="mt-2 whitespace-pre-line rounded-md bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-600 dark:bg-gray-900/30 dark:text-gray-300">{getTargetMailBody(target, mailTemplates)}</p>
-                </article>
+                </button>
               ))}
             </div>
           </div>
@@ -1600,9 +1696,16 @@ export default function ClosingSendQueuePage() {
       {isTemplateModalOpen && (
         <MailTemplateModal
           templates={mailTemplates}
-          targets={selectedTargets}
           onChange={handleMailTemplatesChange}
           onClose={() => setIsTemplateModalOpen(false)}
+        />
+      )}
+      {editingTarget && (
+        <TargetMailNoteModal
+          target={editingTarget}
+          templates={mailTemplates}
+          onChange={handleMailTemplatesChange}
+          onClose={() => setEditingTargetId(null)}
         />
       )}
     </PageShell>

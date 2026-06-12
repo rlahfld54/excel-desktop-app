@@ -2,491 +2,487 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 
+const storageKey = 'excel-workspace:customerContacts';
+
 const fallbackContacts = [
   {
-    contactId: 1,
+    contactId: 'CONTACT-001',
     customerCode: 'CUST-001',
     customerName: '한빛유통',
+    businessNumber: '120-81-00011',
     departmentName: '정산팀',
-    recipientName: '한빛 정산담당',
+    recipientName: '오민지',
+    recipientTitle: '대리',
     recipientEmail: 'settle@hanbit.example',
-    recipientPhone: '',
+    recipientPhone: '010-4210-1842',
     preferredChannel: 'EMAIL',
     status: 'ACTIVE',
-    memo: '샘플 연락처',
+    memo: '10일 마감. 메일 회신이 빠른 거래처.',
   },
   {
-    contactId: 2,
-    customerCode: 'CUST-003',
+    contactId: 'CONTACT-002',
+    customerCode: 'CUST-002',
     customerName: '모블상사',
+    businessNumber: '214-86-55021',
     departmentName: '관리팀',
-    recipientName: '모블 관리담당',
+    recipientName: '강지훈',
+    recipientTitle: '대리',
     recipientEmail: 'admin@moble.example',
-    recipientPhone: '',
-    preferredChannel: 'KAKAO',
+    recipientPhone: '010-3188-5502',
+    preferredChannel: 'EMAIL',
     status: 'ACTIVE',
-    memo: '샘플 연락처',
+    memo: '금액 확인 재연락 대상.',
+  },
+  {
+    contactId: 'CONTACT-003',
+    customerCode: 'CUST-003',
+    customerName: '그린물류',
+    businessNumber: '109-87-43180',
+    departmentName: '정산팀',
+    recipientName: '서가은',
+    recipientTitle: '팀장',
+    recipientEmail: 'tax@greenlog.example',
+    recipientPhone: '010-9402-6620',
+    preferredChannel: 'KAKAO',
+    status: 'HOLD',
+    memo: '담당자 부재가 잦아 카톡 안내 후 메일 발송.',
   },
 ];
 
-const sampleCsv = `거래처코드,거래처명,부서,담당자명,이메일,전화번호,선호채널,상태,메모
-CUST-001,한빛유통,정산팀,한빛 정산담당,settle@hanbit.example,010-0000-0001,EMAIL,ACTIVE,월마감 담당
-CUST-002,세종오피스,영업지원,세종 영업지원,sales@sejong.example,010-0000-0002,EMAIL,ACTIVE,정기 거래처
-CUST-003,모블상사,관리팀,모블 관리담당,admin@moble.example,010-0000-0003,KAKAO,ACTIVE,카카오 공유 대상`;
-
-const headerAliases = {
-  customerCode: ['거래처코드', '거래처 코드', 'customer_code', 'customerCode'],
-  customerName: ['거래처명', '거래처', 'customer_name', 'customerName'],
-  departmentName: ['부서', '부서명', 'department', 'department_name'],
-  recipientName: ['담당자명', '담당자', '수신자', 'recipient_name'],
-  recipientEmail: ['이메일', '메일', 'email', 'recipient_email'],
-  recipientPhone: ['전화번호', '연락처', 'phone', 'recipient_phone'],
-  preferredChannel: ['선호채널', '채널', 'channel', 'preferred_channel'],
-  status: ['상태', 'status'],
-  memo: ['메모', 'memo'],
+const emptyDraft = {
+  contactId: '',
+  customerCode: '',
+  customerName: '',
+  businessNumber: '',
+  departmentName: '',
+  recipientName: '',
+  recipientTitle: '',
+  recipientEmail: '',
+  recipientPhone: '',
+  preferredChannel: 'EMAIL',
+  status: 'ACTIVE',
+  memo: '',
 };
 
-function statusClass(status) {
-  if (status === 'ACTIVE') {
-    return 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300';
-  }
+const statusLabels = {
+  ACTIVE: '사용',
+  HOLD: '보류',
+  INACTIVE: '미사용',
+};
 
-  return 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300';
+const channelLabels = {
+  EMAIL: '메일',
+  KAKAO: '카톡',
+  PHONE: '전화',
+};
+
+function makeContactId() {
+  return `CONTACT-${Date.now().toString(36).toUpperCase()}`;
+}
+
+function normalizeContact(contact) {
+  return {
+    ...emptyDraft,
+    ...contact,
+    contactId: String(contact.contactId ?? makeContactId()),
+    preferredChannel: contact.preferredChannel || 'EMAIL',
+    status: contact.status || 'ACTIVE',
+  };
+}
+
+function readStoredContacts() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey));
+    return Array.isArray(saved) ? saved.map(normalizeContact) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredContacts(contacts) {
+  localStorage.setItem(storageKey, JSON.stringify(contacts));
+}
+
+function statusClass(status) {
+  if (status === 'ACTIVE') return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
+  if (status === 'HOLD') return 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
+  return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
 }
 
 function channelClass(channel) {
-  if (channel === 'EMAIL') {
-    return 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300';
-  }
-
-  return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200';
+  if (channel === 'EMAIL') return 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300';
+  if (channel === 'KAKAO') return 'bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300';
+  return 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300';
 }
 
-function parseCsvText(text) {
-  const rows = [];
-  let row = [];
-  let cell = '';
-  let inQuotes = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const nextChar = text[index + 1];
-
-    if (char === '"' && inQuotes && nextChar === '"') {
-      cell += '"';
-      index += 1;
-    } else if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === ',' && !inQuotes) {
-      row.push(cell.trim());
-      cell = '';
-    } else if ((char === '\n' || char === '\r') && !inQuotes) {
-      if (char === '\r' && nextChar === '\n') index += 1;
-      row.push(cell.trim());
-      rows.push(row);
-      row = [];
-      cell = '';
-    } else {
-      cell += char;
-    }
-  }
-
-  row.push(cell.trim());
-  rows.push(row);
-  return rows.filter((item) => item.some((value) => value !== ''));
+function ContactPill({ children, className }) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${className}`}>
+      {children}
+    </span>
+  );
 }
 
-function normalizeHeader(header) {
-  return String(header ?? '').trim().replace(/\s/g, '').toLowerCase();
-}
-
-function findColumnIndex(headers, key) {
-  const aliases = headerAliases[key].map(normalizeHeader);
-  return headers.findIndex((header) => aliases.includes(normalizeHeader(header)));
-}
-
-function normalizeChannel(value) {
-  const channel = String(value ?? 'EMAIL').trim().toUpperCase();
-  if (channel.includes('KAKAO') || channel.includes('카카오')) return 'KAKAO';
-  return 'EMAIL';
-}
-
-function normalizeStatus(value) {
-  const status = String(value ?? 'ACTIVE').trim().toUpperCase();
-  if (status === 'HOLD' || status === 'INACTIVE') return status;
-  return 'ACTIVE';
-}
-
-function parseContactsFromCsv(text) {
-  const rows = parseCsvText(text);
-  if (rows.length === 0) return { contacts: [], issues: ['CSV 내용이 비어 있습니다.'] };
-
-  const headers = rows[0];
-  const indexes = Object.fromEntries(Object.keys(headerAliases).map((key) => [key, findColumnIndex(headers, key)]));
-  const issues = [];
-
-  if (indexes.customerName < 0) issues.push('필수 컬럼 누락: 거래처명');
-  if (indexes.preferredChannel < 0) issues.push('필수 컬럼 누락: 선호채널');
-
-  const contacts = rows.slice(1).map((row, index) => {
-    const getValue = (key) => (indexes[key] >= 0 ? row[indexes[key]] ?? '' : '');
-    const contact = {
-      importId: `csv-${index + 1}`,
-      customerCode: getValue('customerCode'),
-      customerName: getValue('customerName'),
-      departmentName: getValue('departmentName'),
-      recipientName: getValue('recipientName'),
-      recipientEmail: getValue('recipientEmail'),
-      recipientPhone: getValue('recipientPhone'),
-      preferredChannel: normalizeChannel(getValue('preferredChannel')),
-      status: normalizeStatus(getValue('status')),
-      memo: getValue('memo'),
-      rowNo: index + 2,
-      issues: [],
-    };
-
-    if (!contact.customerName) contact.issues.push('거래처명 누락');
-    if (contact.preferredChannel === 'EMAIL' && !contact.recipientEmail) contact.issues.push('EMAIL 채널 이메일 누락');
-    if (contact.recipientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.recipientEmail)) contact.issues.push('이메일 형식 확인');
-    return contact;
-  });
-
-  const validContacts = contacts.filter((contact) => contact.customerName);
-  return { contacts: validContacts, issues };
+function Field({ label, children }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">{label}</span>
+      {children}
+    </label>
+  );
 }
 
 function MetricCard({ label, value, detail }) {
   return (
     <section className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
       <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
-      <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{value}</p>
+      <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
       <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
     </section>
   );
 }
 
-export default function ContactListPage() {
-  const [contacts, setContacts] = useState(fallbackContacts);
-  const [selectedId, setSelectedId] = useState(fallbackContacts[0].contactId);
-  const [loadState, setLoadState] = useState('브라우저 미리보기');
-  const [isSeeding, setIsSeeding] = useState(false);
-  const [csvText, setCsvText] = useState(sampleCsv);
-  const [importState, setImportState] = useState('');
-  const [showImporter, setShowImporter] = useState(false);
+function ContactForm({ draft, mode, onChange, onSubmit, onCancel }) {
+  const update = (field, value) => onChange({ ...draft, [field]: value });
 
-  const preview = useMemo(() => parseContactsFromCsv(csvText), [csvText]);
-  const previewIssueCount = preview.contacts.reduce((sum, contact) => sum + contact.issues.length, preview.issues.length);
+  return (
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="거래처명">
+          <input className="form-input w-full" value={draft.customerName} onChange={(event) => update('customerName', event.target.value)} required placeholder="거래처명을 입력" />
+        </Field>
+        <Field label="거래처 코드">
+          <input className="form-input w-full" value={draft.customerCode} onChange={(event) => update('customerCode', event.target.value)} placeholder="CUST-001" />
+        </Field>
+        <Field label="사업자번호">
+          <input className="form-input w-full" value={draft.businessNumber} onChange={(event) => update('businessNumber', event.target.value)} placeholder="000-00-00000" />
+        </Field>
+        <Field label="부서">
+          <input className="form-input w-full" value={draft.departmentName} onChange={(event) => update('departmentName', event.target.value)} placeholder="정산팀" />
+        </Field>
+        <Field label="담당자명">
+          <input className="form-input w-full" value={draft.recipientName} onChange={(event) => update('recipientName', event.target.value)} required placeholder="담당자명" />
+        </Field>
+        <Field label="직함">
+          <input className="form-input w-full" value={draft.recipientTitle} onChange={(event) => update('recipientTitle', event.target.value)} placeholder="대리 / 팀장" />
+        </Field>
+        <Field label="이메일">
+          <input className="form-input w-full" type="email" value={draft.recipientEmail} onChange={(event) => update('recipientEmail', event.target.value)} placeholder="name@company.com" />
+        </Field>
+        <Field label="전화번호">
+          <input className="form-input w-full" value={draft.recipientPhone} onChange={(event) => update('recipientPhone', event.target.value)} placeholder="010-0000-0000" />
+        </Field>
+        <Field label="선호 채널">
+          <select className="form-select w-full" value={draft.preferredChannel} onChange={(event) => update('preferredChannel', event.target.value)}>
+            {Object.entries(channelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </Field>
+        <Field label="상태">
+          <select className="form-select w-full" value={draft.status} onChange={(event) => update('status', event.target.value)}>
+            {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="메모">
+        <textarea className="form-textarea min-h-24 w-full" value={draft.memo} onChange={(event) => update('memo', event.target.value)} placeholder="마감일, 연락 시 주의사항, 담당자 특이사항" />
+      </Field>
+
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button className="btn btn-secondary" type="button" onClick={onCancel}>취소</button>
+        <button className="btn btn-primary" type="submit">{mode === 'edit' ? '수정 저장' : '신규 등록'}</button>
+      </div>
+    </form>
+  );
+}
+
+export default function ContactListPage() {
+  const [contacts, setContacts] = useState(() => {
+    const saved = readStoredContacts();
+    return saved.length ? saved : fallbackContacts.map(normalizeContact);
+  });
+  const [selectedId, setSelectedId] = useState(() => contacts[0]?.contactId ?? '');
+  const [draft, setDraft] = useState(emptyDraft);
+  const [formMode, setFormMode] = useState('create');
+  const [filters, setFilters] = useState({ query: '', channel: 'ALL', status: 'ALL' });
+  const [notice, setNotice] = useState('거래처 담당자를 등록하거나 행을 선택해 바로 수정할 수 있습니다.');
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!window.api?.getMasterData || readStoredContacts().length > 0) return undefined;
+
+    window.api.getMasterData()
+      .then((data) => {
+        if (!isMounted || !Array.isArray(data.contacts) || data.contacts.length === 0) return;
+        const nextContacts = data.contacts.map(normalizeContact);
+        setContacts(nextContacts);
+        setSelectedId(nextContacts[0]?.contactId ?? '');
+        saveStoredContacts(nextContacts);
+      })
+      .catch(() => {
+        // Browser preview and Electron fallback both keep the local contacts.
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    saveStoredContacts(contacts);
+  }, [contacts]);
 
   const selectedContact = useMemo(
-    () => contacts.find((contact) => contact.contactId === selectedId) ?? contacts[0],
+    () => contacts.find((contact) => contact.contactId === selectedId) ?? contacts[0] ?? null,
     [contacts, selectedId],
   );
 
+  const filteredContacts = useMemo(() => {
+    const query = filters.query.trim().toLowerCase();
+
+    return contacts.filter((contact) => {
+      const matchesQuery = query === '' || [
+        contact.customerName,
+        contact.customerCode,
+        contact.businessNumber,
+        contact.departmentName,
+        contact.recipientName,
+        contact.recipientEmail,
+        contact.recipientPhone,
+        contact.memo,
+      ].join(' ').toLowerCase().includes(query);
+      const matchesChannel = filters.channel === 'ALL' || contact.preferredChannel === filters.channel;
+      const matchesStatus = filters.status === 'ALL' || contact.status === filters.status;
+      return matchesQuery && matchesChannel && matchesStatus;
+    });
+  }, [contacts, filters]);
+
   const metrics = useMemo(() => {
-    const emailCount = contacts.filter((contact) => contact.preferredChannel === 'EMAIL').length;
-    const kakaoCount = contacts.filter((contact) => contact.preferredChannel === 'KAKAO').length;
     const customerCount = new Set(contacts.map((contact) => contact.customerCode || contact.customerName).filter(Boolean)).size;
-    const missingEmailCount = contacts.filter((contact) => contact.preferredChannel === 'EMAIL' && !contact.recipientEmail).length;
+    const activeCount = contacts.filter((contact) => contact.status === 'ACTIVE').length;
+    const emailCount = contacts.filter((contact) => contact.preferredChannel === 'EMAIL').length;
+    const missingInfoCount = contacts.filter((contact) => !contact.recipientEmail && !contact.recipientPhone).length;
 
     return [
-      { label: '연락처', value: `${contacts.length.toLocaleString('ko-KR')}건`, detail: `${customerCount.toLocaleString('ko-KR')}개 거래처 연결` },
-      { label: '이메일', value: `${emailCount.toLocaleString('ko-KR')}건`, detail: 'send_list.csv 기본 대상' },
-      { label: '카카오', value: `${kakaoCount.toLocaleString('ko-KR')}건`, detail: '수동 공유 문구 대상' },
-      { label: '확인 필요', value: `${missingEmailCount.toLocaleString('ko-KR')}건`, detail: 'EMAIL 채널 이메일 누락' },
+      { label: '등록 담당자', value: `${contacts.length.toLocaleString('ko-KR')}명`, detail: `${customerCount.toLocaleString('ko-KR')}개 거래처` },
+      { label: '사용 중', value: `${activeCount.toLocaleString('ko-KR')}명`, detail: '발송/마감 작업에 사용' },
+      { label: '메일 대상', value: `${emailCount.toLocaleString('ko-KR')}명`, detail: '메일 채널 우선' },
+      { label: '정보 확인', value: `${missingInfoCount.toLocaleString('ko-KR')}명`, detail: '이메일 또는 전화번호 필요' },
     ];
   }, [contacts]);
 
-  const loadContacts = async () => {
-    if (!window.api?.getMasterData) {
-      setContacts(fallbackContacts);
-      setSelectedId(fallbackContacts[0].contactId);
-      setLoadState('브라우저 미리보기');
-      return;
-    }
-
-    try {
-      const data = await window.api.getMasterData();
-      const nextContacts = data.contacts?.length ? data.contacts : [];
-      setContacts(nextContacts.length ? nextContacts : fallbackContacts);
-      setSelectedId((nextContacts[0] ?? fallbackContacts[0]).contactId);
-      setLoadState(nextContacts.length ? 'SQLite 연결됨' : 'SQLite 연결됨 / 연락처 없음');
-    } catch (error) {
-      setContacts(fallbackContacts);
-      setSelectedId(fallbackContacts[0].contactId);
-      setLoadState(`SQLite 확인 필요: ${error.message}`);
-    }
+  const startCreate = () => {
+    setFormMode('create');
+    setDraft(emptyDraft);
+    setNotice('새 거래처 담당자 정보를 입력하세요.');
   };
 
-  useEffect(() => {
-    loadContacts();
-  }, []);
-
-  const handleSeed = async () => {
-    if (!window.api?.seedMasterData) {
-      setLoadState('Electron 실행 후 샘플 연락처 준비 가능');
-      return;
-    }
-
-    setIsSeeding(true);
-    setLoadState('샘플 연락처 준비 중');
-    try {
-      const data = await window.api.seedMasterData();
-      const nextContacts = data.contacts?.length ? data.contacts : fallbackContacts;
-      setContacts(nextContacts);
-      setSelectedId(nextContacts[0].contactId);
-      setLoadState('샘플 연락처 준비 완료');
-    } catch (error) {
-      setLoadState(`샘플 준비 실패: ${error.message}`);
-    } finally {
-      setIsSeeding(false);
-    }
+  const startEdit = (contact = selectedContact) => {
+    if (!contact) return;
+    setFormMode('edit');
+    setDraft(normalizeContact(contact));
+    setSelectedId(contact.contactId);
+    setNotice(`${contact.customerName} 담당자 정보를 수정 중입니다.`);
   };
 
-  const handleFileImport = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setCsvText(await file.text());
-    setShowImporter(true);
-    event.target.value = '';
+  const handleSelect = (contact) => {
+    setSelectedId(contact.contactId);
+    setFormMode('edit');
+    setDraft(normalizeContact(contact));
+    setNotice(`${contact.customerName} 담당자 정보를 선택했습니다.`);
   };
 
-  const handleImportContacts = async () => {
-    if (preview.contacts.length === 0) {
-      setImportState('가져올 연락처가 없습니다.');
+  const handleSubmit = (event) => {
+    event.preventDefault();
+
+    const nextContact = normalizeContact({
+      ...draft,
+      contactId: formMode === 'edit' && draft.contactId ? draft.contactId : makeContactId(),
+      customerName: draft.customerName.trim(),
+      customerCode: draft.customerCode.trim(),
+      businessNumber: draft.businessNumber.trim(),
+      departmentName: draft.departmentName.trim(),
+      recipientName: draft.recipientName.trim(),
+      recipientTitle: draft.recipientTitle.trim(),
+      recipientEmail: draft.recipientEmail.trim(),
+      recipientPhone: draft.recipientPhone.trim(),
+      memo: draft.memo.trim(),
+    });
+
+    if (!nextContact.customerName || !nextContact.recipientName) {
+      setNotice('거래처명과 담당자명은 꼭 입력해야 합니다.');
       return;
     }
 
-    if (previewIssueCount > 0) {
-      setImportState('확인 필요 항목을 먼저 정리해주세요.');
-      return;
-    }
+    setContacts((current) => {
+      if (formMode === 'edit') {
+        return current.map((contact) => (contact.contactId === nextContact.contactId ? nextContact : contact));
+      }
+      return [nextContact, ...current];
+    });
+    setSelectedId(nextContact.contactId);
+    setDraft(nextContact);
+    setFormMode('edit');
+    setNotice(formMode === 'edit' ? '담당자 정보가 수정되었습니다.' : '새 거래처 담당자가 등록되었습니다.');
+  };
 
-    if (!window.api?.importContacts) {
-      setImportState('브라우저 미리보기에서는 SQLite 저장 대신 CSV 검증만 가능합니다.');
-      return;
-    }
+  const handleDelete = (contact = selectedContact) => {
+    if (!contact) return;
+    const confirmed = window.confirm(`${contact.customerName} ${contact.recipientName} 담당자를 삭제할까요?`);
+    if (!confirmed) return;
 
-    try {
-      const result = await window.api.importContacts(preview.contacts);
-      const nextContacts = result.contacts?.length ? result.contacts : fallbackContacts;
-      setContacts(nextContacts);
-      setSelectedId(nextContacts[0].contactId);
-      setImportState(`가져오기 완료: 추가 ${result.summary.inserted}건 / 갱신 ${result.summary.updated}건`);
-      setShowImporter(false);
-    } catch (error) {
-      setImportState(`가져오기 실패: ${error.message}`);
-    }
+    setContacts((current) => {
+      const nextContacts = current.filter((item) => item.contactId !== contact.contactId);
+      const nextSelected = nextContacts[0]?.contactId ?? '';
+      setSelectedId(nextSelected);
+      setDraft(nextContacts[0] ? normalizeContact(nextContacts[0]) : emptyDraft);
+      setFormMode(nextContacts[0] ? 'edit' : 'create');
+      return nextContacts;
+    });
+    setNotice('담당자 정보가 삭제되었습니다.');
+  };
+
+  const resetSample = () => {
+    const nextContacts = fallbackContacts.map(normalizeContact);
+    setContacts(nextContacts);
+    setSelectedId(nextContacts[0].contactId);
+    setDraft(normalizeContact(nextContacts[0]));
+    setFormMode('edit');
+    setNotice('샘플 담당자 목록으로 다시 채웠습니다.');
   };
 
   return (
-    <PageShell title="연락처 목록" description="문서 기준 CSV 컬럼으로 거래처별 담당자, 발송 채널, 이메일 상태를 가져오고 검증합니다.">
-      <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Contacts</p>
-            <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{loadState}</p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">권장 컬럼: 거래처코드, 거래처명, 부서, 담당자명, 이메일, 전화번호, 선호채널, 상태, 메모</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="btn btn-secondary" type="button" onClick={loadContacts}>
-              새로고침
-            </button>
-            <label className="btn btn-secondary cursor-pointer">
-              CSV 파일
-              <input className="sr-only" type="file" accept=".csv,text/csv" onChange={handleFileImport} />
-            </label>
-            <button className="btn btn-secondary" type="button" onClick={() => setShowImporter((value) => !value)}>
-              CSV 붙여넣기
-            </button>
-            <button className="btn btn-primary" type="button" onClick={handleSeed} disabled={isSeeding}>
-              {isSeeding ? '준비 중' : '샘플 연락처 준비'}
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {importState && (
-        <section className="mb-4 rounded-lg border border-accent-200 bg-accent-50 px-4 py-3 text-sm font-medium text-accent-700 dark:border-accent-500/30 dark:bg-accent-500/10 dark:text-accent-300">
-          {importState}
-        </section>
-      )}
-
-      {showImporter && (
-        <section className="mb-4 grid grid-cols-12 gap-5">
-          <div className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-5">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="font-semibold text-gray-900 dark:text-gray-100">CSV 입력</h2>
-              <button className="text-sm font-semibold text-accent-600 hover:text-accent-700 dark:text-accent-300" type="button" onClick={() => setCsvText(sampleCsv)}>
-                샘플 채우기
-              </button>
-            </div>
-            <textarea
-              className="form-textarea h-64 w-full resize-none font-mono text-xs"
-              value={csvText}
-              onChange={(event) => setCsvText(event.target.value)}
-            />
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                미리보기 {preview.contacts.length.toLocaleString('ko-KR')}건 / 확인 필요 {previewIssueCount.toLocaleString('ko-KR')}건
-              </p>
-              <button className="btn btn-primary" type="button" onClick={handleImportContacts}>
-                검증 통과 항목 저장
-              </button>
-            </div>
-          </div>
-
-          <div className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-7">
-            <header className="border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
-              <h2 className="font-semibold text-gray-900 dark:text-gray-100">가져오기 미리보기</h2>
-            </header>
-            <div className="max-h-80 overflow-auto no-scrollbar">
-              <table className="min-w-[840px] w-full border-separate border-spacing-0 text-sm">
-                <thead className="sticky top-0 z-10">
-                  <tr>
-                    {['행', '거래처', '담당자', '이메일', '채널', '확인'].map((column) => (
-                      <th key={column} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-400">
-                        {column}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.contacts.map((contact) => (
-                    <tr key={contact.importId} className="group">
-                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
-                        {contact.rowNo}
-                      </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 font-medium text-gray-800 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-100 dark:group-hover:bg-accent-500/10">
-                        {contact.customerName}
-                      </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
-                        {contact.recipientName || '-'}
-                      </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
-                        {contact.recipientEmail || '확인 필요'}
-                      </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${channelClass(contact.preferredChannel)}`}>
-                          {contact.preferredChannel}
-                        </span>
-                      </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">
-                        {contact.issues.length ? (
-                          <span className="text-xs font-semibold text-yellow-700 dark:text-yellow-300">{contact.issues.join(', ')}</span>
-                        ) : (
-                          <span className="text-xs font-semibold text-green-700 dark:text-green-300">통과</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {preview.issues.length > 0 && (
-                <div className="border-t border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 dark:border-yellow-500/30 dark:bg-yellow-500/10 dark:text-yellow-200">
-                  {preview.issues.join(' / ')}
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
-
-      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <PageShell title="거래처 담당자 관리" description="거래처별 담당자를 등록하고, 연락처와 발송 채널을 바로 수정하거나 삭제합니다.">
+      <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
           <MetricCard key={metric.label} {...metric} />
         ))}
       </div>
 
+      <section className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_150px_150px_auto] xl:items-end">
+          <Field label="검색">
+            <input
+              className="form-input w-full"
+              value={filters.query}
+              onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
+              placeholder="거래처, 담당자, 이메일, 전화번호 검색"
+              type="search"
+            />
+          </Field>
+          <Field label="채널">
+            <select className="form-select w-full" value={filters.channel} onChange={(event) => setFilters((current) => ({ ...current, channel: event.target.value }))}>
+              <option value="ALL">전체</option>
+              {Object.entries(channelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="상태">
+            <select className="form-select w-full" value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
+              <option value="ALL">전체</option>
+              {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+          <div className="flex gap-2">
+            <button className="btn btn-primary whitespace-nowrap" type="button" onClick={startCreate}>새 담당자</button>
+            <button className="btn btn-secondary whitespace-nowrap" type="button" onClick={resetSample}>샘플 복구</button>
+          </div>
+        </div>
+        <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">{notice}</p>
+      </section>
+
       <div className="grid grid-cols-12 gap-5">
-        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8">
-          <header className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
-            <h2 className="font-semibold text-gray-900 dark:text-gray-100">거래처 연락처</h2>
-            <span className="text-xs font-semibold text-gray-400 dark:text-gray-500">{contacts.length.toLocaleString('ko-KR')}건</span>
+        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8" data-table-tools="false">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
+            <div>
+              <h2 className="font-bold text-gray-900 dark:text-gray-100">거래처 담당자 목록</h2>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{filteredContacts.length.toLocaleString('ko-KR')}명 표시 중</p>
+            </div>
+            {selectedContact && (
+              <div className="flex gap-2">
+                <button className="btn btn-secondary" type="button" onClick={() => startEdit(selectedContact)}>선택 수정</button>
+                <button className="rounded-md border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-gray-800 dark:text-rose-300 dark:hover:bg-rose-500/10" type="button" onClick={() => handleDelete(selectedContact)}>
+                  삭제
+                </button>
+              </div>
+            )}
           </header>
-          <div className="max-h-[31rem] overflow-auto no-scrollbar">
-            <table className="min-w-[840px] w-full border-separate border-spacing-0 text-sm">
-              <thead className="sticky top-0 z-10">
+
+          <div className="overflow-x-auto">
+            <table className="min-w-[940px] w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900/30 dark:text-gray-400">
                 <tr>
-                  {['거래처', '부서', '담당자', '이메일', '채널', '상태'].map((column) => (
-                    <th key={column} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-400">
-                      {column}
-                    </th>
-                  ))}
+                  <th className="px-4 py-3">거래처</th>
+                  <th className="px-4 py-3">담당자</th>
+                  <th className="px-4 py-3">연락처</th>
+                  <th className="px-4 py-3">채널</th>
+                  <th className="px-4 py-3">상태</th>
+                  <th className="px-4 py-3 text-right">관리</th>
                 </tr>
               </thead>
-              <tbody>
-                {contacts.map((contact) => {
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60">
+                {filteredContacts.map((contact) => {
                   const selected = contact.contactId === selectedContact?.contactId;
 
                   return (
-                    <tr
-                      key={contact.contactId}
-                      className={`group cursor-pointer ${selected ? 'bg-accent-50/70 dark:bg-accent-500/10' : ''}`}
-                      onClick={() => setSelectedId(contact.contactId)}
-                    >
-                      <td className="border-b border-r border-gray-200 px-3 py-2 font-medium text-gray-800 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-100 dark:group-hover:bg-accent-500/10">
-                        {contact.customerName ?? contact.customerCode}
+                    <tr key={contact.contactId} className={selected ? 'bg-teal-50/70 dark:bg-teal-500/10' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'}>
+                      <td className="px-4 py-3">
+                        <button className="text-left" type="button" onClick={() => handleSelect(contact)}>
+                          <span className="font-semibold text-gray-900 dark:text-gray-100">{contact.customerName}</span>
+                          <span className="mt-1 block text-xs text-gray-500">{contact.customerCode || '코드 없음'} · {contact.businessNumber || '사업자번호 없음'}</span>
+                        </button>
                       </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
-                        {contact.departmentName ?? '-'}
+                      <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
+                        <p className="font-medium">{contact.recipientName}</p>
+                        <p className="mt-1 text-xs text-gray-500">{[contact.departmentName, contact.recipientTitle].filter(Boolean).join(' · ') || '부서/직함 없음'}</p>
                       </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
-                        {contact.recipientName ?? '-'}
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
+                        <p>{contact.recipientEmail || '이메일 없음'}</p>
+                        <p className="mt-1 text-xs text-gray-500">{contact.recipientPhone || '전화번호 없음'}</p>
                       </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-600 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-300 dark:group-hover:bg-accent-500/10">
-                        {contact.recipientEmail ?? '확인 필요'}
+                      <td className="px-4 py-3">
+                        <ContactPill className={channelClass(contact.preferredChannel)}>{channelLabels[contact.preferredChannel] ?? contact.preferredChannel}</ContactPill>
                       </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${channelClass(contact.preferredChannel)}`}>
-                          {contact.preferredChannel}
-                        </span>
+                      <td className="px-4 py-3">
+                        <ContactPill className={statusClass(contact.status)}>{statusLabels[contact.status] ?? contact.status}</ContactPill>
                       </td>
-                      <td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(contact.status)}`}>
-                          {contact.status}
-                        </span>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-2">
+                          <button className="btn btn-secondary h-8 px-3 text-xs" type="button" onClick={() => startEdit(contact)}>수정</button>
+                          <button className="h-8 rounded-md border border-rose-200 px-3 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10" type="button" onClick={() => handleDelete(contact)}>삭제</button>
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
+                {filteredContacts.length === 0 && (
+                  <tr>
+                    <td className="px-4 py-10 text-center text-gray-500" colSpan="6">조건에 맞는 담당자가 없습니다.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </section>
 
         <aside className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4">
-          <div className="flex items-start justify-between gap-3">
+          <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">선택 연락처</p>
-              <h2 className="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{selectedContact?.customerName}</h2>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{selectedContact?.customerCode}</p>
+              <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{formMode === 'edit' ? '수정 모드' : '등록 모드'}</p>
+              <h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">{formMode === 'edit' ? '담당자 정보 수정' : '거래처 담당자 등록'}</h2>
             </div>
-            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${channelClass(selectedContact?.preferredChannel)}`}>
-              {selectedContact?.preferredChannel}
-            </span>
+            <ContactPill className={formMode === 'edit' ? 'bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300' : 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300'}>
+              {formMode === 'edit' ? '수정' : '신규'}
+            </ContactPill>
           </div>
 
-          <div className="mt-5 space-y-3">
-            {[
-              ['부서', selectedContact?.departmentName],
-              ['담당자', selectedContact?.recipientName],
-              ['이메일', selectedContact?.recipientEmail],
-              ['상태', selectedContact?.status],
-              ['메모', selectedContact?.memo],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
-                <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
-                <p className="mt-1 text-sm font-medium text-gray-800 dark:text-gray-100">{value ?? '확인 필요'}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-5 rounded-lg border border-accent-200 bg-accent-50/70 p-4 dark:border-accent-500/30 dark:bg-accent-500/10">
-            <p className="text-xs font-semibold uppercase text-accent-700 dark:text-accent-300">패키지 적용</p>
-            <p className="mt-2 text-sm leading-6 text-gray-700 dark:text-gray-200">
-              이 연락처는 요청 문구 템플릿의 수신자 정보와 send_list.csv 생성 기준으로 사용할 수 있습니다.
-            </p>
-          </div>
+          <ContactForm
+            draft={draft}
+            mode={formMode}
+            onChange={setDraft}
+            onSubmit={handleSubmit}
+            onCancel={startCreate}
+          />
         </aside>
       </div>
     </PageShell>

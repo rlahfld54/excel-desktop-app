@@ -8,7 +8,7 @@ import { readClosingWorkspaceRows, saveClosingWorkspaceRows } from '../utils/clo
 
 const owners = ['김민서', '박정우', '이서연', '최현우'];
 const closingDays = ['10일', '25일', '30일'];
-const reasonOptions = ['회신 대기', '금액 조율', '세금계산서 차이', '내부 검토', '미확정 없음'];
+const reasonOptions = ['회신 대기', '금액 조율', '내부 검토', '미확정 없음'];
 
 const baseCompanies = [
   {
@@ -21,15 +21,13 @@ const baseCompanies = [
     phone: '010-4210-1842',
     salesAmount: 28450000,
     confirmedAmount: 28450000,
-    taxAmount: 28450000,
     contactConfirmed: true,
     amountConfirmed: true,
-    taxMatched: true,
     requestReady: true,
     requestSent: true,
     reason: '미확정 없음',
     memo: '5월 마감 확정 완료. 요청서 발송 완료.',
-    history: ['06-07 거래처 확인 완료', '06-08 세금계산서 대조 완료', '06-08 요청서 발송'],
+    history: ['06-07 거래처 확인 완료', '06-08 마감 금액 확인 완료', '06-08 요청서 발송'],
   },
   {
     id: 'CLOSING-002',
@@ -41,10 +39,8 @@ const baseCompanies = [
     phone: '010-3188-5502',
     salesAmount: 19720000,
     confirmedAmount: 19650000,
-    taxAmount: 19720000,
     contactConfirmed: false,
     amountConfirmed: false,
-    taxMatched: false,
     requestReady: false,
     requestSent: false,
     reason: '회신 대기',
@@ -61,15 +57,13 @@ const baseCompanies = [
     phone: '010-9402-6620',
     salesAmount: 43180000,
     confirmedAmount: 43180000,
-    taxAmount: 43010000,
     contactConfirmed: true,
     amountConfirmed: true,
-    taxMatched: false,
     requestReady: false,
     requestSent: false,
-    reason: '세금계산서 차이',
-    memo: '세금계산서 공급가액 170,000원 차이 확인 필요.',
-    history: ['06-05 금액 확정', '06-09 세금계산서 차이 발견'],
+    reason: '내부 검토',
+    memo: '마감 확정 금액 재확인 후 요청 발송 여부 결정 필요.',
+    history: ['06-05 금액 확정', '06-09 내부 검토 요청'],
   },
   {
     id: 'CLOSING-004',
@@ -81,10 +75,8 @@ const baseCompanies = [
     phone: '010-6104-0931',
     salesAmount: 12690000,
     confirmedAmount: 12400000,
-    taxAmount: 12400000,
     contactConfirmed: true,
     amountConfirmed: false,
-    taxMatched: true,
     requestReady: false,
     requestSent: false,
     reason: '금액 조율',
@@ -101,10 +93,8 @@ const baseCompanies = [
     phone: '010-8890-7311',
     salesAmount: 35860000,
     confirmedAmount: 35860000,
-    taxAmount: 35860000,
     contactConfirmed: true,
     amountConfirmed: true,
-    taxMatched: true,
     requestReady: true,
     requestSent: false,
     reason: '미확정 없음',
@@ -121,15 +111,13 @@ const baseCompanies = [
     phone: '010-2048-2701',
     salesAmount: 9870000,
     confirmedAmount: 9870000,
-    taxAmount: 10010000,
     contactConfirmed: false,
     amountConfirmed: true,
-    taxMatched: false,
     requestReady: false,
     requestSent: false,
-    reason: '세금계산서 차이',
-    memo: '담당자 확인 전이며 세금계산서 금액이 더 큼.',
-    history: ['06-07 세금계산서 업로드', '06-09 연락 필요 표시'],
+    reason: '회신 대기',
+    memo: '담당자 확인 전이며 회신 후 요청 발송 여부 결정 필요.',
+    history: ['06-07 자료 업로드', '06-09 연락 필요 표시'],
   },
   {
     id: 'CLOSING-007',
@@ -141,10 +129,8 @@ const baseCompanies = [
     phone: '010-5211-4299',
     salesAmount: 22140000,
     confirmedAmount: 22140000,
-    taxAmount: 22140000,
     contactConfirmed: true,
     amountConfirmed: true,
-    taxMatched: true,
     requestReady: true,
     requestSent: true,
     reason: '미확정 없음',
@@ -161,10 +147,8 @@ const baseCompanies = [
     phone: '010-3900-1187',
     salesAmount: 48750000,
     confirmedAmount: 48200000,
-    taxAmount: 48200000,
     contactConfirmed: true,
     amountConfirmed: false,
-    taxMatched: true,
     requestReady: false,
     requestSent: false,
     reason: '내부 검토',
@@ -186,14 +170,14 @@ function formatShortCurrency(value) {
 }
 
 function getProgress(row) {
-  return Math.round(([row.contactConfirmed, row.amountConfirmed, row.taxMatched].filter(Boolean).length / 3) * 100);
+  return Math.round(([row.contactConfirmed, row.amountConfirmed, row.requestReady].filter(Boolean).length / 3) * 100);
 }
 
 function getRowStatus(row) {
   if (getProgress(row) === 100) return '완료';
   if (!row.contactConfirmed) return '연락 필요';
   if (!row.amountConfirmed) return '금액 미확정';
-  if (!row.taxMatched) return '세금계산서 차이';
+  if (!row.requestReady) return '발송 준비';
   return '미확정';
 }
 
@@ -202,19 +186,17 @@ function getRiskScore(row) {
   return deadlineWeight
     + (!row.contactConfirmed ? 30 : 0)
     + (!row.amountConfirmed ? 20 : 0)
-    + (!row.taxMatched ? 25 : 0);
+    + (!row.requestReady ? 10 : 0);
 }
 
 function withDerivedFields(row) {
   const progress = getProgress(row);
-  const taxGap = row.taxAmount - row.confirmedAmount;
 
   return {
     ...row,
     progress,
     status: getRowStatus(row),
     riskScore: getRiskScore(row),
-    taxGap,
   };
 }
 
@@ -259,12 +241,23 @@ function ProgressBar({ value }) {
   );
 }
 
+function DetailCheckbox({ checked, label, detail, onChange }) {
+  return (
+    <label className="flex items-start gap-3 rounded-lg border border-gray-100 p-3 text-sm hover:bg-gray-50 dark:border-gray-700/60 dark:hover:bg-gray-900/30">
+      <input className="form-checkbox mt-0.5" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span className="min-w-0">
+        <span className="block font-semibold text-gray-800 dark:text-gray-100">{label}</span>
+        {detail && <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-gray-400">{detail}</span>}
+      </span>
+    </label>
+  );
+}
+
 function StageOverview({ rows }) {
   const total = rows.length;
   const stageKeys = [
     ['연락완료', 'contactConfirmed'],
     ['마감확정', 'amountConfirmed'],
-    ['계산서대조', 'taxMatched'],
     ['발송준비', 'requestReady'],
     ['마감완료', 'requestSent'],
   ];
@@ -278,7 +271,7 @@ function StageOverview({ rows }) {
         </div>
         <StatusPill tone="blue">전체 {total}개</StatusPill>
       </div>
-      <div className="grid gap-2 md:grid-cols-5">
+      <div className="grid gap-2 md:grid-cols-4">
         {stageKeys.map(([label, key]) => {
           const done = rows.filter((row) => key === 'requestSent' ? row.requestSent || (row.progress === 100 && row.requestReady) : row[key]).length;
           const remainingRows = rows.filter((row) => !(key === 'requestSent' ? row.requestSent || (row.progress === 100 && row.requestReady) : row[key]));
@@ -354,7 +347,6 @@ export default function ClosingWorkspacePage() {
         tab === 'all'
         || (tab === 'risk' && row.riskScore >= 55 && row.progress < 100)
         || (tab === 'contact' && !row.contactConfirmed)
-        || (tab === 'tax' && !row.taxMatched)
         || (tab === 'done' && row.progress === 100);
 
       return matchesOwner && matchesDeadline && matchesStatus && matchesQuery && matchesTab;
@@ -369,14 +361,12 @@ export default function ClosingWorkspacePage() {
     const total = rows.length;
     const done = rows.filter((row) => row.progress === 100).length;
     const unconfirmed = rows.filter((row) => row.progress < 100).length;
-    const taxGap = rows.filter((row) => !row.taxMatched).length;
     const contactNeeded = rows.filter((row) => !row.contactConfirmed).length;
 
     return {
       total,
       done,
       unconfirmed,
-      taxGap,
       contactNeeded,
       progress: total === 0 ? 0 : Math.round((done / total) * 100),
     };
@@ -397,7 +387,6 @@ export default function ClosingWorkspacePage() {
   const quickSummaryItems = [
     ['전체 진척도', `${summary.progress}%`],
     ['미확정', `${summary.unconfirmed}개`],
-    ['세금계산서 차이', `${summary.taxGap}개`],
     ['연락 필요', `${summary.contactNeeded}개`],
     ['위험 업체', `${riskTop.length}개`],
   ];
@@ -462,16 +451,11 @@ export default function ClosingWorkspacePage() {
       return;
     }
 
-    if (!selectedRow.taxMatched) {
-      updateSelected({ taxMatched: true, taxAmount: selectedRow.confirmedAmount, history: [`${new Date().toLocaleDateString('ko-KR')} 세금계산서 대조 완료`, ...selectedRow.history] }, '세금계산서 대조 완료');
-      return;
-    }
-
     updateSelected({ requestReady: true, reason: '미확정 없음', history: [`${new Date().toLocaleDateString('ko-KR')} 요청 발송 준비 완료`, ...selectedRow.history] }, '요청 발송 준비 완료');
   };
 
   return (
-    <PageShell title="마감 워크스페이스" description="업체별 마감 현황, 거래처 확인, 금액 확정, 세금계산서 대조, 요청 발송 준비를 한 화면에서 처리합니다.">
+    <PageShell title="마감 워크스페이스" description="업체별 마감 현황, 거래처 확인, 금액 확정, 요청 발송 준비를 한 화면에서 처리합니다.">
       <section className="mb-3 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="grid gap-3 xl:grid-cols-[132px_120px_104px_150px_minmax(260px,1fr)_auto] xl:items-end">
           <label className="block">
@@ -499,7 +483,6 @@ export default function ClosingWorkspacePage() {
               <option>완료</option>
               <option>연락 필요</option>
               <option>금액 미확정</option>
-              <option>세금계산서 차이</option>
               {reasonOptions.map((reason) => <option key={reason}>{reason}</option>)}
             </select>
           </label>
@@ -559,7 +542,6 @@ export default function ClosingWorkspacePage() {
               {[
                 ['전체 진척도', `${summary.progress}%`, `${summary.done}/${summary.total} 업체 완료`, 'green'],
                 ['미확정', `${summary.unconfirmed}개`, '금액 또는 대조 단계 남음', 'amber'],
-                ['세금계산서 차이', `${summary.taxGap}개`, '공급가액 재확인 필요', 'red'],
                 ['연락 필요', `${summary.contactNeeded}개`, '거래처 담당자 확인 전', 'blue'],
               ].map(([label, value, detail, tone]) => (
                 <section key={label} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
@@ -623,7 +605,6 @@ export default function ClosingWorkspacePage() {
           ['all', '전체 업체'],
           ['risk', '위험 업체'],
           ['contact', '연락 필요'],
-          ['tax', '세금계산서 차이'],
           ['done', '완료/기록'],
         ].map(([value, label]) => (
           <button
@@ -651,7 +632,6 @@ export default function ClosingWorkspacePage() {
                   <th className="px-4 py-3">마감일</th>
                   <th className="px-4 py-3">진척도</th>
                   <th className="px-4 py-3">상태</th>
-                  <th className="px-4 py-3">세금계산서</th>
                   <th className="px-4 py-3 text-right">확정 금액</th>
                   <th className="px-4 py-3">요청</th>
                 </tr>
@@ -688,9 +668,6 @@ export default function ClosingWorkspacePage() {
                     <td className="px-4 py-3">
                       <StatusPill tone={row.progress === 100 ? 'green' : row.status === '연락 필요' ? 'red' : 'amber'}>{row.status}</StatusPill>
                     </td>
-                    <td className="px-4 py-3">
-                      <StatusPill tone={row.taxMatched ? 'green' : 'red'}>{row.taxMatched ? '일치' : formatCurrency(row.taxGap)}</StatusPill>
-                    </td>
                     <td className="px-4 py-3 text-right font-semibold text-gray-900 dark:text-gray-100">{formatCurrency(row.confirmedAmount)}</td>
                     <td className="px-4 py-3">
                       <StatusPill tone={row.requestSent ? 'green' : row.requestReady ? 'blue' : 'gray'}>
@@ -716,45 +693,51 @@ export default function ClosingWorkspacePage() {
             </StatusPill>
           </div>
 
-          <div className="mt-4 rounded-lg border border-gray-100 p-3 dark:border-gray-700/60">
-            <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">거래처 담당자</p>
-            <p className="mt-2 font-semibold text-gray-900 dark:text-gray-100">{selectedRow.contactName}</p>
-            <p className="mt-1 text-sm text-gray-500">{selectedRow.email}</p>
-            <p className="text-sm text-gray-500">{selectedRow.phone}</p>
-            <label className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-              <input className="form-checkbox" type="checkbox" checked={selectedRow.contactConfirmed} onChange={(event) => updateSelected({ contactConfirmed: event.target.checked }, '거래처 확인 상태 변경')} />
-              거래처 담당자 확인 완료
-            </label>
+          <div className="mt-3 rounded-lg border border-gray-100 p-3 dark:border-gray-700/60">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">거래처 담당자</p>
+                <p className="mt-2 font-semibold text-gray-900 dark:text-gray-100">{selectedRow.contactName}</p>
+                <p className="mt-1 text-sm text-gray-500">{selectedRow.email}</p>
+                <p className="text-sm text-gray-500">{selectedRow.phone}</p>
+              </div>
+
+              <div className="sm:w-56 sm:shrink-0">
+                <DetailCheckbox
+                  checked={selectedRow.contactConfirmed}
+                  label="거래처 담당자 확인 완료"
+                  detail="연락처와 담당자 정보를 확인했습니다."
+                  onChange={(checked) => updateSelected({ contactConfirmed: checked }, '거래처 확인 상태 변경')}
+                />
+              </div>
+            </div>
           </div>
 
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-            <label className="block rounded-lg border border-gray-100 p-3 dark:border-gray-700/60">
-              <span className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">마감 확정 금액</span>
-              <input
-                className="form-input mt-2 w-full"
-                type="number"
-                value={selectedRow.confirmedAmount}
-                onChange={(event) => updateSelected({ confirmedAmount: Number(event.target.value), amountConfirmed: false })}
-              />
-              <label className="mt-2 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                <input className="form-checkbox" type="checkbox" checked={selectedRow.amountConfirmed} onChange={(event) => updateSelected({ amountConfirmed: event.target.checked }, '금액 확정 상태 변경')} />
-                금액 확정
-              </label>
-            </label>
-            <label className="block rounded-lg border border-gray-100 p-3 dark:border-gray-700/60">
-              <span className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">세금계산서 금액</span>
-              <input
-                className="form-input mt-2 w-full"
-                type="number"
-                value={selectedRow.taxAmount}
-                onChange={(event) => updateSelected({ taxAmount: Number(event.target.value), taxMatched: false })}
-              />
-              <label className="mt-2 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                <input className="form-checkbox" type="checkbox" checked={selectedRow.taxMatched} onChange={(event) => updateSelected({ taxMatched: event.target.checked }, '세금계산서 대조 상태 변경')} />
-                세금계산서 일치
-              </label>
-            </label>
-          </div>
+          <div className="mt-4 grid gap-3">
+  <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-700/60">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0 flex-1">
+        <span className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">마감 확정 금액</span>
+        <input
+          className="form-input mt-2 w-full"
+          type="number"
+          value={selectedRow.confirmedAmount}
+          onChange={(event) => updateSelected({ confirmedAmount: Number(event.target.value), amountConfirmed: false })}
+        />
+      </div>
+
+      <div className="sm:w-56 sm:shrink-0">
+        <DetailCheckbox
+          checked={selectedRow.amountConfirmed}
+          label="금액 확정"
+          detail="거래처 회신 금액과 내부 마감 금액 확인 완료"
+          onChange={(checked) => updateSelected({ amountConfirmed: checked }, '금액 확정 상태 변경')}
+        />
+      </div>
+    </div>
+  </div>
+
+</div>
 
           <label className="mt-3 block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">미확정 사유</span>
@@ -768,20 +751,25 @@ export default function ClosingWorkspacePage() {
             <textarea className="form-textarea w-full" rows="4" value={selectedRow.memo} onChange={(event) => updateSelected({ memo: event.target.value })} />
           </label>
 
-          <div className="mt-3 rounded-lg border border-gray-100 p-3 dark:border-gray-700/60">
-            <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">처리 기록</p>
-            <div className="mt-2 space-y-2">
-              {selectedRow.history.map((item) => (
-                <p key={item} className="rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-gray-900/30 dark:text-gray-300">{item}</p>
-              ))}
-            </div>
+       
+
+          <div className="mt-4 space-y-2 rounded-lg border border-gray-100 p-3 dark:border-gray-700/60">
+            <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">진행 체크</p>
+            <DetailCheckbox
+              checked={selectedRow.reason !== '미확정 없음' && selectedRow.progress < 100}
+              label="미확정으로 넘기기"
+              detail="아직 확인이 남은 업체로 보류합니다."
+              onChange={(checked) => updateSelected({ reason: checked ? (selectedRow.reason === '미확정 없음' ? '내부 검토' : selectedRow.reason) : '미확정 없음' }, '미확정 보류 상태 변경')}
+            />
+            <DetailCheckbox
+              checked={selectedRow.requestReady}
+              label="요청 발송 준비"
+              detail="발송 큐에서 요청 문구와 첨부를 준비할 수 있게 표시합니다."
+              onChange={(checked) => updateSelected({ requestReady: checked, requestSent: checked ? false : selectedRow.requestSent }, '요청 발송 준비 상태 변경')}
+            />
           </div>
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
-            <button className="btn btn-primary" type="button" onClick={completeNextStep}>다음 단계 완료</button>
-            <button className="btn btn-secondary" type="button" onClick={() => updateSelected({ reason: selectedRow.reason === '미확정 없음' ? '내부 검토' : selectedRow.reason }, '미확정으로 보류')}>미확정으로 넘기기</button>
-            <button className="btn btn-secondary" type="button" onClick={() => updateSelected({ requestReady: true, requestSent: false }, '요청 발송 준비')}>요청 발송 준비</button>
-          </div>
+          
         </aside>
       </div>
 

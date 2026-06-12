@@ -64,7 +64,7 @@ export default function WelcomePage() {
 
   const metrics = [
     { label: '오늘 처리', value: `${summary.todayProcessed}`, delta: `${summary.done}/${summary.total}` },
-    { label: '검증 통과', value: `${summary.passRate}%`, delta: summary.taxGap > 0 ? '대조 필요' : '안정' },
+    { label: '검증 통과', value: `${summary.passRate}%`, delta: summary.contactNeeded > 0 ? '연락 필요' : '안정' },
     { label: '대기 요청', value: `${summary.waiting}`, delta: summary.contactNeeded > 0 ? '연락 필요' : '검토' },
   ];
 

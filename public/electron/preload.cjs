@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("api", {
   getDailySalesTrend: (options) => ipcRenderer.invoke("dashboard:sales-daily", options),
   saveFileAs: (file) => ipcRenderer.invoke("file:save-as", file),
   saveGeneratedFiles: (payload) => ipcRenderer.invoke("files:save-generated", payload),
+  openFileLocation: (filePath) => ipcRenderer.invoke("files:open-location", filePath),
   getDatabaseHealth: () => ipcRenderer.invoke("db:health"),
   getDatabaseSummary: () => ipcRenderer.invoke("db:summary"),
   addEvent: (event) => ipcRenderer.invoke("events:add", event),

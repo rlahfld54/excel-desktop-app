@@ -444,6 +444,20 @@ function registerIpcHandlers() {
     };
   });
 
+  ipcMain.handle("files:open-location", async (_, filePath) => {
+    if (!filePath || typeof filePath !== "string") {
+      return { ok: false, message: "File path is required." };
+    }
+
+    try {
+      await fs.access(filePath);
+      shell.showItemInFolder(filePath);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: error?.message || "Unable to open file location." };
+    }
+  });
+
   ipcMain.handle("app-settings:get", async () => ({
     ok: true,
     settings: await readAppSettings(),

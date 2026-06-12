@@ -13,7 +13,7 @@ const executiveMetrics = [
   {
     label: '보고 필요 금액',
     value: '2.8억원',
-    detail: '미확정/세금계산서 차이 영향액',
+    detail: '미확정/내부 검토 영향액',
     tone: 'rose',
   },
   {
@@ -48,10 +48,10 @@ const deadlineProgress = [
 const reportIssues = [
   {
     company: '다원문구',
-    type: '세금계산서 차이',
+    type: '내부 검토',
     amount: '1,401만원',
     owner: '박정우',
-    action: '금일 15시까지 수정 세금계산서 확인',
+    action: '금일 15시까지 마감 금액 승인 확인',
   },
   {
     company: '모블상사',
@@ -69,10 +69,10 @@ const reportIssues = [
   },
   {
     company: '그린물류',
-    type: '세금계산서 차이',
+    type: '내부 검토',
     amount: '4,318만원',
     owner: '박정우',
-    action: '공급가액 차이 17만원 사유 정리',
+    action: '마감 금액 승인 사유 정리',
   },
 ];
 
@@ -85,7 +85,7 @@ const ownerRisks = [
 
 const decisionItems = [
   '25일 마감 업체 중 6개사가 아직 금액 확정 전입니다.',
-  '세금계산서 차이 업체 3개사는 오늘 안에 재확인해야 합니다.',
+  '내부 검토 업체 3개사는 오늘 안에 재확인해야 합니다.',
   '연락 2회 이상 미회신 업체는 발송 큐에서 일괄 재연락 준비가 필요합니다.',
 ];
 
@@ -172,9 +172,9 @@ function ExecutiveTrendChart() {
   );
 }
 
-export default function ExecutiveReportDashboardPage() {
+export function ExecutiveReportContent() {
   return (
-    <PageShell title="사장님 보고 대시보드" description="대표 보고 전에 필요한 마감률, 위험 금액, 지연 업체, 세금계산서 예외를 한 화면에서 정리합니다.">
+    <>
       <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {executiveMetrics.map((metric) => (
           <section key={metric.label} className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
@@ -195,7 +195,7 @@ export default function ExecutiveReportDashboardPage() {
           <div className="mt-4 rounded-lg bg-rose-50 p-4 dark:bg-rose-500/10">
             <p className="text-sm font-semibold text-rose-700 dark:text-rose-300">보고 포인트</p>
             <p className="mt-2 text-2xl font-bold text-gray-900 dark:text-gray-100">25일 마감 위험 집중</p>
-            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">미확정 6개사와 세금계산서 차이 3개사가 이번 주 보고 리스크입니다.</p>
+            <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">미확정 6개사와 내부 검토 3개사가 이번 주 보고 리스크입니다.</p>
           </div>
           <div className="mt-3 space-y-2">
             {decisionItems.map((item) => (
@@ -275,6 +275,14 @@ export default function ExecutiveReportDashboardPage() {
           })}
         </div>
       </section>
+    </>
+  );
+}
+
+export default function ExecutiveReportDashboardPage() {
+  return (
+    <PageShell title="사장님 보고 대시보드" description="대표 보고 전에 필요한 마감률, 위험 금액, 지연 업체, 내부 검토 항목을 한 화면에서 정리합니다.">
+      <ExecutiveReportContent />
     </PageShell>
   );
 }
