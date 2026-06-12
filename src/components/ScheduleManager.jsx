@@ -1,14 +1,19 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import {
   createTodo,
   getCalendarDays,
+  getTeamTodoSummary,
   getTodayKey,
   getTodoSummary,
   priorityMeta,
+  readTeamTodoHistory,
+  readTeamTodos,
   readTodoHistory,
   readTodos,
+  saveTeamTodos,
   saveTodos,
+  toggleTeamTodoDone,
   toggleTodoDone,
 } from '../utils/todoSchedule';
 
@@ -67,6 +72,7 @@ function makeEmptyDraft() {
 }
 
 export default function ScheduleManager({ userId }) {
+  const [scope, setScope] = useState('PERSONAL');
   const [todos, setTodos] = useState(() => readTodos(userId));
   const [history, setHistory] = useState(() => readTodoHistory(userId));
   const [draft, setDraft] = useState(makeEmptyDraft);
@@ -75,8 +81,15 @@ export default function ScheduleManager({ userId }) {
     return { year: now.getFullYear(), month: now.getMonth() };
   });
   const [filter, setFilter] = useState('OPEN');
+  const isTeamScope = scope === 'TEAM';
 
-  const summary = getTodoSummary(userId);
+  useEffect(() => {
+    setTodos(isTeamScope ? readTeamTodos() : readTodos(userId));
+    setHistory(isTeamScope ? readTeamTodoHistory() : readTodoHistory(userId));
+    setDraft(makeEmptyDraft());
+  }, [isTeamScope, userId]);
+
+  const summary = isTeamScope ? getTeamTodoSummary() : getTodoSummary(userId);
   const calendarDays = getCalendarDays(calendarMonth.year, calendarMonth.month, todos, history);
   const sortedTodos = useMemo(() => {
     const weight = { HIGH: 3, MEDIUM: 2, LOW: 1 };
@@ -89,7 +102,7 @@ export default function ScheduleManager({ userId }) {
 
   const refreshState = (nextTodos) => {
     setTodos(nextTodos);
-    setHistory(readTodoHistory(userId));
+    setHistory(isTeamScope ? readTeamTodoHistory() : readTodoHistory(userId));
   };
 
   const handleSubmit = (event) => {
@@ -102,21 +115,31 @@ export default function ScheduleManager({ userId }) {
           ? { ...todo, ...draft, due: draft.dueDate }
           : todo
       ))
-      : [createTodo({ ...draft, due: draft.dueDate, path: '/schedule/todos' }), ...todos];
+      : [createTodo({ ...draft, due: draft.dueDate, path: '/schedule/todos', scope: isTeamScope ? 'TEAM' : 'PERSONAL' }), ...todos];
 
-    saveTodos(userId, nextTodos);
+    if (isTeamScope) {
+      saveTeamTodos(nextTodos);
+    } else {
+      saveTodos(userId, nextTodos);
+    }
     setDraft(makeEmptyDraft());
     refreshState(nextTodos);
   };
 
   const handleToggle = (todoId, done) => {
-    const nextTodos = toggleTodoDone(userId, todos, todoId, done);
+    const nextTodos = isTeamScope
+      ? toggleTeamTodoDone(todos, todoId, done)
+      : toggleTodoDone(userId, todos, todoId, done);
     refreshState(nextTodos);
   };
 
   const handleDelete = (todoId) => {
     const nextTodos = todos.filter((todo) => todo.id !== todoId);
-    saveTodos(userId, nextTodos);
+    if (isTeamScope) {
+      saveTeamTodos(nextTodos);
+    } else {
+      saveTodos(userId, nextTodos);
+    }
     refreshState(nextTodos);
     if (draft.id === todoId) setDraft(makeEmptyDraft());
   };
@@ -128,6 +151,32 @@ export default function ScheduleManager({ userId }) {
 
   return (
     <div className="space-y-5">
+      <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">일정 범위</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              개인 일정은 내 업무만, 총무팀 일정은 팀 공용 마감/보고 일정을 따로 관리합니다.
+            </p>
+          </div>
+          <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-700 dark:bg-gray-900/40">
+            {[
+              ['PERSONAL', '개인 일정'],
+              ['TEAM', '총무팀 일정'],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                className={`rounded-md px-4 py-2 text-sm font-bold transition ${scope === value ? 'bg-white text-teal-700 shadow-xs dark:bg-gray-800 dark:text-teal-300' : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}`}
+                type="button"
+                onClick={() => setScope(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {[
           ['오늘 일정', `${todayTodos.length}개`, '오늘 처리하거나 확인할 일정'],
@@ -146,8 +195,10 @@ export default function ScheduleManager({ userId }) {
       <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
           <div className="min-w-0 flex-1">
-            <h2 className="font-bold text-gray-900 dark:text-gray-100">일정 등록</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">투두, 마감 일정, 알림 시간을 한 번에 등록하고 수정합니다.</p>
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">{isTeamScope ? '총무팀 일정 등록' : '개인 일정 등록'}</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {isTeamScope ? '팀 공용으로 봐야 하는 마감, 보고, 요청 대응 일정을 등록합니다.' : '내 투두, 마감 일정, 알림 시간을 한 번에 등록하고 수정합니다.'}
+            </p>
           </div>
           <div className="w-full xl:w-80">
             <div className="mb-1 flex items-center justify-between text-xs font-semibold text-gray-500 dark:text-gray-400">

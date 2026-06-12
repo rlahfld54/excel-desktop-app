@@ -1,8 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import PageShell from './PageShell';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
 import { addNotification } from '../utils/appNotifications';
+import { readClosingWorkspaceRows, saveClosingWorkspaceRows } from '../utils/closingWorkspaceStore';
 
 const owners = ['김민서', '박정우', '이서연', '최현우'];
 const closingDays = ['10일', '25일', '30일'];
@@ -175,6 +177,14 @@ function formatCurrency(value) {
   return `${Number(value).toLocaleString('ko-KR')}원`;
 }
 
+function formatShortCurrency(value) {
+  const amount = Math.abs(Number(value));
+
+  if (amount >= 100000000) return `${(amount / 100000000).toFixed(1)}억원`;
+  if (amount >= 10000) return `${Math.round(amount / 10000).toLocaleString('ko-KR')}만원`;
+  return `${amount.toLocaleString('ko-KR')}원`;
+}
+
 function getProgress(row) {
   return Math.round(([row.contactConfirmed, row.amountConfirmed, row.taxMatched].filter(Boolean).length / 3) * 100);
 }
@@ -208,6 +218,21 @@ function withDerivedFields(row) {
   };
 }
 
+async function readClosingRowsFromDatabase() {
+  if (!window.api?.getClosingCompanies) return [];
+  const result = await window.api.getClosingCompanies();
+  return result?.ok && Array.isArray(result.rows) ? result.rows.map(withDerivedFields) : [];
+}
+
+function persistClosingRows(rows) {
+  saveClosingWorkspaceRows(rows);
+  if (window.api?.saveClosingCompanies) {
+    window.api.saveClosingCompanies(rows).catch(() => {
+      // Browser-only development still has the local fallback.
+    });
+  }
+}
+
 function StatusPill({ children, tone = 'gray' }) {
   const tones = {
     green: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
@@ -234,62 +259,42 @@ function ProgressBar({ value }) {
   );
 }
 
-function StageProgressCard({ row }) {
-  const stages = [
-    {
-      label: '연락완료',
-      detail: '거래처 담당자 확인',
-      done: row.contactConfirmed,
-    },
-    {
-      label: '마감확정',
-      detail: '확정 금액 합의',
-      done: row.amountConfirmed,
-    },
-    {
-      label: '계산서대조',
-      detail: '세금계산서 일치',
-      done: row.taxMatched,
-    },
-    {
-      label: '발송준비',
-      detail: '요청 자료 준비',
-      done: row.requestReady,
-    },
-    {
-      label: '마감완료',
-      detail: '발송 및 기록 완료',
-      done: row.requestSent || (row.progress === 100 && row.requestReady),
-    },
+function StageOverview({ rows }) {
+  const total = rows.length;
+  const stageKeys = [
+    ['연락완료', 'contactConfirmed'],
+    ['마감확정', 'amountConfirmed'],
+    ['계산서대조', 'taxMatched'],
+    ['발송준비', 'requestReady'],
+    ['마감완료', 'requestSent'],
   ];
-  const currentIndex = stages.findIndex((stage) => !stage.done);
-  const activeIndex = currentIndex === -1 ? stages.length - 1 : currentIndex;
 
   return (
-    <section className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700/60 dark:bg-gray-900/30">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <section className="mb-3 rounded-lg border border-gray-200 bg-white px-3 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">진행 단계</p>
-          <p className="mt-1 text-sm font-bold text-gray-900 dark:text-gray-100">{stages[activeIndex]?.label}</p>
+          <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">마감 단계 현황</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400">단계별 남은 업체 수와 금액을 먼저 확인합니다.</p>
         </div>
-        <StatusPill tone={row.progress === 100 ? 'green' : 'blue'}>{row.progress}%</StatusPill>
+        <StatusPill tone="blue">전체 {total}개</StatusPill>
       </div>
-      <div className="grid gap-2">
-        {stages.map((stage, index) => {
-          const isActive = index === activeIndex && !stage.done;
-          const tone = stage.done ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200'
-            : isActive ? 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200'
-              : 'border-gray-200 bg-white text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400';
+      <div className="grid gap-2 md:grid-cols-5">
+        {stageKeys.map(([label, key]) => {
+          const done = rows.filter((row) => key === 'requestSent' ? row.requestSent || (row.progress === 100 && row.requestReady) : row[key]).length;
+          const remainingRows = rows.filter((row) => !(key === 'requestSent' ? row.requestSent || (row.progress === 100 && row.requestReady) : row[key]));
+          const remainingAmount = remainingRows.reduce((sum, row) => sum + row.confirmedAmount, 0);
+          const progress = total === 0 ? 0 : Math.round((done / total) * 100);
 
           return (
-            <div key={stage.label} className={`flex items-center gap-3 rounded-md border px-3 py-2 ${tone}`}>
-              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${stage.done ? 'bg-emerald-600 text-white' : isActive ? 'bg-sky-600 text-white' : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-300'}`}>
-                {stage.done ? '✓' : index + 1}
-              </span>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-bold">{stage.label}</p>
-                <p className="truncate text-xs opacity-75">{stage.detail}</p>
+            <div key={label} className="rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2 dark:border-gray-700/60 dark:bg-gray-900/30">
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-xs font-bold text-gray-800 dark:text-gray-100">{label}</p>
+                <span className="text-xs font-semibold text-teal-700 dark:text-teal-300">{progress}%</span>
               </div>
+              <div className="mt-1.5"><ProgressBar value={progress} /></div>
+              <p className="mt-1.5 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
+                남음 {remainingRows.length}개 · {formatShortCurrency(remainingAmount)}
+              </p>
             </div>
           );
         })}
@@ -300,7 +305,10 @@ function StageProgressCard({ row }) {
 
 export default function ClosingWorkspacePage() {
   const currentUser = getCurrentUser();
-  const [rows, setRows] = useState(() => baseCompanies.map(withDerivedFields));
+  const [rows, setRows] = useState(() => {
+    const savedRows = readClosingWorkspaceRows();
+    return (savedRows.length > 0 ? savedRows : baseCompanies).map(withDerivedFields);
+  });
   const [selectedId, setSelectedId] = useState(baseCompanies[0].id);
   const [tab, setTab] = useState('all');
   const [filters, setFilters] = useState({
@@ -311,6 +319,28 @@ export default function ClosingWorkspacePage() {
     query: '',
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [isSummaryOpen, setIsSummaryOpen] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    readClosingRowsFromDatabase()
+      .then((databaseRows) => {
+        if (!isMounted || databaseRows.length === 0) return;
+        setRows(databaseRows);
+        setSelectedId((current) => (
+          databaseRows.some((row) => row.id === current) ? current : databaseRows[0].id
+        ));
+        saveClosingWorkspaceRows(databaseRows);
+      })
+      .catch(() => {
+        saveClosingWorkspaceRows(rows);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filteredRows = useMemo(() => {
     const query = filters.query.trim().toLowerCase();
@@ -364,6 +394,13 @@ export default function ClosingWorkspacePage() {
       progress: ownerRows.length === 0 ? 0 : Math.round((done / ownerRows.length) * 100),
     };
   });
+  const quickSummaryItems = [
+    ['전체 진척도', `${summary.progress}%`],
+    ['미확정', `${summary.unconfirmed}개`],
+    ['세금계산서 차이', `${summary.taxGap}개`],
+    ['연락 필요', `${summary.contactNeeded}개`],
+    ['위험 업체', `${riskTop.length}개`],
+  ];
 
   const handleSearch = () => {
     setIsLoading(true);
@@ -376,7 +413,11 @@ export default function ClosingWorkspacePage() {
     });
 
     window.setTimeout(() => {
-      setRows((current) => current.map(withDerivedFields));
+      setRows((current) => {
+        const nextRows = current.map(withDerivedFields);
+        persistClosingRows(nextRows);
+        return nextRows;
+      });
       setIsLoading(false);
       addActivityLog('INFO', '마감 워크스페이스 조회', `${filters.month} ${filters.owner} ${filters.deadline}`, currentUser.id);
       addNotification({
@@ -390,9 +431,13 @@ export default function ClosingWorkspacePage() {
   };
 
   const updateSelected = (patch, actionLabel) => {
-    setRows((current) => current.map((row) => (
-      row.id === selectedRow.id ? withDerivedFields({ ...row, ...patch }) : row
-    )));
+    setRows((current) => {
+      const nextRows = current.map((row) => (
+        row.id === selectedRow.id ? withDerivedFields({ ...row, ...patch }) : row
+      ));
+      persistClosingRows(nextRows);
+      return nextRows;
+    });
 
     if (actionLabel) {
       addActivityLog('INFO', actionLabel, selectedRow.company, currentUser.id);
@@ -427,7 +472,7 @@ export default function ClosingWorkspacePage() {
 
   return (
     <PageShell title="마감 워크스페이스" description="업체별 마감 현황, 거래처 확인, 금액 확정, 세금계산서 대조, 요청 발송 준비를 한 화면에서 처리합니다.">
-      <section className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+      <section className="mb-3 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="grid gap-3 xl:grid-cols-[132px_120px_104px_150px_minmax(260px,1fr)_auto] xl:items-end">
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">마감월</span>
@@ -476,67 +521,101 @@ export default function ClosingWorkspacePage() {
         </div>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-gray-500 dark:text-gray-400">필터 변경 후 조회 버튼을 눌러 대량 데이터를 요청하는 흐름입니다.</p>
+          <Link className="btn btn-secondary w-full sm:w-auto" to="/closing-workspace/send-queue">
+            발송 큐 열기
+          </Link>
         </div>
       </section>
 
-      <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {[
-          ['전체 진척도', `${summary.progress}%`, `${summary.done}/${summary.total} 업체 완료`, 'green'],
-          ['미확정', `${summary.unconfirmed}개`, '금액 또는 대조 단계 남음', 'amber'],
-          ['세금계산서 차이', `${summary.taxGap}개`, '공급가액 재확인 필요', 'red'],
-          ['연락 필요', `${summary.contactNeeded}개`, '거래처 담당자 확인 전', 'blue'],
-        ].map(([label, value, detail, tone]) => (
-          <section key={label} className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
-                <p className="mt-2 text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
-              </div>
-              <StatusPill tone={tone}>{label}</StatusPill>
-            </div>
-            {label === '전체 진척도' && <div className="mt-4"><ProgressBar value={summary.progress} /></div>}
-          </section>
-        ))}
-      </div>
+      <div className="mb-3">
+        <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-base font-bold text-gray-900 dark:text-gray-100">마감 요약</h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400">필요할 때만 펼쳐 보고, 접으면 핵심 수치만 남깁니다.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {quickSummaryItems.map(([label, value]) => (
+              <span key={label} className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 shadow-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                <span className="text-gray-400 dark:text-gray-500">{label}</span>
+                <span className="text-gray-900 dark:text-gray-100">{value}</span>
+              </span>
+            ))}
+            <button
+              className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 shadow-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700/70"
+              type="button"
+              aria-expanded={isSummaryOpen}
+              onClick={() => setIsSummaryOpen((current) => !current)}
+            >
+              {isSummaryOpen ? '요약 접기' : '요약 펼치기'}
+            </button>
+          </div>
+        </div>
 
-      <div className="mb-4 grid gap-3 xl:grid-cols-4">
-        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-2">
-          <h2 className="font-bold text-gray-900 dark:text-gray-100">위험 업체 TOP</h2>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {riskTop.map((row) => (
-              <button key={row.id} className="rounded-md border border-rose-100 bg-rose-50/60 p-3 text-left hover:border-rose-300 dark:border-rose-500/20 dark:bg-rose-500/10" type="button" onClick={() => setSelectedId(row.id)}>
-                <p className="font-semibold text-gray-900 dark:text-gray-100">{row.company}</p>
-                <p className="mt-1 text-xs text-rose-700 dark:text-rose-300">마감 {row.deadline} · {row.reason} · 위험 {row.riskScore}</p>
-              </button>
-            ))}
-          </div>
-        </section>
-        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-          <h2 className="font-bold text-gray-900 dark:text-gray-100">연락 필요 업체</h2>
-          <div className="mt-3 space-y-2">
-            {contactNeededRows.map((row) => (
-              <button key={row.id} className="flex w-full items-center justify-between rounded-md border border-gray-100 px-3 py-2 text-left hover:bg-gray-50 dark:border-gray-700/60 dark:hover:bg-gray-700/40" type="button" onClick={() => setSelectedId(row.id)}>
-                <span className="min-w-0 truncate font-medium text-gray-800 dark:text-gray-100">{row.company}</span>
-                <span className="text-xs text-gray-500">{row.deadline}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-          <h2 className="font-bold text-gray-900 dark:text-gray-100">담당자별 업체 현황</h2>
-          <div className="mt-3 space-y-3">
-            {ownerSummary.map((item) => (
-              <div key={item.owner}>
-                <div className="mb-1 flex justify-between text-sm">
-                  <span className="font-medium text-gray-800 dark:text-gray-100">{item.owner}</span>
-                  <span className="text-gray-500">{item.done}/{item.total}</span>
+        {isSummaryOpen && (
+          <>
+            <StageOverview rows={rows} />
+
+            <div className="mb-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              {[
+                ['전체 진척도', `${summary.progress}%`, `${summary.done}/${summary.total} 업체 완료`, 'green'],
+                ['미확정', `${summary.unconfirmed}개`, '금액 또는 대조 단계 남음', 'amber'],
+                ['세금계산서 차이', `${summary.taxGap}개`, '공급가액 재확인 필요', 'red'],
+                ['연락 필요', `${summary.contactNeeded}개`, '거래처 담당자 확인 전', 'blue'],
+              ].map(([label, value, detail, tone]) => (
+                <section key={label} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
+                      <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
+                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
+                    </div>
+                    <StatusPill tone={tone}>{label}</StatusPill>
+                  </div>
+                  {label === '전체 진척도' && <div className="mt-2"><ProgressBar value={summary.progress} /></div>}
+                </section>
+              ))}
+            </div>
+
+            <div className="mb-3 grid gap-2 xl:grid-cols-[minmax(0,1.25fr)_minmax(220px,0.75fr)_minmax(260px,0.85fr)]">
+              <section className="rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+                <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">위험 업체 TOP</h2>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {riskTop.map((row) => (
+                    <button key={row.id} className="rounded-md border border-rose-100 bg-rose-50/60 px-2.5 py-2 text-left hover:border-rose-300 dark:border-rose-500/20 dark:bg-rose-500/10" type="button" onClick={() => setSelectedId(row.id)}>
+                      <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{row.company}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-rose-700 dark:text-rose-300">마감 {row.deadline} · {row.reason} · 위험 {row.riskScore}</p>
+                    </button>
+                  ))}
                 </div>
-                <ProgressBar value={item.progress} />
-              </div>
-            ))}
-          </div>
-        </section>
+              </section>
+              <section className="rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+                <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">연락 필요 업체</h2>
+                <div className="mt-2 space-y-1.5">
+                  {contactNeededRows.map((row) => (
+                    <button key={row.id} className="flex w-full items-center justify-between rounded-md border border-gray-100 px-2.5 py-1.5 text-left hover:bg-gray-50 dark:border-gray-700/60 dark:hover:bg-gray-700/40" type="button" onClick={() => setSelectedId(row.id)}>
+                      <span className="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-100">{row.company}</span>
+                      <span className="text-xs text-gray-500">{row.deadline}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+              <section className="rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+                <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">담당자별 업체 현황</h2>
+                <div className="mt-2 space-y-2">
+                  {ownerSummary.map((item) => (
+                    <div key={item.owner}>
+                      <div className="mb-1 flex justify-between text-xs">
+                        <span className="font-medium text-gray-800 dark:text-gray-100">{item.owner}</span>
+                        <span className="text-gray-500">{item.done}/{item.total}</span>
+                      </div>
+                      <ProgressBar value={item.progress} />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -557,7 +636,7 @@ export default function ClosingWorkspacePage() {
           </button>
         ))}
       </div>
-
+      
       <div className="grid grid-cols-12 gap-5">
         <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8" data-table-tools="false">
           <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
@@ -579,11 +658,23 @@ export default function ClosingWorkspacePage() {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60">
                 {filteredRows.map((row) => (
-                  <tr key={row.id} className={`${selectedRow.id === row.id ? 'bg-teal-50/70 dark:bg-teal-500/10' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'}`}>
+                  <tr
+                    key={row.id}
+                    className={`cursor-pointer transition-colors ${selectedRow.id === row.id ? 'bg-teal-50/70 dark:bg-teal-500/10' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedId(row.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedId(row.id);
+                      }
+                    }}
+                  >
                     <td className="px-4 py-3">
-                      <button className="font-semibold text-gray-900 hover:text-teal-700 dark:text-gray-100 dark:hover:text-teal-300" type="button" onClick={() => setSelectedId(row.id)}>
+                      <span className="font-semibold text-gray-900 dark:text-gray-100">
                         {row.company}
-                      </button>
+                      </span>
                       <p className="mt-1 text-xs text-gray-500">{row.reason}</p>
                     </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{row.owner}</td>
@@ -624,8 +715,6 @@ export default function ClosingWorkspacePage() {
               위험 {selectedRow.riskScore}
             </StatusPill>
           </div>
-
-          <StageProgressCard row={selectedRow} />
 
           <div className="mt-4 rounded-lg border border-gray-100 p-3 dark:border-gray-700/60">
             <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">거래처 담당자</p>
@@ -695,6 +784,7 @@ export default function ClosingWorkspacePage() {
           </div>
         </aside>
       </div>
+
     </PageShell>
   );
 }

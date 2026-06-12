@@ -4,13 +4,14 @@ export const menuGroups = [
     basePath: '/closing-workspace',
     items: [
       { label: '마감 워크스페이스', path: '/closing-workspace/overview', component: 'ClosingWorkspacePage' },
+      { label: '발송 큐', path: '/closing-workspace/send-queue', component: 'ClosingSendQueuePage' },
     ],
   },
   {
     title: '데이터 취합',
     basePath: '/collect',
     items: [
-      { label: '엑셀 요청 양식', path: '/collect/excel-templates', component: 'ExcelTemplatesPage' },
+      { label: '업로드 전 검증', path: '/collect/upload-validation', component: 'UploadValidationPage' },
       { label: '파일 관리', path: '/collect/file-manager', component: 'FileManagerPage' },
       { label: '원본 데이터 조회', path: '/collect/data-table', component: 'DataTablePage' },
     ],
@@ -27,6 +28,7 @@ export const menuGroups = [
     title: '보고서',
     basePath: '/results',
     items: [
+      { label: '사장님 보고', path: '/results/executive-dashboard', component: 'ExecutiveReportDashboardPage' },
       { label: '보고서 작성', path: '/results/report-generator', component: 'ReportGeneratorPage' },
       { label: '보고서 템플릿', path: '/results/report-templates', component: 'ReportTemplatesPage' },
       { label: '최근 작업', path: '/results/recent-tasks', component: 'RecentTasksPage' },
@@ -59,6 +61,8 @@ export const menuGroups = [
 
 export const legacyRedirects = [
   { label: '취합 대시보드', path: '/collect/workspace-dashboard', component: 'WorkspaceDashboardPage' },
+  { label: '업로드 전 검증', path: '/collect/excel-templates', component: 'UploadValidationPage' },
+  { label: '업로드 전 검증', path: '/collect/pre-insert-validation', component: 'UploadValidationPage' },
   { label: '매출 마감 비교', path: '/validate/sales-compare', component: 'SalesClosingComparePage' },
   { label: '중복 검사', path: '/validate/duplicate-checker', component: 'DuplicateCheckerPage' },
   { label: '검증 자동화', path: '/validate/automation', component: 'AutomationPage' },

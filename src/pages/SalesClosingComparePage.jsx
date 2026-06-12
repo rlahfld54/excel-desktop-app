@@ -1,28 +1,31 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { addActivityLog } from '../utils/authSession';
-import { createSampleSalesRows, parseNumber } from '../data/sampleSalesData';
+import { parseNumber } from '../data/sampleSalesData';
+import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 
-const currentRows = createSampleSalesRows(1200);
-const previousRows = createSampleSalesRows(1200).map((row, index) => {
-  const amount = Math.round(parseNumber(row[6]) * (index % 5 === 0 ? 0.92 : index % 7 === 0 ? 1.08 : 0.98));
-  const quantity = Math.max(1, parseNumber(row[4]) - (index % 6 === 0 ? 2 : 0));
-
-  return [
-    row[0].replace('2026-05', '2026-04'),
-    row[1],
-    row[2],
-    row[3],
-    quantity.toLocaleString('ko-KR'),
-    row[5],
-    amount.toLocaleString('ko-KR'),
-    row[7],
-    row[8],
-  ];
-});
 const closingDays = [10, 25, 30];
 const contactNames = ['정산담당', '영업지원', '회계담당', '관리담당'];
+
+function buildPreviousRows(rows) {
+  return rows.map((row, index) => {
+    const amount = Math.round(parseNumber(row[6]) * (index % 5 === 0 ? 0.92 : index % 7 === 0 ? 1.08 : 0.98));
+    const quantity = Math.max(1, parseNumber(row[4]) - (index % 6 === 0 ? 2 : 0));
+
+    return [
+      String(row[0] ?? '').replace('2026-05', '2026-04'),
+      row[1],
+      row[2],
+      row[3],
+      quantity.toLocaleString('ko-KR'),
+      row[5],
+      amount.toLocaleString('ko-KR'),
+      row[7],
+      row[8],
+    ];
+  });
+}
 
 function toCurrency(value) {
   return `${Number(value).toLocaleString('ko-KR')}원`;
@@ -122,11 +125,22 @@ function ProgressBar({ value }) {
 }
 
 export default function SalesClosingComparePage() {
+  const { rows: currentRows, loadLatest } = useWorkspaceDataStore((state) => ({
+    rows: state.rows,
+    loadLatest: state.loadLatest,
+  }));
   const [filter, setFilter] = useState('전체');
   const [confirmed, setConfirmed] = useState({});
   const [memoMap, setMemoMap] = useState({});
   const [workflowMap, setWorkflowMap] = useState({});
-  const comparisons = useMemo(() => compareClosingData(currentRows, previousRows), []);
+  const previousRows = useMemo(() => buildPreviousRows(currentRows), [currentRows]);
+  const comparisons = useMemo(() => compareClosingData(currentRows, previousRows), [currentRows, previousRows]);
+
+  useEffect(() => {
+    loadLatest().catch(() => {
+      // Browser-only development keeps the workspace store fallback data.
+    });
+  }, [loadLatest]);
   const rowsWithAction = comparisons.map((row, index) => {
     const workflow = {
       ...getDefaultWorkflow(row, index),

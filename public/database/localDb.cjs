@@ -667,6 +667,54 @@ CREATE TABLE IF NOT EXISTS send_exports (
   FOREIGN KEY(package_id) REFERENCES send_packages(package_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS department_requests (
+  request_id TEXT PRIMARY KEY,
+  department TEXT NOT NULL,
+  title TEXT NOT NULL,
+  due TEXT,
+  owner TEXT,
+  priority TEXT NOT NULL DEFAULT 'LOW',
+  status TEXT NOT NULL DEFAULT '접수',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_department_requests_priority
+ON department_requests(priority, status, due);
+
+CREATE TABLE IF NOT EXISTS closing_companies (
+  closing_id TEXT PRIMARY KEY,
+  company TEXT NOT NULL,
+  owner TEXT,
+  deadline TEXT,
+  contact_name TEXT,
+  contact_department TEXT,
+  contact_title TEXT,
+  email TEXT,
+  phone TEXT,
+  channel TEXT NOT NULL DEFAULT 'EMAIL',
+  sales_amount REAL NOT NULL DEFAULT 0,
+  confirmed_amount REAL NOT NULL DEFAULT 0,
+  tax_amount REAL NOT NULL DEFAULT 0,
+  contact_confirmed INTEGER NOT NULL DEFAULT 0,
+  amount_confirmed INTEGER NOT NULL DEFAULT 0,
+  tax_matched INTEGER NOT NULL DEFAULT 0,
+  tax_issued INTEGER NOT NULL DEFAULT 0,
+  request_ready INTEGER NOT NULL DEFAULT 0,
+  request_sent INTEGER NOT NULL DEFAULT 0,
+  closing_sheet_sent INTEGER NOT NULL DEFAULT 1,
+  reason TEXT,
+  memo TEXT,
+  last_contact_at TEXT,
+  contact_count INTEGER NOT NULL DEFAULT 0,
+  history_json TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_closing_companies_status
+ON closing_companies(owner, deadline, contact_confirmed, amount_confirmed, tax_matched, request_sent);
+
 `);
 
   ensureColumn(db, "sales_rows", "transaction_date", "TEXT");
@@ -823,6 +871,327 @@ function getDailySalesTrend(database, limit = 45) {
       uploadedAt: upload.uploadedAt,
     },
   };
+}
+
+const seedDepartmentRequests = [
+  { id: "REQ-001", department: "영업팀", title: "6월 거래처 마감 금액 확인 요청", due: "오늘 14:00", owner: "김민서", priority: "HIGH", status: "확인 필요" },
+  { id: "REQ-002", department: "물류팀", title: "반품 처리 기준 자료 공유 요청", due: "오늘 16:00", owner: "박정우", priority: "MEDIUM", status: "진행 중" },
+  { id: "REQ-003", department: "구매팀", title: "세금계산서 공급가액 차이 재확인", due: "내일 10:00", owner: "이서연", priority: "HIGH", status: "대기" },
+  { id: "REQ-004", department: "CS팀", title: "거래처 담당자 연락처 변경 반영", due: "06-13", owner: "최현우", priority: "LOW", status: "접수" },
+];
+
+const seedClosingCompanies = [
+  { id: "CLOSING-001", company: "한빛유통", owner: "김민서", deadline: "10일", contactName: "오민지", contactDepartment: "정산팀", contactTitle: "담당자", email: "settle@hanbit.example", phone: "010-4210-1842", channel: "EMAIL", salesAmount: 28450000, confirmedAmount: 28450000, taxAmount: 28450000, contactConfirmed: true, amountConfirmed: true, taxMatched: true, taxIssued: true, requestReady: true, requestSent: true, closingSheetSent: true, reason: "미확정 없음", memo: "5월 마감 확정 완료. 요청서 발송 완료.", lastContactAt: "2026-06-08 11:00", contactCount: 1, history: ["06-07 거래처 확인 완료", "06-08 세금계산서 대조 완료", "06-08 요청서 발송"] },
+  { id: "CLOSING-002", company: "모블상사", owner: "김민서", deadline: "10일", contactName: "강소영", contactDepartment: "관리팀", contactTitle: "대리", email: "admin@moble.example", phone: "010-3188-5502", channel: "EMAIL", salesAmount: 19720000, confirmedAmount: 19650000, taxAmount: 19720000, contactConfirmed: false, amountConfirmed: false, taxMatched: false, taxIssued: false, requestReady: false, requestSent: false, closingSheetSent: true, reason: "회신 대기", memo: "거래처 담당자 금액 확인 회신 대기.", lastContactAt: "2026-06-08 10:30", contactCount: 2, history: ["06-06 1차 확인 메일 발송", "06-08 전화 연결 실패"] },
+  { id: "CLOSING-003", company: "그린물류", owner: "박정우", deadline: "25일", contactName: "서가은", contactDepartment: "정산팀", contactTitle: "팀장", email: "tax@greenlog.example", phone: "010-9402-6620", channel: "EMAIL", salesAmount: 43180000, confirmedAmount: 43180000, taxAmount: 43010000, contactConfirmed: true, amountConfirmed: true, taxMatched: false, taxIssued: true, requestReady: false, requestSent: false, closingSheetSent: true, reason: "세금계산서 차이", memo: "세금계산서 공급가액 170,000원 차이 확인 필요.", lastContactAt: "2026-06-09 14:00", contactCount: 1, history: ["06-05 금액 확정", "06-09 세금계산서 차이 발견"] },
+  { id: "CLOSING-004", company: "청담리테일", owner: "이서연", deadline: "25일", contactName: "윤나래", contactDepartment: "관리팀", contactTitle: "과장", email: "closing@cheongdam.example", phone: "010-6104-0931", channel: "KAKAO", salesAmount: 12690000, confirmedAmount: 12400000, taxAmount: 12400000, contactConfirmed: true, amountConfirmed: false, taxMatched: true, taxIssued: false, requestReady: false, requestSent: false, closingSheetSent: true, reason: "금액 조율", memo: "반품 2건 반영 여부 조율 중.", lastContactAt: "2026-06-08 16:10", contactCount: 3, history: ["06-04 거래처 확인 완료", "06-08 반품 건 내부 검토 요청"] },
+  { id: "CLOSING-005", company: "서울컴퍼니", owner: "최현우", deadline: "30일", contactName: "문하린", contactDepartment: "회계팀", contactTitle: "차장", email: "finance@seoulcp.example", phone: "010-8890-7311", channel: "EMAIL", salesAmount: 35860000, confirmedAmount: 35860000, taxAmount: 35860000, contactConfirmed: true, amountConfirmed: true, taxMatched: true, taxIssued: false, requestReady: true, requestSent: false, closingSheetSent: false, reason: "미확정 없음", memo: "발송 패키지 준비 완료. 발송 승인만 남음.", lastContactAt: "-", contactCount: 0, history: ["06-08 금액 확정", "06-09 패키지 생성"] },
+  { id: "CLOSING-006", company: "다원문구", owner: "박정우", deadline: "10일", contactName: "이지현", contactDepartment: "구매팀", contactTitle: "대리", email: "purchase@dawon.example", phone: "010-2048-2701", channel: "EMAIL", salesAmount: 9870000, confirmedAmount: 9870000, taxAmount: 10010000, contactConfirmed: false, amountConfirmed: true, taxMatched: false, taxIssued: true, requestReady: false, requestSent: false, closingSheetSent: true, reason: "세금계산서 차이", memo: "담당자 확인 전이며 세금계산서 금액 차이.", lastContactAt: "2026-06-09 09:20", contactCount: 1, history: ["06-07 세금계산서 업로드", "06-09 연락 필요 표시"] },
+  { id: "CLOSING-007", company: "바른테크", owner: "이서연", deadline: "30일", contactName: "최도윤", contactDepartment: "정산팀", contactTitle: "담당자", email: "settlement@baruntech.example", phone: "010-5211-4299", channel: "EMAIL", salesAmount: 22140000, confirmedAmount: 22140000, taxAmount: 22140000, contactConfirmed: true, amountConfirmed: true, taxMatched: true, taxIssued: true, requestReady: true, requestSent: true, closingSheetSent: true, reason: "미확정 없음", memo: "마감 완료.", lastContactAt: "2026-06-06 12:00", contactCount: 1, history: ["06-06 최종 확정", "06-06 발송 완료"] },
+  { id: "CLOSING-008", company: "코리아비즈", owner: "최현우", deadline: "25일", contactName: "손우진", contactDepartment: "회계팀", contactTitle: "대리", email: "account@koreabiz.example", phone: "010-3900-1187", channel: "KAKAO", salesAmount: 48750000, confirmedAmount: 48200000, taxAmount: 48200000, contactConfirmed: true, amountConfirmed: false, taxMatched: true, taxIssued: false, requestReady: false, requestSent: false, closingSheetSent: true, reason: "내부 검토", memo: "대량 거래 할인 반영 여부 내부 승인 필요.", lastContactAt: "2026-06-09 15:30", contactCount: 2, history: ["06-08 거래처 확인 완료", "06-09 내부 승인 요청"] },
+];
+
+function toBooleanNumber(value) {
+  return value ? 1 : 0;
+}
+
+function parseJsonArray(value) {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeClosingCompany(row) {
+  return {
+    id: row.closingId,
+    company: row.company,
+    owner: row.owner ?? "",
+    deadline: row.deadline ?? "",
+    contactName: row.contactName ?? "",
+    contactDepartment: row.contactDepartment ?? "",
+    contactTitle: row.contactTitle ?? "",
+    email: row.email ?? "",
+    phone: row.phone ?? "",
+    channel: row.channel ?? "EMAIL",
+    salesAmount: Number(row.salesAmount) || 0,
+    confirmedAmount: Number(row.confirmedAmount) || 0,
+    taxAmount: Number(row.taxAmount) || 0,
+    contactConfirmed: row.contactConfirmed === 1,
+    amountConfirmed: row.amountConfirmed === 1,
+    taxMatched: row.taxMatched === 1,
+    taxIssued: row.taxIssued === 1,
+    requestReady: row.requestReady === 1,
+    requestSent: row.requestSent === 1,
+    closingSheetSent: row.closingSheetSent === 1,
+    reason: row.reason ?? "",
+    memo: row.memo ?? "",
+    lastContactAt: row.lastContactAt ?? "",
+    contactCount: Number(row.contactCount) || 0,
+    history: parseJsonArray(row.historyJson),
+    updatedAt: row.updatedAt,
+  };
+}
+
+function ensureOperationalSeedData(database) {
+  const insertRequest = database.prepare(`
+    INSERT OR IGNORE INTO department_requests (
+      request_id, department, title, due, owner, priority, status
+    )
+    VALUES (@id, @department, @title, @due, @owner, @priority, @status)
+  `);
+  const insertClosing = database.prepare(`
+    INSERT OR IGNORE INTO closing_companies (
+      closing_id,
+      company,
+      owner,
+      deadline,
+      contact_name,
+      contact_department,
+      contact_title,
+      email,
+      phone,
+      channel,
+      sales_amount,
+      confirmed_amount,
+      tax_amount,
+      contact_confirmed,
+      amount_confirmed,
+      tax_matched,
+      tax_issued,
+      request_ready,
+      request_sent,
+      closing_sheet_sent,
+      reason,
+      memo,
+      last_contact_at,
+      contact_count,
+      history_json
+    )
+    VALUES (
+      @id,
+      @company,
+      @owner,
+      @deadline,
+      @contactName,
+      @contactDepartment,
+      @contactTitle,
+      @email,
+      @phone,
+      @channel,
+      @salesAmount,
+      @confirmedAmount,
+      @taxAmount,
+      @contactConfirmed,
+      @amountConfirmed,
+      @taxMatched,
+      @taxIssued,
+      @requestReady,
+      @requestSent,
+      @closingSheetSent,
+      @reason,
+      @memo,
+      @lastContactAt,
+      @contactCount,
+      @historyJson
+    )
+  `);
+
+  database.transaction(() => {
+    seedDepartmentRequests.forEach((request) => insertRequest.run(request));
+    seedClosingCompanies.forEach((row) => insertClosing.run({
+      ...row,
+      contactConfirmed: toBooleanNumber(row.contactConfirmed),
+      amountConfirmed: toBooleanNumber(row.amountConfirmed),
+      taxMatched: toBooleanNumber(row.taxMatched),
+      taxIssued: toBooleanNumber(row.taxIssued),
+      requestReady: toBooleanNumber(row.requestReady),
+      requestSent: toBooleanNumber(row.requestSent),
+      closingSheetSent: toBooleanNumber(row.closingSheetSent),
+      historyJson: JSON.stringify(row.history ?? []),
+    }));
+  })();
+}
+
+function getDepartmentRequests(database) {
+  ensureOperationalSeedData(database);
+  return database.prepare(`
+    SELECT
+      request_id AS id,
+      department,
+      title,
+      due,
+      owner,
+      priority,
+      status,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM department_requests
+    ORDER BY
+      CASE priority WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
+      request_id ASC
+  `).all();
+}
+
+function getClosingCompanies(database) {
+  ensureOperationalSeedData(database);
+  return database.prepare(`
+    SELECT
+      closing_id AS closingId,
+      company,
+      owner,
+      deadline,
+      contact_name AS contactName,
+      contact_department AS contactDepartment,
+      contact_title AS contactTitle,
+      email,
+      phone,
+      channel,
+      sales_amount AS salesAmount,
+      confirmed_amount AS confirmedAmount,
+      tax_amount AS taxAmount,
+      contact_confirmed AS contactConfirmed,
+      amount_confirmed AS amountConfirmed,
+      tax_matched AS taxMatched,
+      tax_issued AS taxIssued,
+      request_ready AS requestReady,
+      request_sent AS requestSent,
+      closing_sheet_sent AS closingSheetSent,
+      reason,
+      memo,
+      last_contact_at AS lastContactAt,
+      contact_count AS contactCount,
+      history_json AS historyJson,
+      updated_at AS updatedAt
+    FROM closing_companies
+    ORDER BY closing_id ASC
+  `).all().map(normalizeClosingCompany);
+}
+
+function saveClosingCompanies(database, rows = []) {
+  ensureOperationalSeedData(database);
+
+  const upsert = database.prepare(`
+    INSERT INTO closing_companies (
+      closing_id,
+      company,
+      owner,
+      deadline,
+      contact_name,
+      contact_department,
+      contact_title,
+      email,
+      phone,
+      channel,
+      sales_amount,
+      confirmed_amount,
+      tax_amount,
+      contact_confirmed,
+      amount_confirmed,
+      tax_matched,
+      tax_issued,
+      request_ready,
+      request_sent,
+      closing_sheet_sent,
+      reason,
+      memo,
+      last_contact_at,
+      contact_count,
+      history_json,
+      updated_at
+    )
+    VALUES (
+      @id,
+      @company,
+      @owner,
+      @deadline,
+      @contactName,
+      @contactDepartment,
+      @contactTitle,
+      @email,
+      @phone,
+      @channel,
+      @salesAmount,
+      @confirmedAmount,
+      @taxAmount,
+      @contactConfirmed,
+      @amountConfirmed,
+      @taxMatched,
+      @taxIssued,
+      @requestReady,
+      @requestSent,
+      @closingSheetSent,
+      @reason,
+      @memo,
+      @lastContactAt,
+      @contactCount,
+      @historyJson,
+      CURRENT_TIMESTAMP
+    )
+    ON CONFLICT(closing_id) DO UPDATE SET
+      company = excluded.company,
+      owner = excluded.owner,
+      deadline = excluded.deadline,
+      contact_name = excluded.contact_name,
+      contact_department = excluded.contact_department,
+      contact_title = excluded.contact_title,
+      email = excluded.email,
+      phone = excluded.phone,
+      channel = excluded.channel,
+      sales_amount = excluded.sales_amount,
+      confirmed_amount = excluded.confirmed_amount,
+      tax_amount = excluded.tax_amount,
+      contact_confirmed = excluded.contact_confirmed,
+      amount_confirmed = excluded.amount_confirmed,
+      tax_matched = excluded.tax_matched,
+      tax_issued = excluded.tax_issued,
+      request_ready = excluded.request_ready,
+      request_sent = excluded.request_sent,
+      closing_sheet_sent = excluded.closing_sheet_sent,
+      reason = excluded.reason,
+      memo = excluded.memo,
+      last_contact_at = excluded.last_contact_at,
+      contact_count = excluded.contact_count,
+      history_json = excluded.history_json,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+
+  const transaction = database.transaction(() => {
+    rows.forEach((row) => {
+      upsert.run({
+        id: row.id,
+        company: row.company ?? "",
+        owner: row.owner ?? "",
+        deadline: row.deadline ?? "",
+        contactName: row.contactName ?? "",
+        contactDepartment: row.contactDepartment ?? "",
+        contactTitle: row.contactTitle ?? "",
+        email: row.email ?? "",
+        phone: row.phone ?? "",
+        channel: row.channel ?? "EMAIL",
+        salesAmount: Number(row.salesAmount) || 0,
+        confirmedAmount: Number(row.confirmedAmount) || 0,
+        taxAmount: Number(row.taxAmount) || 0,
+        contactConfirmed: toBooleanNumber(row.contactConfirmed),
+        amountConfirmed: toBooleanNumber(row.amountConfirmed),
+        taxMatched: toBooleanNumber(row.taxMatched),
+        taxIssued: toBooleanNumber(row.taxIssued),
+        requestReady: toBooleanNumber(row.requestReady),
+        requestSent: toBooleanNumber(row.requestSent),
+        closingSheetSent: toBooleanNumber(row.closingSheetSent),
+        reason: row.reason ?? "",
+        memo: row.memo ?? "",
+        lastContactAt: row.lastContactAt ?? "",
+        contactCount: Number(row.contactCount) || 0,
+        historyJson: JSON.stringify(row.history ?? []),
+      });
+    });
+  });
+
+  transaction();
+  return getClosingCompanies(database);
 }
 
 const seedDepartments = [
@@ -1468,6 +1837,8 @@ function registerDatabaseIpc(ipcMain, app) {
       "send_package_items",
       "message_templates",
       "contacts",
+      "department_requests",
+      "closing_companies",
       "app_events",
       "notifications",
     ];
@@ -1738,6 +2109,30 @@ function registerDatabaseIpc(ipcMain, app) {
     return {
       ok: true,
       packages: updateSendPackageItemStatus(database, payload),
+    };
+  });
+
+  ipcMain.handle("department-requests:list", () => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      requests: getDepartmentRequests(database),
+    };
+  });
+
+  ipcMain.handle("closing-companies:list", () => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      rows: getClosingCompanies(database),
+    };
+  });
+
+  ipcMain.handle("closing-companies:save", (_, rows) => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      rows: saveClosingCompanies(database, rows ?? []),
     };
   });
 

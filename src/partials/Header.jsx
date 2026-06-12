@@ -10,33 +10,10 @@ import { addNotification, readNotifications } from '../utils/appNotifications';
 import { authChangedEvent, getCurrentUser } from '../utils/authSession';
 import { getTodoSummary, todoChangedEvent } from '../utils/todoSchedule';
 
-const toolbarItems = [
-  {
-    label: '파일 업로드',
-    icon: 'M8 1 3 6h3v5h4V6h3L8 1ZM3 13v2h10v-2H3Z',
-    help: 'CSV/XLSX 파일을 업로드 전 검증 화면으로 불러옵니다. 검증 내용을 적용하기 전까지 SQLite에는 반영되지 않습니다.',
-  },
-  {
-    label: '저장',
-    icon: 'M2 2h10l2 2v10H2V2Zm3 1v4h6V3H5Zm-1 8v2h8v-2H4Z',
-    help: '현재 화면의 작업 상태를 SQLite 테이블에 저장합니다.',
-  },
-];
-
-function ToolbarHint({ children }) {
-  return (
-    <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-64 -translate-x-1/2 rounded-md border border-gray-200 bg-white px-3 py-2 text-left text-xs leading-5 text-gray-600 shadow-lg group-hover:block group-focus-within:block dark:border-gray-700/60 dark:bg-gray-800 dark:text-gray-200">
-      {children}
-    </span>
-  );
-}
-
 function Header({
   sidebarOpen,
   setSidebarOpen,
   variant = 'default',
-  onFileUpload,
-  onSave,
   lastSavedAt = '방금 전',
 }) {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
@@ -128,14 +105,6 @@ function Header({
     setReminderToast(null);
   };
 
-  const handleFileChange = (event) => {
-    const [file] = event.target.files;
-    if (file && onFileUpload) {
-      onFileUpload(file);
-    }
-    event.target.value = '';
-  };
-
   return (
     <header className={`sticky top-0 before:absolute before:inset-0 before:backdrop-blur-md max-lg:before:bg-white/92 dark:max-lg:before:bg-gray-800/90 before:-z-10 z-30 ${variant === 'v2' || variant === 'v3' ? 'before:bg-white after:absolute after:h-px after:inset-x-0 after:top-full after:bg-gray-200 dark:after:bg-gray-700/60 after:-z-10' : 'before:bg-white/86 dark:before:bg-gray-900/88 after:absolute after:h-px after:inset-x-0 after:top-full after:bg-gray-200/80 dark:after:bg-gray-700/60 after:-z-10'} ${variant === 'v2' ? 'dark:before:bg-gray-800' : ''} ${variant === 'v3' ? 'dark:before:bg-gray-900' : ''}`}>
       <div className="px-4 sm:px-6 lg:px-8">
@@ -157,28 +126,6 @@ function Header({
                 <rect x="4" y="17" width="16" height="2" />
               </svg>
             </button>
-
-            <div className="hidden items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 md:flex">
-              <label className="group relative inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-700 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-200 dark:hover:bg-accent-500/10 dark:hover:text-accent-300">
-                <svg className="h-4 w-4 fill-current text-gray-500 dark:text-gray-400" viewBox="0 0 16 16" aria-hidden="true">
-                  <path d={toolbarItems[0].icon} />
-                </svg>
-                <span>{toolbarItems[0].label}</span>
-                <ToolbarHint>{toolbarItems[0].help}</ToolbarHint>
-                <input className="sr-only" type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
-              </label>
-              <button
-                className="group relative inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-700 hover:bg-accent-50 hover:text-accent-700 dark:text-gray-200 dark:hover:bg-accent-500/10 dark:hover:text-accent-300"
-                type="button"
-                onClick={onSave}
-              >
-                <svg className="h-4 w-4 fill-current text-gray-500 dark:text-gray-400" viewBox="0 0 16 16" aria-hidden="true">
-                  <path d={toolbarItems[1].icon} />
-                </svg>
-                <span>{toolbarItems[1].label}</span>
-                <ToolbarHint>{toolbarItems[1].help}</ToolbarHint>
-              </button>
-            </div>
 
             <div className="hidden items-center gap-2 text-sm text-gray-500 dark:text-gray-400 xl:flex">
               <span className="h-2 w-2 rounded-full bg-accent-500" aria-hidden="true" />

@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog, Notification } = require("electron/main");
+const { shell } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const nodemailer = require("nodemailer");
 const {
   backupDatabase,
   closeDatabase,
@@ -157,6 +159,29 @@ function toDisplayDate(date = new Date()) {
     minute: "2-digit",
     hour12: false,
   });
+}
+
+function isEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? "").trim());
+}
+
+function normalizeMailAttachments(attachments = []) {
+  return attachments
+    .filter((attachment) => attachment?.fileName && attachment?.base64)
+    .map((attachment) => ({
+      filename: path.basename(String(attachment.fileName)),
+      content: Buffer.from(String(attachment.base64), "base64"),
+      contentType: attachment.mimeType || "application/octet-stream",
+    }));
+}
+
+function normalizeGeneratedFile(file = {}) {
+  const fileName = path.basename(String(file.fileName || "attachment.bin"));
+  const base64 = String(file.base64 || "");
+  return {
+    fileName,
+    buffer: Buffer.from(base64, "base64"),
+  };
 }
 
 function normalizeBackupManifest(manifest, backupFolder) {
@@ -370,7 +395,7 @@ function registerIpcHandlers() {
     // 파일 열기
   });
 
-  ipcMain.handle("file:save-as", async (_, { fileName, bytes }) => {
+  ipcMain.handle("file:save-as", async (_, { fileName, bytes, openFolder = false }) => {
     const extension = path.extname(fileName).replace(".", "").toLowerCase();
     const filters =
       extension === "csv"
@@ -388,7 +413,35 @@ function registerIpcHandlers() {
     }
 
     await fs.writeFile(filePath, Buffer.from(bytes));
+    if (openFolder) {
+      shell.showItemInFolder(filePath);
+    }
     return { canceled: false, filePath };
+  });
+
+  ipcMain.handle("files:save-generated", async (_, payload = {}) => {
+    const files = Array.isArray(payload.files) ? payload.files.map(normalizeGeneratedFile).filter((file) => file.buffer.length > 0) : [];
+    if (files.length === 0) {
+      return { ok: false, message: "저장할 파일이 없습니다." };
+    }
+
+    const settings = await readAppSettings();
+    const folderName = `${payload.folderName || "closing_attachments"}_${formatTimestamp()}`;
+    const targetFolder = path.join(settings.exportPath, "ClosingAttachments", folderName);
+    await fs.mkdir(targetFolder, { recursive: true });
+
+    const savedFiles = [];
+    for (const file of files) {
+      const filePath = path.join(targetFolder, file.fileName);
+      await fs.writeFile(filePath, file.buffer);
+      savedFiles.push({ fileName: file.fileName, filePath });
+    }
+
+    return {
+      ok: true,
+      folderPath: targetFolder,
+      savedFiles,
+    };
   });
 
   ipcMain.handle("app-settings:get", async () => ({
@@ -445,6 +498,57 @@ function registerIpcHandlers() {
     }).show();
 
     return { ok: true };
+  });
+
+  ipcMain.handle("gmail:send-test", async (_, payload = {}) => {
+    const gmailAddress = String(payload.gmailAddress ?? "").trim();
+    const appPassword = String(payload.appPassword ?? "").replace(/\s+/g, "");
+    const testEmail = String(payload.testEmail ?? "").trim();
+
+    if (!isEmail(gmailAddress) || !gmailAddress.toLowerCase().endsWith("@gmail.com")) {
+      return { ok: false, message: "Gmail 주소를 확인하세요." };
+    }
+
+    if (appPassword.length < 12) {
+      return { ok: false, message: "Google 앱 비밀번호 16자리를 입력하세요." };
+    }
+
+    if (!isEmail(testEmail)) {
+      return { ok: false, message: "테스트 수신 이메일을 확인하세요." };
+    }
+
+    const attachments = normalizeMailAttachments(payload.attachments);
+    if (attachments.length === 0) {
+      return { ok: false, message: "첨부할 PDF/XLSX 파일이 없습니다." };
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      auth: {
+        user: gmailAddress,
+        pass: appPassword,
+      },
+    });
+
+    await transporter.verify();
+    const info = await transporter.sendMail({
+      from: `"${payload.senderName || "Excel Desktop App"}" <${gmailAddress}>`,
+      to: testEmail,
+      replyTo: payload.replyToEmail || gmailAddress,
+      subject: payload.subject || "[마감 확인 요청] 테스트 발송",
+      text: payload.text || "마감 확인 요청 테스트 메일입니다.",
+      attachments,
+    });
+
+    return {
+      ok: true,
+      messageId: info.messageId,
+      accepted: info.accepted ?? [],
+      rejected: info.rejected ?? [],
+      attachmentCount: attachments.length,
+    };
   });
 
   ipcMain.handle("backups:list", async () => {

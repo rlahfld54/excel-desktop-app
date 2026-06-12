@@ -31,6 +31,7 @@ async function saveWorkbook(workbook, suggestedName) {
     const result = await window.api.saveFileAs({
       fileName: suggestedName,
       bytes: Array.from(bytes),
+      openFolder: true,
     });
 
     if (result?.canceled) {
@@ -134,6 +135,7 @@ export async function exportRowsToXlsx({
     const result = await window.api.saveFileAs({
       fileName: suggestedName,
       bytes: Array.from(bytes),
+      openFolder: true,
     });
 
     if (result?.canceled) {

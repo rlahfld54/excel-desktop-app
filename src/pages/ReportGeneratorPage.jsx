@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import PageShell from './PageShell';
-import { createSampleSalesRows, parseNumber } from '../data/sampleSalesData';
+import { parseNumber } from '../data/sampleSalesData';
 import { readReportTemplates } from '../data/reportTemplates';
+import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 import { exportStyledReportToXlsx } from '../utils/spreadsheetExport';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
 import { addNotification } from '../utils/appNotifications';
@@ -14,7 +15,6 @@ const company = {
   department: '총무팀',
 };
 
-const rows = createSampleSalesRows(1200);
 const reportFontStack = 'Pretendard, Inter, Noto Sans KR, Malgun Gothic, sans-serif';
 
 function toCurrency(value) {
@@ -69,15 +69,25 @@ function downloadBlob(blob, fileName) {
 
 export default function ReportGeneratorPage() {
   const currentUser = getCurrentUser();
+  const { rows, loadLatest } = useWorkspaceDataStore((state) => ({
+    rows: state.rows,
+    loadLatest: state.loadLatest,
+  }));
   const [templates] = useState(() => readReportTemplates());
   const [selectedTemplateId, setSelectedTemplateId] = useState(templates[0]?.id);
   const [reportTitle, setReportTitle] = useState('2026년 5월 총무팀 월간 보고서');
   const [statusText, setStatusText] = useState('보고서 양식을 선택하고 생성할 수 있습니다.');
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? templates[0];
-  const metrics = useMemo(() => getReportMetrics(rows), []);
+  const metrics = useMemo(() => getReportMetrics(rows), [rows]);
   const topCustomers = metrics.customers.slice(0, 5);
   const topStatuses = metrics.statuses.slice(0, 5);
   const isCustomerClosingTemplate = selectedTemplate?.id === 'customer-closing-send';
+
+  useEffect(() => {
+    loadLatest().catch(() => {
+      // Browser-only development keeps the workspace store fallback data.
+    });
+  }, [loadLatest]);
 
   const summary = useMemo(() => [
     { label: '총 매출액', value: toCurrency(metrics.totalSales), detail: '월간 거래 기준' },

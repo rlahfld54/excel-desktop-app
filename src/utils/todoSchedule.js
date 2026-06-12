@@ -1,5 +1,6 @@
 export const todoStorageKey = 'excel-workspace:closingTodos';
 export const todoChangedEvent = 'excel-workspace:todo-changed';
+export const teamTodoUserId = 'team:general-affairs';
 
 export const priorityMeta = {
   HIGH: {
@@ -77,6 +78,57 @@ export const defaultTodos = [
   },
 ];
 
+export const defaultTeamTodos = [
+  {
+    id: 'team-closing-10',
+    title: '10일 마감 회신 취합',
+    detail: '거래처 회신, 미확정 사유, 담당자별 남은 업체를 총무팀 기준으로 정리',
+    priority: 'HIGH',
+    due: '총무팀',
+    dueDate: '2026-06-10',
+    reminderAt: '09:30',
+    done: false,
+    path: '/schedule/todos',
+    scope: 'TEAM',
+  },
+  {
+    id: 'team-department-requests',
+    title: '타부서 요청 정리',
+    detail: '영업/물류/구매팀에서 들어온 마감 관련 요청을 담당자별로 배정',
+    priority: 'MEDIUM',
+    due: '총무팀',
+    dueDate: '2026-06-11',
+    reminderAt: '11:00',
+    done: false,
+    path: '/schedule/todos',
+    scope: 'TEAM',
+  },
+  {
+    id: 'team-executive-report',
+    title: '사장님 보고 자료 업데이트',
+    detail: '위험 업체, 미확정 금액, 세금계산서 차이 현황을 보고용으로 갱신',
+    priority: 'HIGH',
+    due: '총무팀',
+    dueDate: '2026-06-12',
+    reminderAt: '15:00',
+    done: false,
+    path: '/results/executive-dashboard',
+    scope: 'TEAM',
+  },
+  {
+    id: 'team-closing-25-precheck',
+    title: '25일 마감 사전 점검',
+    detail: '마감장 미발송, 금액 미확정, 세금계산서 발행 대기 업체 확인',
+    priority: 'MEDIUM',
+    due: '총무팀',
+    dueDate: '2026-06-16',
+    reminderAt: '09:00',
+    done: false,
+    path: '/closing-workspace/overview',
+    scope: 'TEAM',
+  },
+];
+
 function readStore() {
   try {
     return JSON.parse(localStorage.getItem(todoStorageKey)) ?? {};
@@ -119,6 +171,23 @@ export function readTodos(userId) {
   return defaultTodos;
 }
 
+export function readTeamTodos() {
+  const store = readStore();
+  const teamTodos = store[teamTodoUserId]?.todos;
+
+  if (Array.isArray(teamTodos)) {
+    const defaultIds = new Set(defaultTeamTodos.map((todo) => todo.id));
+    const mergedDefaults = defaultTeamTodos.map((todo) => ({
+      ...todo,
+      ...(teamTodos.find((item) => item.id === todo.id) ?? {}),
+    }));
+    const customTodos = teamTodos.filter((todo) => !defaultIds.has(todo.id));
+    return [...mergedDefaults, ...customTodos];
+  }
+
+  return defaultTeamTodos;
+}
+
 export function saveTodos(userId, todos) {
   const store = readStore();
   writeStore({
@@ -130,8 +199,23 @@ export function saveTodos(userId, todos) {
   });
 }
 
+export function saveTeamTodos(todos) {
+  const store = readStore();
+  writeStore({
+    ...store,
+    [teamTodoUserId]: {
+      ...(store[teamTodoUserId] ?? {}),
+      todos,
+    },
+  });
+}
+
 export function readTodoHistory(userId) {
   return readStore()[userId]?.history ?? [];
+}
+
+export function readTeamTodoHistory() {
+  return readStore()[teamTodoUserId]?.history ?? [];
 }
 
 export function saveTodoHistory(userId, history) {
@@ -140,6 +224,17 @@ export function saveTodoHistory(userId, history) {
     ...store,
     [userId]: {
       ...(store[userId] ?? {}),
+      history: history.slice(0, 300),
+    },
+  });
+}
+
+export function saveTeamTodoHistory(history) {
+  const store = readStore();
+  writeStore({
+    ...store,
+    [teamTodoUserId]: {
+      ...(store[teamTodoUserId] ?? {}),
       history: history.slice(0, 300),
     },
   });
@@ -163,6 +258,7 @@ export function createTodo(input) {
     path: input.path || '/dashboard',
     createdAt: new Date().toISOString(),
     custom: true,
+    scope: input.scope || 'PERSONAL',
   };
 }
 
@@ -200,8 +296,64 @@ export function toggleTodoDone(userId, todos, todoId, done) {
   return nextTodos;
 }
 
+export function toggleTeamTodoDone(todos, todoId, done) {
+  const now = new Date().toISOString();
+  const nextTodos = todos.map((todo) => (
+    todo.id === todoId
+      ? {
+          ...todo,
+          done,
+          completedAt: done ? now : null,
+        }
+      : todo
+  ));
+  const todo = nextTodos.find((item) => item.id === todoId);
+
+  if (todo) {
+    const history = readTeamTodoHistory();
+    const nextHistory = [
+      {
+        id: `${todoId}-${now}`,
+        todoId,
+        title: todo.title,
+        priority: todo.priority,
+        done,
+        date: todayKey(),
+        changedAt: now,
+        scope: 'TEAM',
+      },
+      ...history,
+    ];
+    saveTeamTodoHistory(nextHistory);
+  }
+
+  saveTeamTodos(nextTodos);
+  return nextTodos;
+}
+
 export function getTodoSummary(userId, date = new Date()) {
   const todos = readTodos(userId);
+  const key = todayKey(date);
+  const openTodos = todos.filter((todo) => !todo.done);
+  const todayTodos = todos.filter((todo) => todo.dueDate === key);
+  const reminders = todos
+    .filter((todo) => !todo.done && todo.dueDate && todo.reminderAt)
+    .sort((a, b) => `${a.dueDate} ${a.reminderAt}`.localeCompare(`${b.dueDate} ${b.reminderAt}`));
+  const highOpenCount = openTodos.filter((todo) => todo.priority === 'HIGH').length;
+
+  return {
+    todos,
+    openTodos,
+    todayTodos,
+    reminders,
+    highOpenCount,
+    completedCount: todos.length - openTodos.length,
+    completionRate: todos.length ? Math.round(((todos.length - openTodos.length) / todos.length) * 100) : 100,
+  };
+}
+
+export function getTeamTodoSummary(date = new Date()) {
+  const todos = readTeamTodos();
   const key = todayKey(date);
   const openTodos = todos.filter((todo) => !todo.done);
   const todayTodos = todos.filter((todo) => todo.dueDate === key);

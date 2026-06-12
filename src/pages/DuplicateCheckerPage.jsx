@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
-import { createSampleSalesRows, findDuplicateGroups } from '../data/sampleSalesData';
+import { findDuplicateGroups } from '../data/sampleSalesData';
+import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 
 function badgeClass(value) {
   if (['병합 완료', '예외 등록'].includes(value)) {
@@ -26,10 +27,28 @@ function MetricCard({ label, value, detail }) {
 }
 
 export default function DuplicateCheckerPage() {
-  const [rows] = useState(() => createSampleSalesRows(1200));
+  const { rows, loadLatest } = useWorkspaceDataStore((state) => ({
+    rows: state.rows,
+    loadLatest: state.loadLatest,
+  }));
   const [groups, setGroups] = useState(() => findDuplicateGroups(rows));
   const [selectedGroupId, setSelectedGroupId] = useState(groups[0]?.id);
   const [actionState, setActionState] = useState(`${groups.length.toLocaleString('ko-KR')}개 중복 그룹을 찾았습니다.`);
+
+  useEffect(() => {
+    loadLatest().catch(() => {
+      // Browser-only development keeps the workspace store fallback data.
+    });
+  }, [loadLatest]);
+
+  useEffect(() => {
+    const nextGroups = findDuplicateGroups(rows);
+    setGroups(nextGroups);
+    setSelectedGroupId((current) => (
+      nextGroups.some((group) => group.id === current) ? current : nextGroups[0]?.id
+    ));
+    setActionState(`${nextGroups.length.toLocaleString('ko-KR')}媛?以묐났 洹몃９??李얠븯?듬땲??`);
+  }, [rows]);
 
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? groups[0];
   const metrics = useMemo(() => {
