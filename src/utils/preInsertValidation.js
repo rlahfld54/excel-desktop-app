@@ -1,15 +1,18 @@
 import { parseNumber, sampleProducts } from '../data/sampleSalesData';
 
 export const blockingValidationTypes = [
-  '거래처 누락',
+  '거래처명 누락',
   '거래처 코드 누락',
   '중복 의심',
   '금액 불일치',
   '단가 불일치',
-  '품목코드 누락',
+  '품목 코드 누락',
+  '품목명 누락',
 ];
 
 export const reviewValidationTypes = [
+  '거래처 검토 필요',
+  '품목 검토 필요',
   '대량 거래 확인',
   '고액 거래 확인',
   '기타 확인',
@@ -66,9 +69,26 @@ function getDuplicateKey(row, indexes) {
   ].join('|');
 }
 
-function findReferenceProduct(row, indexes) {
+function findReferenceProduct(row, indexes, referenceData) {
+  const customerCode = getCell(row, indexes, 'customerCode');
+  const customerName = getCell(row, indexes, 'customerName');
   const productCode = getCell(row, indexes, 'productCode');
   const productName = getCell(row, indexes, 'productName');
+  const prices = referenceData?.prices ?? [];
+  const matchedPrice = prices.find((price) => (
+    (!customerCode || price.customerCode === customerCode)
+    && (!customerName || price.customerName === customerName)
+    && (!productCode || price.productCode === productCode)
+    && (!productName || price.productName === productName)
+  ));
+
+  if (matchedPrice) {
+    return {
+      code: matchedPrice.productCode,
+      name: matchedPrice.productName,
+      price: Number(matchedPrice.price),
+    };
+  }
 
   return sampleProducts.find((product) => (
     product.code === productCode
@@ -93,21 +113,32 @@ export function validateBeforeInsert(columns, rows, options = {}) {
     const customerName = getCell(row, indexes, 'customerName');
     const customerCode = getCell(row, indexes, 'customerCode');
     const productCode = getCell(row, indexes, 'productCode');
+    const productName = getCell(row, indexes, 'productName');
     const quantity = parseNumber(getCell(row, indexes, 'quantity'));
     const unitPrice = parseNumber(getCell(row, indexes, 'unitPrice'));
     const amount = parseNumber(getCell(row, indexes, 'amount'));
     const status = getCell(row, indexes, 'status');
     const note = getCell(row, indexes, 'note');
 
-    if (!customerName) addIssue(issuesByRow, rowIndex, '거래처 누락', '거래처명이 비어 있습니다.', 'block');
-    if (!customerCode) addIssue(issuesByRow, rowIndex, '거래처 코드 누락', '거래처 코드가 비어 있어 기준정보와 연결할 수 없습니다.', 'block');
-    if (!productCode) addIssue(issuesByRow, rowIndex, '품목코드 누락', '품목코드가 비어 있어 품목 기준정보와 연결할 수 없습니다.', 'block');
+    if (!customerName && !customerCode) {
+      addIssue(issuesByRow, rowIndex, '거래처 검토 필요', '거래처명과 거래처코드가 모두 비어 있어 담당자 검토가 필요합니다.', 'review');
+    } else {
+      if (!customerName) addIssue(issuesByRow, rowIndex, '거래처명 누락', '거래처명이 비어 있습니다. 거래처코드로 기준정보를 매칭합니다.', 'block');
+      if (!customerCode) addIssue(issuesByRow, rowIndex, '거래처 코드 누락', '거래처코드가 비어 있습니다. 거래처명으로 기준정보를 매칭합니다.', 'block');
+    }
+
+    if (!productName && !productCode) {
+      addIssue(issuesByRow, rowIndex, '품목 검토 필요', '품목명과 품목코드가 모두 비어 있어 담당자 검토가 필요합니다.', 'review');
+    } else {
+      if (!productCode) addIssue(issuesByRow, rowIndex, '품목 코드 누락', '품목코드가 비어 있습니다. 품목명으로 기준정보를 매칭합니다.', 'block');
+      if (!productName) addIssue(issuesByRow, rowIndex, '품목명 누락', '품목명이 비어 있습니다. 품목코드로 기준정보를 매칭합니다.', 'block');
+    }
 
     if (Number.isFinite(quantity) && Number.isFinite(unitPrice) && Number.isFinite(amount) && quantity * unitPrice !== amount) {
       addIssue(issuesByRow, rowIndex, '금액 불일치', `수량 x 단가 계산값 ${Number(quantity * unitPrice).toLocaleString('ko-KR')}원과 금액이 다릅니다.`, 'block');
     }
 
-    const product = findReferenceProduct(row, indexes);
+    const product = findReferenceProduct(row, indexes, options.referenceData);
     if (product && Number.isFinite(unitPrice) && product.price !== unitPrice) {
       addIssue(issuesByRow, rowIndex, '단가 불일치', `기준 단가 ${product.price.toLocaleString('ko-KR')}원과 업로드 단가 ${unitPrice.toLocaleString('ko-KR')}원이 다릅니다.`, 'block');
     }

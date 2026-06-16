@@ -45,6 +45,10 @@ function getStatusIndex(columns) {
   return columns.findIndex((column) => ['검증', '상태', '결과'].includes(column));
 }
 
+function getDateIndex(columns) {
+  return columns.findIndex((column) => ['거래일', '일자', '날짜', '마감일'].includes(column));
+}
+
 export default function DataTablePage() {
   const fileName = useWorkspaceDataStore((state) => state.fileName);
   const columns = useWorkspaceDataStore((state) => state.columns);
@@ -53,6 +57,10 @@ export default function DataTablePage() {
   const loadLatest = useWorkspaceDataStore((state) => state.loadLatest);
   const saveRows = useWorkspaceDataStore((state) => state.saveRows);
   const [query, setQuery] = useState('');
+  const [dateRange, setDateRange] = useState({
+    startDate: '2026-05-01',
+    endDate: '2026-05-31',
+  });
   const [statusFilter, setStatusFilter] = useState('전체');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [validation, setValidation] = useState(null);
@@ -67,18 +75,22 @@ export default function DataTablePage() {
   }, [loadLatest]);
 
   const statusIndex = getStatusIndex(columns);
+  const dateIndex = getDateIndex(columns);
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
     return rows.map((row, rowIndex) => ({ row, rowIndex })).filter(({ row }) => {
+      const rowDate = dateIndex >= 0 ? String(row[dateIndex] ?? '').slice(0, 10) : '';
+      const matchesDate = dateIndex < 0
+        || ((!dateRange.startDate || rowDate >= dateRange.startDate) && (!dateRange.endDate || rowDate <= dateRange.endDate));
       const matchesQuery = normalizedQuery === ''
         || row.some((cell) => String(cell ?? '').toLowerCase().includes(normalizedQuery));
       const rowStatus = statusIndex >= 0 ? row[statusIndex] : '';
       const matchesStatus = statusFilter === '전체' || rowStatus === statusFilter;
-      return matchesQuery && matchesStatus;
+      return matchesDate && matchesQuery && matchesStatus;
     });
-  }, [query, rows, statusFilter, statusIndex]);
+  }, [dateIndex, dateRange.endDate, dateRange.startDate, query, rows, statusFilter, statusIndex]);
 
   const statusOptions = useMemo(() => {
     if (statusIndex < 0) return ['전체'];
@@ -164,45 +176,54 @@ export default function DataTablePage() {
 
   return (
     <PageShell title="원본 데이터 조회" description="업로드한 원본 데이터를 조회하고, 반려 항목이 없는 데이터만 SQL에 저장합니다.">
-      <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Raw data</p>
-            <p className="mt-1 truncate text-lg font-bold text-gray-900 dark:text-gray-100">{fileName}</p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{actionState}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="btn btn-primary cursor-pointer">
-              파일 추가
-              <input className="sr-only" type="file" accept=".csv,.xlsx" onChange={handleFileUpload} />
-            </label>
-            <button className="btn btn-secondary" type="button" onClick={() => runValidation()}>검증 실행</button>
-            <button className="btn btn-secondary" type="button" onClick={handleSaveSnapshot}>SQL 저장</button>
-            <button className="btn btn-secondary" type="button" onClick={handleSampleReset}>샘플 재검증</button>
-            <input className="form-input h-10 w-48" value={exportTitle} onChange={(event) => setExportTitle(event.target.value)} placeholder="내보내기 제목" />
-            <button className="btn btn-secondary" type="button" onClick={handleExport}>XLSX 내보내기</button>
+      <div className="flex h-[calc(100vh-14rem)] flex-col">
+      <section className="mb-3 shrink-0 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="grid gap-3 xl:grid-cols-[136px_136px_150px_minmax(240px,1fr)_auto] xl:items-end">
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">시작일</span>
+            <input
+              className="form-input w-full"
+              type="date"
+              value={dateRange.startDate}
+              onChange={(event) => setDateRange((current) => ({ ...current, startDate: event.target.value }))}
+              onInput={(event) => setDateRange((current) => ({ ...current, startDate: event.target.value }))}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">마지막일</span>
+            <input
+              className="form-input w-full"
+              type="date"
+              value={dateRange.endDate}
+              onChange={(event) => setDateRange((current) => ({ ...current, endDate: event.target.value }))}
+              onInput={(event) => setDateRange((current) => ({ ...current, endDate: event.target.value }))}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">상태</span>
+            <select className="form-select w-full" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              {statusOptions.map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">검색</span>
+            <input
+              className="form-input w-full"
+              placeholder="거래처, 품목, 담당자 검색"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <div className="rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-500 dark:border-gray-700/60 dark:bg-gray-900/30 dark:text-gray-300">
+            {filteredRows.length.toLocaleString('ko-KR')} / {rows.length.toLocaleString('ko-KR')}행
           </div>
         </div>
       </section>
 
-    
-      <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="grid gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60 xl:grid-cols-[1fr_auto]">
-          <div className="flex flex-wrap items-center gap-2">
-            <input className="form-input h-9 w-full sm:w-64" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="원본 데이터 검색" />
-            <select className="form-select h-9" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              {statusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
-            </select>
-            <button className="h-9 rounded-md px-2.5 text-sm font-medium text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/60" type="button" onClick={() => { setQuery(''); setStatusFilter('전체'); }}>
-              초기화
-            </button>
-          </div>
-          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-            <span>{filteredRows.length.toLocaleString('ko-KR')} / {rows.length.toLocaleString('ko-KR')}건</span>
-          </div>
-        </div>
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
 
-        <div className="h-[420px] overflow-auto no-scrollbar">
+        <div className="min-h-0 flex-1 overflow-auto no-scrollbar">
           <table className="min-w-[1120px] w-full border-separate border-spacing-0 text-sm">
             <thead className="sticky top-0 z-10">
               <tr>
@@ -233,6 +254,7 @@ export default function DataTablePage() {
           </table>
         </div>
       </section>
+      </div>
     </PageShell>
   );
 }

@@ -20,6 +20,10 @@ function hexToArgb(hexColor, fallback = 'FF0F766E') {
   return normalized.length === 6 ? `FF${normalized.toUpperCase()}` : fallback;
 }
 
+function sanitizeSheetName(value, fallback = 'Sheet') {
+  return (String(value || fallback).replace(/[\\/?*[\]:]/g, ' ').trim() || fallback).slice(0, 31);
+}
+
 async function saveWorkbook(workbook, suggestedName) {
   const buffer = await workbook.xlsx.writeBuffer();
   const bytes = new Uint8Array(buffer);
@@ -57,6 +61,377 @@ async function saveWorkbook(workbook, suggestedName) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 
   return { fileName: suggestedName, saveMode: 'browser-downloads' };
+}
+
+function styleTableWorksheet(worksheet, headerRowNumber = 1, errorExcelRows = new Set()) {
+  const headerRow = worksheet.getRow(headerRowNumber);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF059669' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  worksheet.views = [{ state: 'frozen', ySplit: headerRowNumber }];
+  worksheet.autoFilter = {
+    from: { row: headerRowNumber, column: 1 },
+    to: { row: headerRowNumber, column: worksheet.columnCount },
+  };
+
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber < headerRowNumber) return;
+    const hasError = errorExcelRows.has(rowNumber);
+    row.eachCell((cell) => {
+      cell.alignment = { vertical: 'middle', wrapText: true };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+      };
+      if (hasError && rowNumber !== headerRowNumber) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+        cell.font = { ...(cell.font ?? {}), bold: true, color: { argb: 'FFFF0000' } };
+      }
+    });
+  });
+}
+
+function addRowsSheet(workbook, sheetName, columns, rows, errorRowNumbers = new Set(), startRow = 1) {
+  const worksheet = workbook.addWorksheet(sanitizeSheetName(sheetName));
+  worksheet.columns = columns.map((column, index) => ({
+    header: column,
+    key: `col_${index}`,
+    width: getColumnWidth(column, rows, index),
+  }));
+  if (startRow > 1) {
+    worksheet.spliceRows(1, 0, ...Array.from({ length: startRow - 1 }, () => []));
+  }
+  worksheet.addRows(rows);
+  styleTableWorksheet(
+    worksheet,
+    startRow,
+    new Set([...errorRowNumbers].map((rowNumber) => rowNumber + startRow))
+  );
+  return worksheet;
+}
+
+function addPlainRowsSheet(workbook, sheetName, columns, rows) {
+  const worksheet = workbook.addWorksheet(sanitizeSheetName(sheetName));
+  worksheet.columns = columns.map((column, index) => ({
+    header: column,
+    key: `col_${index}`,
+    width: getColumnWidth(column, rows, index),
+  }));
+  worksheet.addRows(rows);
+  return worksheet;
+}
+
+function getIssueRows(validation) {
+  return Object.values(validation?.issuesByRow ?? {}).flat();
+}
+
+function getCellByIndex(row, index) {
+  return index >= 0 ? row[index] : '';
+}
+
+function toExportNumber(value) {
+  const number = Number(String(value ?? '').replaceAll(',', ''));
+  return Number.isFinite(number) ? number : 0;
+}
+
+function findColumnIndexByNames(columns, names) {
+  const normalizedNames = names.map((name) => String(name).replace(/\s+/g, '').toLowerCase());
+  return columns.findIndex((column) => normalizedNames.includes(String(column ?? '').replace(/\s+/g, '').toLowerCase()));
+}
+
+function buildReviewSummaryRows({ issues, columns, rows, indexes }) {
+  const reviewIssues = issues.filter((issue) => issue.severity === 'review');
+  const groups = new Map();
+
+  reviewIssues.forEach((issue) => {
+    const row = rows[issue.rowIndex] ?? [];
+    const date = getCellByIndex(row, indexes.date);
+    const productCode = getCellByIndex(row, indexes.productCode);
+    const productName = getCellByIndex(row, indexes.productName);
+    const customerName = getCellByIndex(row, indexes.customerName);
+    const quantity = toExportNumber(getCellByIndex(row, indexes.quantity));
+    const amount = toExportNumber(getCellByIndex(row, indexes.amount));
+    const key = [date, productCode, productName, customerName, issue.type].join('|');
+    const previous = groups.get(key) ?? {
+      date,
+      productCode,
+      productName,
+      customerName,
+      quantityTotal: 0,
+      amountTotal: 0,
+      count: 0,
+      types: new Set(),
+      rowNumbers: [],
+    };
+
+    previous.quantityTotal += Number.isFinite(quantity) ? quantity : 0;
+    previous.amountTotal += Number.isFinite(amount) ? amount : 0;
+    previous.count += 1;
+    previous.types.add(issue.type);
+    previous.rowNumbers.push(issue.rowNumber);
+    groups.set(key, previous);
+  });
+
+  return [...groups.values()].map((group) => [
+    group.date,
+    group.productCode,
+    group.productName,
+    group.customerName,
+    group.quantityTotal,
+    group.amountTotal,
+    group.count,
+    [...group.types].join(', '),
+    group.rowNumbers.join(', '),
+  ]);
+}
+
+function getReviewActionText(issue) {
+  if (issue.type === '대량 거래 확인') return '수량이 기준을 넘었습니다. 실제 주문/출고 수량이 맞는지 확인해주세요.';
+  if (issue.type === '고액 거래 확인') return '금액이 기준을 넘었습니다. 거래 금액 승인 또는 계약 기준을 확인해주세요.';
+  if (issue.type === '기타 확인') return '상태/비고에 검토 문구가 있습니다. 담당자 확인 결과를 남겨주세요.';
+  return issue.message;
+}
+
+function getRowFields(row, indexes) {
+  return {
+    date: getCellByIndex(row, indexes.date),
+    customerCode: getCellByIndex(row, indexes.customerCode),
+    customerName: getCellByIndex(row, indexes.customerName),
+    productCode: getCellByIndex(row, indexes.productCode),
+    productName: getCellByIndex(row, indexes.productName),
+    quantity: getCellByIndex(row, indexes.quantity),
+    unitPrice: getCellByIndex(row, indexes.unitPrice),
+    amount: getCellByIndex(row, indexes.amount),
+  };
+}
+
+function getComparisonText(issue, row, indexes) {
+  if (issue.type !== '금액 불일치') return issue.message;
+
+  const quantity = toExportNumber(getCellByIndex(row, indexes.quantity));
+  const unitPrice = toExportNumber(getCellByIndex(row, indexes.unitPrice));
+  const amount = toExportNumber(getCellByIndex(row, indexes.amount));
+  const expected = quantity * unitPrice;
+
+  return `수량 ${quantity.toLocaleString('ko-KR')} x 단가 ${unitPrice.toLocaleString('ko-KR')} = ${expected.toLocaleString('ko-KR')} / 업로드 금액 ${amount.toLocaleString('ko-KR')}`;
+}
+
+function buildFixRows(issues, rows, indexes, autoFixes) {
+  return issues
+    .filter((issue) => issue.severity === 'block')
+    .map((issue) => {
+      const fields = getRowFields(rows[issue.rowIndex] ?? [], indexes);
+      return [
+        issue.rowNumber,
+        issue.type,
+        issue.message,
+        getComparisonText(issue, rows[issue.rowIndex] ?? [], indexes),
+        fields.date,
+        fields.customerCode,
+        fields.customerName,
+        fields.productCode,
+        fields.productName,
+        fields.quantity,
+        fields.unitPrice,
+        fields.amount,
+        autoFixes[issue.rowIndex]?.summary ?? '',
+        '',
+        '',
+        '',
+      ];
+    });
+}
+
+function buildReviewRows(issues, rows, indexes) {
+  return issues
+    .filter((issue) => issue.severity === 'review')
+    .map((issue) => {
+      const fields = getRowFields(rows[issue.rowIndex] ?? [], indexes);
+      return [
+        issue.type,
+        issue.rowNumber,
+        fields.date,
+        fields.customerCode,
+        fields.customerName,
+        fields.productCode,
+        fields.productName,
+        fields.quantity,
+        fields.unitPrice,
+        fields.amount,
+        getReviewActionText(issue),
+        '',
+        '',
+        '',
+      ];
+    });
+}
+
+function buildOriginalDataRows({ originalColumns, originalRows }) {
+  const indexes = {
+    date: findColumnIndexByNames(originalColumns, ['거래일', '일자', '매출일', '마감일']),
+    customerName: findColumnIndexByNames(originalColumns, ['거래처명', '거래처', '업체명', '고객사명']),
+    customerCode: findColumnIndexByNames(originalColumns, ['거래처코드', '거래처 코드', '고객코드', '업체코드']),
+    productName: findColumnIndexByNames(originalColumns, ['품목명', '상품명', '제품명']),
+    productCode: findColumnIndexByNames(originalColumns, ['품목코드', '품목 코드', '상품코드', '제품코드']),
+    quantity: findColumnIndexByNames(originalColumns, ['수량', '거래수량', '판매수량']),
+    unitPrice: findColumnIndexByNames(originalColumns, ['단가', '판매단가', '기준단가']),
+    amount: findColumnIndexByNames(originalColumns, ['금액', '매출금액', '합계금액', '요청금액']),
+    owner: findColumnIndexByNames(originalColumns, ['담당자', '담당', '소유자']),
+  };
+
+  return originalRows.map((row) => [
+    getCellByIndex(row, indexes.date),
+    getCellByIndex(row, indexes.customerName),
+    getCellByIndex(row, indexes.customerCode),
+    getCellByIndex(row, indexes.productName),
+    getCellByIndex(row, indexes.productCode),
+    getCellByIndex(row, indexes.quantity),
+    getCellByIndex(row, indexes.unitPrice),
+    getCellByIndex(row, indexes.amount),
+    getCellByIndex(row, indexes.owner),
+  ]);
+}
+
+function buildIssueCountRows(issueRows) {
+  const counts = issueRows.reduce((map, issue) => {
+    map[issue.type] = (map[issue.type] ?? 0) + 1;
+    return map;
+  }, {});
+
+  return Object.entries(counts).map(([type, count]) => [type, `${count.toLocaleString('ko-KR')}건`]);
+}
+
+function addGuideSheet(workbook, { title, totalIssues, fixCount, reviewCount, issueCountRows }) {
+  const worksheet = workbook.addWorksheet('검토 안내');
+  worksheet.columns = [
+    { width: 20 },
+    { width: 76 },
+  ];
+  worksheet.addRows([
+    [`${title} 검토 요청`],
+    ['파일명', title],
+    ['생성일', new Date().toLocaleString('ko-KR')],
+    ['수정 필요', `${fixCount.toLocaleString('ko-KR')}건`],
+    ['재확인 필요', `${reviewCount.toLocaleString('ko-KR')}건`],
+    ['전체 요청', `${totalIssues.toLocaleString('ko-KR')}건`],
+    [],
+    ['작성 방법', '수정 필요 시트는 담당자 수정값, 담당자 메모, 처리상태를 입력해주세요.'],
+    ['작성 방법', '재확인 필요 시트는 담당자 확인결과, 담당자 메모, 처리상태를 입력해주세요.'],
+    ['처리상태 예시', '수정 완료 / 정상 확인 / 보류 / 확인 불가'],
+    [],
+    ['유형별 건수', '건수'],
+    ...issueCountRows,
+  ]);
+
+  worksheet.mergeCells('A1:B1');
+  worksheet.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FF064E3B' } };
+  worksheet.getCell('A1').alignment = { vertical: 'middle' };
+  worksheet.getRow(1).height = 28;
+
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1 || rowNumber === 7 || rowNumber === 11) return;
+    row.eachCell((cell, colNumber) => {
+      cell.alignment = { vertical: 'middle', wrapText: true };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+      };
+      if (colNumber === 1) {
+        cell.font = { bold: true, color: { argb: 'FF111827' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4F1' } };
+      }
+    });
+  });
+}
+
+function styleResponseColumns(worksheet, headerRowNumber, labels) {
+  const headerValues = worksheet.getRow(headerRowNumber).values;
+  labels.forEach((label) => {
+    const columnIndex = headerValues.findIndex((value) => value === label);
+    if (columnIndex < 1) return;
+    worksheet.getColumn(columnIndex).eachCell((cell, rowNumber) => {
+      if (rowNumber === headerRowNumber) return;
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF7CC' } };
+    });
+  });
+}
+
+export async function exportValidationWorkbookToXlsx({
+  title,
+  originalColumns,
+  originalRows,
+  editedColumns,
+  editedRows,
+  validation,
+  originalValidation,
+  autoFixes = {},
+}) {
+  const ExcelModule = await import('exceljs');
+  const ExcelJS = ExcelModule.default ?? ExcelModule;
+  const workbook = new ExcelJS.Workbook();
+  const displayTitle = title?.trim() || 'upload-validation-result';
+  const suggestedName = `${sanitizeFileName(displayTitle)}.xlsx`;
+  const baseValidation = originalValidation ?? validation;
+  const issueRows = getIssueRows(baseValidation);
+  const editedIndexes = validation?.indexes ?? baseValidation?.indexes ?? {};
+
+  workbook.creator = 'Excel Desktop App';
+  workbook.created = new Date();
+  workbook.modified = new Date();
+
+  const fixRows = buildFixRows(issueRows, editedRows, editedIndexes, autoFixes);
+  const reviewRows = buildReviewRows(issueRows, editedRows, editedIndexes);
+
+  const reviewSummaryRows = buildReviewSummaryRows({
+    issues: issueRows,
+    columns: editedColumns,
+    rows: editedRows,
+    indexes: editedIndexes,
+  });
+
+  addGuideSheet(workbook, {
+    title: displayTitle,
+    totalIssues: fixRows.length + reviewRows.length,
+    fixCount: fixRows.length,
+    reviewCount: reviewRows.length,
+    issueCountRows: buildIssueCountRows(issueRows),
+  });
+
+  const fixSheet = addRowsSheet(
+    workbook,
+    '수정 필요',
+    ['원본행', '오류유형', '오류내용', '비교', '거래일', '거래처코드', '거래처명', '품목코드', '품목명', '수량', '단가', '금액', '자동수정값', '담당자 수정값', '담당자 메모', '처리상태'],
+    fixRows
+  );
+  styleResponseColumns(fixSheet, 1, ['담당자 수정값', '담당자 메모', '처리상태']);
+
+  addRowsSheet(
+    workbook,
+    '재확인 요약',
+    ['날짜', '품목코드', '품목명', '거래처', '수량합계', '금액합계', '건수', '확인유형', '원본 행'],
+    reviewSummaryRows
+  );
+
+  const reviewSheet = addRowsSheet(
+    workbook,
+    '재확인 필요',
+    ['확인유형', '원본행', '거래일', '거래처코드', '거래처명', '품목코드', '품목명', '수량', '단가', '금액', '확인 포인트', '담당자 확인결과', '담당자 메모', '처리상태'],
+    reviewRows
+  );
+  styleResponseColumns(reviewSheet, 1, ['담당자 확인결과', '담당자 메모', '처리상태']);
+
+  addPlainRowsSheet(
+    workbook,
+    '원본 데이터',
+    ['거래일', '거래처명', '거래처코드', '품목명', '품목코드', '수량', '단가', '금액', '담당자'],
+    buildOriginalDataRows({ originalColumns, originalRows })
+  );
+
+  return saveWorkbook(workbook, suggestedName);
 }
 
 export async function exportRowsToXlsx({

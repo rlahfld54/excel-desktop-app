@@ -124,6 +124,17 @@ function formatCurrency(value) {
   return `${Number(value).toLocaleString('ko-KR')}원`;
 }
 
+function getTargetDate(target, month) {
+  const day = String(parseInt(target.deadline, 10) || 1).padStart(2, '0');
+  return `${month}-${day}`;
+}
+
+function isInDateRange(value, startDate, endDate) {
+  if (startDate && value < startDate) return false;
+  if (endDate && value > endDate) return false;
+  return true;
+}
+
 function getUserEmail(user) {
   return String(user?.email ?? '').trim();
 }
@@ -969,6 +980,11 @@ export default function ClosingSendQueuePage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [closingTargets, setClosingTargets] = useState(defaultClosingTargets);
   const [selectedIds, setSelectedIds] = useState(() => defaultClosingTargets.filter((item) => item.reason !== '마감 완료').map((item) => item.id));
+  const [dateRange, setDateRange] = useState({
+    month: '2026-06',
+    startDate: '2026-06-01',
+    endDate: '2026-06-30',
+  });
   const [isGenerated, setIsGenerated] = useState(false);
   const [isGeneratingFiles, setIsGeneratingFiles] = useState(false);
   const [isSendingTestMail, setIsSendingTestMail] = useState(false);
@@ -1010,9 +1026,13 @@ export default function ClosingSendQueuePage() {
     };
   }, []);
 
+  const visibleClosingTargets = useMemo(
+    () => closingTargets.filter((target) => isInDateRange(getTargetDate(target, dateRange.month), dateRange.startDate, dateRange.endDate)),
+    [closingTargets, dateRange.endDate, dateRange.month, dateRange.startDate]
+  );
   const selectedTargets = useMemo(
-    () => closingTargets.filter((target) => selectedIds.includes(target.id)),
-    [closingTargets, selectedIds]
+    () => visibleClosingTargets.filter((target) => selectedIds.includes(target.id)),
+    [selectedIds, visibleClosingTargets]
   );
   const groupedCounts = useMemo(() => selectedTargets.reduce((acc, target) => {
     const type = getSendType(target);
@@ -1038,6 +1058,17 @@ export default function ClosingSendQueuePage() {
     setPreflightChecked(false);
   };
 
+  const updateDateRange = (key, value) => {
+    setDateRange((current) => ({
+      ...current,
+      [key]: value,
+      month: key === 'startDate' && value ? value.slice(0, 7) : current.month,
+    }));
+    setGeneratedFileGroups([]);
+    setIsGenerated(false);
+    setMailDraftStatus('조회 기간이 바뀌었습니다. 첨부 파일을 다시 생성하세요.');
+  };
+
   const handleMailTemplatesChange = (nextTemplates) => {
     setMailTemplates(nextTemplates);
     setPreflightChecked(false);
@@ -1053,7 +1084,7 @@ export default function ClosingSendQueuePage() {
   };
 
   const selectByPredicate = (predicate, message) => {
-    setSelectedIds(closingTargets.filter(predicate).map((target) => target.id));
+    setSelectedIds(visibleClosingTargets.filter(predicate).map((target) => target.id));
     setStatusText(message);
     setGeneratedFileGroups([]);
     setIsGenerated(false);
@@ -1281,26 +1312,9 @@ export default function ClosingSendQueuePage() {
 
   return (
     <PageShell title="마감 발송 큐" description="여러 업체를 묶어서 마감장, 금액 확인, 세금계산서 확인 요청을 단계별로 검토하고 발송 처리합니다.">
-      <section className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              ['선택 업체', `${selectedTargets.length}개`],
-              ['이메일', `${emailTargets.length}개`],
-              ['카톡 복사', `${selectedTargets.filter((item) => item.channel === 'KAKAO').length}개`],
-              ['첨부 상태', isGenerated ? '생성 완료' : '생성 전'],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-md border border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-700/60 dark:bg-gray-900/30">
-                <p className="text-xs font-semibold text-gray-400 dark:text-gray-500">{label}</p>
-                <p className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">{value}</p>
-              </div>
-            ))}
-          </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{statusText}</p>
-        </div>
-      </section>
+      <div className="flex h-[calc(100vh-14rem)] flex-col">
 
-      <section className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+      <section className="mb-4 shrink-0 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1412,8 +1426,8 @@ export default function ClosingSendQueuePage() {
         </div>
       </section>
 
-      <section className="rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
+      <section className="flex min-h-0 flex-1 flex-col rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="shrink-0 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="font-bold text-gray-900 dark:text-gray-100">{steps[currentStep].title}</h2>
@@ -1423,9 +1437,9 @@ export default function ClosingSendQueuePage() {
         </div>
 
         {currentStep === 0 && (
-          <div className="overflow-x-auto" data-table-tools="false">
+          <div className="min-h-[18rem] flex-1 overflow-auto" data-table-tools="false">
             <table className="min-w-full text-sm">
-              <thead className="bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900/30 dark:text-gray-400">
+              <thead className="sticky top-0 z-10 bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900 dark:text-gray-400">
                 <tr>
                   <th className="px-4 py-3">선택</th>
                   <th className="px-4 py-3">업체</th>
@@ -1437,7 +1451,7 @@ export default function ClosingSendQueuePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60">
-                {closingTargets.map((target) => {
+                {visibleClosingTargets.map((target) => {
                   const sendType = getSendType(target);
 
                   return (
@@ -1450,7 +1464,7 @@ export default function ClosingSendQueuePage() {
                         <p className="mt-1 text-xs text-gray-500">{target.email}</p>
                       </td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{target.manager}</td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{target.deadline}</td>
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{getTargetDate(target, dateRange.month)}</td>
                       <td className="px-4 py-3">
                         <StatusPill className={getSendTone(sendType)}>{sendType}</StatusPill>
                       </td>
@@ -1465,7 +1479,8 @@ export default function ClosingSendQueuePage() {
         )}
 
         {currentStep === 1 && (
-          <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {Object.entries(groupedCounts).map(([type, count]) => (
               <div key={type} className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700/60 dark:bg-gray-900/30">
                 <StatusPill className={getSendTone(type)}>{type}</StatusPill>
@@ -1474,10 +1489,11 @@ export default function ClosingSendQueuePage() {
               </div>
             ))}
           </div>
+          </div>
         )}
 
         {currentStep === 2 && (
-          <div className="p-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
             <div className="mb-3 flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700/60 dark:bg-gray-900/30 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="font-bold text-gray-900 dark:text-gray-100">엑셀/PDF 첨부 생성</p>
@@ -1543,7 +1559,7 @@ export default function ClosingSendQueuePage() {
         )}
 
         {currentStep === 3 && (
-          <div className="p-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
             <div className="mb-3 rounded-lg border border-teal-100 bg-teal-50 p-3 dark:border-teal-500/20 dark:bg-teal-500/10">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                 <div>
@@ -1607,7 +1623,7 @@ export default function ClosingSendQueuePage() {
         )}
 
         {currentStep === 4 && (
-          <div className="p-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
             <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4 dark:border-emerald-500/20 dark:bg-emerald-500/10">
               <h3 className="font-bold text-emerald-800 dark:text-emerald-200">발송 완료 전 최종 확인</h3>
               <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">
@@ -1633,7 +1649,7 @@ export default function ClosingSendQueuePage() {
                 <h3 className="font-bold text-gray-900 dark:text-gray-100">메일 발송 기록</h3>
                 <span className="rounded bg-gray-100 px-2 py-1 text-xs font-bold text-gray-600 dark:bg-gray-700 dark:text-gray-300">{sendRecords.length}건</span>
               </div>
-              <div className="overflow-x-auto" data-table-tools="false">
+              <div className="overflow-auto" data-table-tools="false">
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900/30 dark:text-gray-400">
                     <tr>
@@ -1678,7 +1694,7 @@ export default function ClosingSendQueuePage() {
           </div>
         )}
 
-        <div className="flex flex-col gap-2 border-t border-gray-200 px-4 py-3 dark:border-gray-700/60 sm:flex-row sm:items-center sm:justify-between">
+        <div className="shrink-0 flex flex-col gap-2 border-t border-gray-200 px-4 py-3 dark:border-gray-700/60 sm:flex-row sm:items-center sm:justify-between">
           <button className="btn btn-secondary" type="button" onClick={() => setCurrentStep((step) => Math.max(step - 1, 0))} disabled={currentStep === 0}>
             이전 단계
           </button>
@@ -1691,6 +1707,7 @@ export default function ClosingSendQueuePage() {
           </div>
         </div>
       </section>
+      </div>
       <SendResultModal result={sendResultModal} onClose={() => setSendResultModal(null)} />
       <AttachmentPreviewModal preview={attachmentPreview} onClose={() => setAttachmentPreview(null)} onDownload={handleDownloadFile} />
       {isTemplateModalOpen && (

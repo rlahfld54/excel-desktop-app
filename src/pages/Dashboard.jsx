@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import PageShell from './PageShell';
-import { ExecutiveReportContent } from './ExecutiveReportDashboardPage';
 import { parseNumber } from '../data/sampleSalesData';
 import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 import { getCurrentUser } from '../utils/authSession';
@@ -255,7 +254,7 @@ function TeamScheduleOverview({ schedules }) {
   const visibleSchedules = schedules
     .filter((schedule) => schedule.itemType === 'SCHEDULE')
     .sort((a, b) => `${a.dueDate} ${a.reminderAt || '99:99'}`.localeCompare(`${b.dueDate} ${b.reminderAt || '99:99'}`))
-    .slice(0, 5)
+    .slice(0, 10)
     .map((schedule) => {
       const date = new Date(`${schedule.dueDate}T00:00:00`);
       return {
@@ -272,7 +271,7 @@ function TeamScheduleOverview({ schedules }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="font-bold text-gray-900 dark:text-gray-100">총무팀 전체 일정표</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">마감, 보고, 요청 대응 일정을 이번 주 흐름으로 봅니다.</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">총무팀 한달 일정을 한눈에 볼 수 있습니다.</p>
         </div>
         <Link className="btn btn-secondary" to="/schedule/todos">일정관리</Link>
       </div>

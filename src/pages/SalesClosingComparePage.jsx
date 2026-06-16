@@ -125,10 +125,8 @@ function ProgressBar({ value }) {
 }
 
 export default function SalesClosingComparePage() {
-  const { rows: currentRows, loadLatest } = useWorkspaceDataStore((state) => ({
-    rows: state.rows,
-    loadLatest: state.loadLatest,
-  }));
+  const currentRows = useWorkspaceDataStore((state) => state.rows);
+  const loadLatest = useWorkspaceDataStore((state) => state.loadLatest);
   const [filter, setFilter] = useState('전체');
   const [confirmed, setConfirmed] = useState({});
   const [memoMap, setMemoMap] = useState({});

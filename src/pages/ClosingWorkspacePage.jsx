@@ -200,6 +200,17 @@ function withDerivedFields(row) {
   };
 }
 
+function getClosingDate(row, month) {
+  const day = String(parseInt(row.deadline, 10) || 1).padStart(2, '0');
+  return `${month}-${day}`;
+}
+
+function isWithinDateRange(value, startDate, endDate) {
+  if (startDate && value < startDate) return false;
+  if (endDate && value > endDate) return false;
+  return true;
+}
+
 async function readClosingRowsFromDatabase() {
   if (!window.api?.getClosingCompanies) return [];
   const result = await window.api.getClosingCompanies();
@@ -296,6 +307,97 @@ function StageOverview({ rows }) {
   );
 }
 
+function SummaryModal({ contactNeededRows, onClose, onSelectRow, ownerSummary, riskTop, rows, summary }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="closing-summary-title">
+      <div className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl dark:bg-gray-800">
+        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-700/60">
+          <div>
+            <h2 id="closing-summary-title" className="text-lg font-bold text-gray-900 dark:text-gray-100">마감 요약</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">전체 진척도와 확인이 필요한 업체를 한 번에 봅니다.</p>
+          </div>
+          <button className="btn btn-secondary shrink-0" type="button" onClick={onClose}>
+            닫기
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <StageOverview rows={rows} />
+
+          <div className="mb-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              ['전체 진척도', `${summary.progress}%`, `${summary.done}/${summary.total} 업체 완료`, 'green'],
+              ['미확정', `${summary.unconfirmed}개`, '금액 또는 대조 단계 남음', 'amber'],
+              ['연락 필요', `${summary.contactNeeded}개`, '거래처 담당자 확인 전', 'blue'],
+            ].map(([label, value, detail, tone]) => (
+              <section key={label} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
+                    <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
+                    <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
+                  </div>
+                  <StatusPill tone={tone}>{label}</StatusPill>
+                </div>
+                {label === '전체 진척도' && <div className="mt-2"><ProgressBar value={summary.progress} /></div>}
+              </section>
+            ))}
+          </div>
+
+          <div className="grid gap-2 xl:grid-cols-[minmax(0,1.25fr)_minmax(220px,0.75fr)_minmax(260px,0.85fr)]">
+            <section className="rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+              <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">위험 업체 TOP</h2>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {riskTop.map((row) => (
+                  <button
+                    key={row.id}
+                    className="rounded-md border border-rose-100 bg-rose-50/60 px-2.5 py-2 text-left hover:border-rose-300 dark:border-rose-500/20 dark:bg-rose-500/10"
+                    type="button"
+                    onClick={() => onSelectRow(row.id)}
+                  >
+                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{row.company}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-rose-700 dark:text-rose-300">마감 {row.deadline} · {row.reason} · 위험 {row.riskScore}</p>
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+              <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">연락 필요 업체</h2>
+              <div className="mt-2 space-y-1.5">
+                {contactNeededRows.map((row) => (
+                  <button
+                    key={row.id}
+                    className="flex w-full items-center justify-between rounded-md border border-gray-100 px-2.5 py-1.5 text-left hover:bg-gray-50 dark:border-gray-700/60 dark:hover:bg-gray-700/40"
+                    type="button"
+                    onClick={() => onSelectRow(row.id)}
+                  >
+                    <span className="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-100">{row.company}</span>
+                    <span className="text-xs text-gray-500">{row.deadline}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+              <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">담당자별 업체 현황</h2>
+              <div className="mt-2 space-y-2">
+                {ownerSummary.map((item) => (
+                  <div key={item.owner}>
+                    <div className="mb-1 flex justify-between text-xs">
+                      <span className="font-medium text-gray-800 dark:text-gray-100">{item.owner}</span>
+                      <span className="text-gray-500">{item.done}/{item.total}</span>
+                    </div>
+                    <ProgressBar value={item.progress} />
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ClosingWorkspacePage() {
   const currentUser = getCurrentUser();
   const [rows, setRows] = useState(() => {
@@ -306,13 +408,15 @@ export default function ClosingWorkspacePage() {
   const [tab, setTab] = useState('all');
   const [filters, setFilters] = useState({
     month: '2026-05',
+    startDate: '2026-05-01',
+    endDate: '2026-05-31',
     owner: '전체',
     deadline: '전체',
     status: '전체',
     query: '',
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [isSummaryOpen, setIsSummaryOpen] = useState(true);
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -339,6 +443,8 @@ export default function ClosingWorkspacePage() {
     const query = filters.query.trim().toLowerCase();
 
     return rows.filter((row) => {
+      const closingDate = getClosingDate(row, filters.month);
+      const matchesDateRange = isWithinDateRange(closingDate, filters.startDate, filters.endDate);
       const matchesOwner = filters.owner === '전체' || row.owner === filters.owner;
       const matchesDeadline = filters.deadline === '전체' || row.deadline === filters.deadline;
       const matchesStatus = filters.status === '전체' || row.status === filters.status || row.reason === filters.status;
@@ -349,10 +455,10 @@ export default function ClosingWorkspacePage() {
         || (tab === 'contact' && !row.contactConfirmed)
         || (tab === 'done' && row.progress === 100);
 
-      return matchesOwner && matchesDeadline && matchesStatus && matchesQuery && matchesTab;
+      return matchesDateRange && matchesOwner && matchesDeadline && matchesStatus && matchesQuery && matchesTab;
     }).sort((a, b) => {
       if (tab === 'done') return b.progress - a.progress || a.company.localeCompare(b.company, 'ko-KR');
-      return b.riskScore - a.riskScore || a.deadline.localeCompare(b.deadline, 'ko-KR');
+      return b.riskScore - a.riskScore || getClosingDate(a, filters.month).localeCompare(getClosingDate(b, filters.month), 'ko-KR');
     });
   }, [filters, rows, tab]);
 
@@ -391,11 +497,19 @@ export default function ClosingWorkspacePage() {
     ['위험 업체', `${riskTop.length}개`],
   ];
 
+  const updateDateFilter = (key, value) => {
+    setFilters((current) => ({
+      ...current,
+      [key]: value,
+      month: key === 'startDate' && value ? value.slice(0, 7) : current.month,
+    }));
+  };
+
   const handleSearch = () => {
     setIsLoading(true);
     addNotification({
       title: '마감 워크스페이스 조회 시작',
-      message: `${filters.month} / ${filters.owner} / ${filters.deadline} 조건으로 데이터를 요청합니다.`,
+      message: `${filters.startDate}~${filters.endDate} / ${filters.owner} / ${filters.deadline} 조건으로 데이터를 요청합니다.`,
       level: 'INFO',
       target: 'closing-workspace',
       href: '/closing-workspace/overview',
@@ -408,7 +522,7 @@ export default function ClosingWorkspacePage() {
         return nextRows;
       });
       setIsLoading(false);
-      addActivityLog('INFO', '마감 워크스페이스 조회', `${filters.month} ${filters.owner} ${filters.deadline}`, currentUser.id);
+      addActivityLog('INFO', '마감 워크스페이스 조회', `${filters.startDate}~${filters.endDate} ${filters.owner} ${filters.deadline}`, currentUser.id);
       addNotification({
         title: '마감 워크스페이스 조회 완료',
         message: `${filteredRows.length.toLocaleString('ko-KR')}개 업체를 불러왔습니다.`,
@@ -456,11 +570,28 @@ export default function ClosingWorkspacePage() {
 
   return (
     <PageShell title="마감 워크스페이스" description="업체별 마감 현황, 거래처 확인, 금액 확정, 요청 발송 준비를 한 화면에서 처리합니다.">
-      <section className="mb-3 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="grid gap-3 xl:grid-cols-[132px_120px_104px_150px_minmax(260px,1fr)_auto] xl:items-end">
+      <div className="flex h-[calc(100vh-14rem)] flex-col">
+      <section className="mb-3 shrink-0 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="grid gap-3 xl:grid-cols-[136px_136px_120px_104px_150px_minmax(220px,1fr)_auto] xl:items-end">
           <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">마감월</span>
-            <input className="form-input w-full" type="month" value={filters.month} onChange={(event) => setFilters((current) => ({ ...current, month: event.target.value }))} />
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">시작일</span>
+            <input
+              className="form-input w-full"
+              type="date"
+              value={filters.startDate}
+              onChange={(event) => updateDateFilter('startDate', event.target.value)}
+              onInput={(event) => updateDateFilter('startDate', event.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">마지막일</span>
+            <input
+              className="form-input w-full"
+              type="date"
+              value={filters.endDate}
+              onChange={(event) => updateDateFilter('endDate', event.target.value)}
+              onInput={(event) => updateDateFilter('endDate', event.target.value)}
+            />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">담당자</span>
@@ -502,19 +633,12 @@ export default function ClosingWorkspacePage() {
             </button>
           </div>
         </div>
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-gray-500 dark:text-gray-400">필터 변경 후 조회 버튼을 눌러 대량 데이터를 요청하는 흐름입니다.</p>
-          <Link className="btn btn-secondary w-full sm:w-auto" to="/closing-workspace/send-queue">
-            발송 큐 열기
-          </Link>
-        </div>
       </section>
 
-      <div className="mb-3">
-        <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+      <section className="mb-3 shrink-0 rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-base font-bold text-gray-900 dark:text-gray-100">마감 요약</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400">필요할 때만 펼쳐 보고, 접으면 핵심 수치만 남깁니다.</p>
+              <h2 className="text-base font-bold text-gray-900 dark:text-gray-100">마감 요약</h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {quickSummaryItems.map(([label, value]) => (
@@ -524,83 +648,17 @@ export default function ClosingWorkspacePage() {
               </span>
             ))}
             <button
-              className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 shadow-xs hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700/70"
+              className="btn btn-primary"
               type="button"
-              aria-expanded={isSummaryOpen}
-              onClick={() => setIsSummaryOpen((current) => !current)}
+              onClick={() => setIsSummaryModalOpen(true)}
             >
-              {isSummaryOpen ? '요약 접기' : '요약 펼치기'}
+              마감 요약 보기
             </button>
           </div>
         </div>
+      </section>
 
-        {isSummaryOpen && (
-          <>
-            <StageOverview rows={rows} />
-
-            <div className="mb-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              {[
-                ['전체 진척도', `${summary.progress}%`, `${summary.done}/${summary.total} 업체 완료`, 'green'],
-                ['미확정', `${summary.unconfirmed}개`, '금액 또는 대조 단계 남음', 'amber'],
-                ['연락 필요', `${summary.contactNeeded}개`, '거래처 담당자 확인 전', 'blue'],
-              ].map(([label, value, detail, tone]) => (
-                <section key={label} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
-                      <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
-                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
-                    </div>
-                    <StatusPill tone={tone}>{label}</StatusPill>
-                  </div>
-                  {label === '전체 진척도' && <div className="mt-2"><ProgressBar value={summary.progress} /></div>}
-                </section>
-              ))}
-            </div>
-
-            <div className="mb-3 grid gap-2 xl:grid-cols-[minmax(0,1.25fr)_minmax(220px,0.75fr)_minmax(260px,0.85fr)]">
-              <section className="rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-                <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">위험 업체 TOP</h2>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {riskTop.map((row) => (
-                    <button key={row.id} className="rounded-md border border-rose-100 bg-rose-50/60 px-2.5 py-2 text-left hover:border-rose-300 dark:border-rose-500/20 dark:bg-rose-500/10" type="button" onClick={() => setSelectedId(row.id)}>
-                      <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{row.company}</p>
-                      <p className="mt-0.5 truncate text-[11px] text-rose-700 dark:text-rose-300">마감 {row.deadline} · {row.reason} · 위험 {row.riskScore}</p>
-                    </button>
-                  ))}
-                </div>
-              </section>
-              <section className="rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-                <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">연락 필요 업체</h2>
-                <div className="mt-2 space-y-1.5">
-                  {contactNeededRows.map((row) => (
-                    <button key={row.id} className="flex w-full items-center justify-between rounded-md border border-gray-100 px-2.5 py-1.5 text-left hover:bg-gray-50 dark:border-gray-700/60 dark:hover:bg-gray-700/40" type="button" onClick={() => setSelectedId(row.id)}>
-                      <span className="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-100">{row.company}</span>
-                      <span className="text-xs text-gray-500">{row.deadline}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-              <section className="rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-                <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">담당자별 업체 현황</h2>
-                <div className="mt-2 space-y-2">
-                  {ownerSummary.map((item) => (
-                    <div key={item.owner}>
-                      <div className="mb-1 flex justify-between text-xs">
-                        <span className="font-medium text-gray-800 dark:text-gray-100">{item.owner}</span>
-                        <span className="text-gray-500">{item.done}/{item.total}</span>
-                      </div>
-                      <ProgressBar value={item.progress} />
-                    </div>
-                  ))}
-                </div>
-              </section>
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex shrink-0 flex-wrap gap-2">
         {[
           ['all', '전체 업체'],
           ['risk', '위험 업체'],
@@ -618,14 +676,14 @@ export default function ClosingWorkspacePage() {
         ))}
       </div>
       
-      <div className="grid grid-cols-12 gap-5">
-        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8" data-table-tools="false">
-          <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
+      <div className="grid min-h-0 flex-1 grid-cols-12 gap-5">
+        <section className="col-span-12 flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8" data-table-tools="false">
+          <div className="shrink-0 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <h2 className="font-bold text-gray-900 dark:text-gray-100">업체별 마감 리스트</h2>
           </div>
-          <div className="overflow-x-auto">
+          <div className="min-h-0 flex-1 overflow-auto">
             <table className="min-w-full text-sm">
-              <thead className="bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900/30 dark:text-gray-400">
+              <thead className="sticky top-0 z-10 bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900 dark:text-gray-400">
                 <tr>
                   <th className="px-4 py-3">업체</th>
                   <th className="px-4 py-3">담당자</th>
@@ -658,7 +716,7 @@ export default function ClosingWorkspacePage() {
                       <p className="mt-1 text-xs text-gray-500">{row.reason}</p>
                     </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{row.owner}</td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{row.deadline}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{getClosingDate(row, filters.month)}</td>
                     <td className="px-4 py-3">
                       <div className="min-w-28">
                         <div className="mb-1 text-xs font-semibold text-gray-500">{row.progress}%</div>
@@ -681,7 +739,7 @@ export default function ClosingWorkspacePage() {
           </div>
         </section>
 
-        <aside className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4">
+        <aside className="col-span-12 min-h-0 overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">선택 업체 상세</p>
@@ -772,6 +830,22 @@ export default function ClosingWorkspacePage() {
           
         </aside>
       </div>
+      </div>
+
+      {isSummaryModalOpen && (
+        <SummaryModal
+          contactNeededRows={contactNeededRows}
+          onClose={() => setIsSummaryModalOpen(false)}
+          onSelectRow={(rowId) => {
+            setSelectedId(rowId);
+            setIsSummaryModalOpen(false);
+          }}
+          ownerSummary={ownerSummary}
+          riskTop={riskTop}
+          rows={rows}
+          summary={summary}
+        />
+      )}
 
     </PageShell>
   );

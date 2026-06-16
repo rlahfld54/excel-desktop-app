@@ -118,6 +118,16 @@ function MetricCard({ label, value, detail, tone = 'default' }) {
   );
 }
 
+function monthToDate(month) {
+  return `${month || '1900-01'}-01`;
+}
+
+function isInDateRange(value, startDate, endDate) {
+  if (startDate && value < startDate) return false;
+  if (endDate && value > endDate) return false;
+  return true;
+}
+
 function ChecklistItem({ label, detail, status }) {
   return (
     <div className="flex items-start justify-between gap-3 rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
@@ -136,14 +146,22 @@ export default function SendPackagesPage() {
   const [packages, setPackages] = useState(fallbackPackages);
   const [selectedPackageId, setSelectedPackageId] = useState(fallbackPackages[0].packageId);
   const [selectedItemId, setSelectedItemId] = useState(fallbackPackages[0].items[0].itemId);
+  const [dateRange, setDateRange] = useState({
+    startDate: '2026-05-01',
+    endDate: '2026-05-31',
+  });
   const [loadState, setLoadState] = useState('브라우저 미리보기');
   const [exportState, setExportState] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);
 
+  const filteredPackages = useMemo(() => (
+    packages.filter((sendPackage) => isInDateRange(monthToDate(sendPackage.closingMonth), dateRange.startDate, dateRange.endDate))
+  ), [dateRange.endDate, dateRange.startDate, packages]);
+
   const selectedPackage = useMemo(
-    () => packages.find((item) => item.packageId === selectedPackageId) ?? packages[0],
-    [packages, selectedPackageId],
+    () => filteredPackages.find((item) => item.packageId === selectedPackageId) ?? filteredPackages[0] ?? packages[0],
+    [filteredPackages, packages, selectedPackageId],
   );
   const selectedItem = useMemo(
     () => selectedPackage?.items.find((item) => item.itemId === selectedItemId) ?? selectedPackage?.items[0],
@@ -151,18 +169,18 @@ export default function SendPackagesPage() {
   );
 
   const metrics = useMemo(() => {
-    const itemCount = packages.reduce((sum, sendPackage) => sum + (sendPackage.itemCount ?? 0), 0);
-    const readyCount = packages.reduce((sum, sendPackage) => sum + (sendPackage.readyCount ?? 0), 0);
-    const missingEmailCount = packages.reduce((sum, sendPackage) => sum + (sendPackage.missingEmailCount ?? 0), 0);
-    const missingAttachmentCount = packages.reduce((sum, sendPackage) => sum + (sendPackage.missingAttachmentCount ?? 0), 0);
+    const itemCount = filteredPackages.reduce((sum, sendPackage) => sum + (sendPackage.itemCount ?? 0), 0);
+    const readyCount = filteredPackages.reduce((sum, sendPackage) => sum + (sendPackage.readyCount ?? 0), 0);
+    const missingEmailCount = filteredPackages.reduce((sum, sendPackage) => sum + (sendPackage.missingEmailCount ?? 0), 0);
+    const missingAttachmentCount = filteredPackages.reduce((sum, sendPackage) => sum + (sendPackage.missingAttachmentCount ?? 0), 0);
 
     return [
-      { label: '패키지', value: `${packages.length.toLocaleString('ko-KR')}건`, detail: '거래처 요청 묶음' },
+      { label: '패키지', value: `${filteredPackages.length.toLocaleString('ko-KR')}건`, detail: '거래처 요청 묶음' },
       { label: '발송 대상', value: `${itemCount.toLocaleString('ko-KR')}건`, detail: `${readyCount.toLocaleString('ko-KR')}건 준비 완료` },
       { label: '이메일 확인', value: `${missingEmailCount.toLocaleString('ko-KR')}건`, detail: 'EMAIL 채널 이메일 누락', tone: missingEmailCount > 0 ? 'warning' : 'default' },
       { label: '첨부 확인', value: `${missingAttachmentCount.toLocaleString('ko-KR')}건`, detail: 'PDF/XLSX 경로 누락', tone: missingAttachmentCount > 0 ? 'warning' : 'default' },
     ];
-  }, [packages]);
+  }, [filteredPackages]);
 
   const setNextPackages = (nextPackages) => {
     const normalized = nextPackages.length ? nextPackages : fallbackPackages;
@@ -258,6 +276,7 @@ export default function SendPackagesPage() {
 
   return (
     <PageShell title="발송 패키지" description="거래처별 PDF/XLSX 첨부, 수신자, 제목과 본문을 하나의 발송 준비 묶음으로 관리합니다.">
+      <div className="flex h-[calc(100vh-14rem)] flex-col">
       <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
@@ -280,6 +299,29 @@ export default function SendPackagesPage() {
             </button>
           </div>
         </div>
+        <div className="mt-3 grid gap-3 border-t border-gray-100 pt-3 dark:border-gray-700/60 sm:grid-cols-[136px_136px_minmax(0,1fr)] sm:items-end">
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">시작일</span>
+            <input
+              className="form-input w-full"
+              type="date"
+              value={dateRange.startDate}
+              onChange={(event) => setDateRange((current) => ({ ...current, startDate: event.target.value }))}
+              onInput={(event) => setDateRange((current) => ({ ...current, startDate: event.target.value }))}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">마지막일</span>
+            <input
+              className="form-input w-full"
+              type="date"
+              value={dateRange.endDate}
+              onChange={(event) => setDateRange((current) => ({ ...current, endDate: event.target.value }))}
+              onInput={(event) => setDateRange((current) => ({ ...current, endDate: event.target.value }))}
+            />
+          </label>
+          <p className="text-sm text-gray-500 dark:text-gray-400">마감월 기준으로 날짜 범위에 포함된 패키지만 표시합니다.</p>
+        </div>
       </section>
 
       {exportState && (
@@ -288,19 +330,19 @@ export default function SendPackagesPage() {
         </section>
       )}
 
-      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-4 grid shrink-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
           <MetricCard key={metric.label} {...metric} />
         ))}
       </div>
 
-      <div className="grid grid-cols-12 gap-5">
-        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4">
-          <header className="border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
+      <div className="grid min-h-0 flex-1 grid-cols-12 gap-5">
+        <section className="col-span-12 flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4">
+          <header className="shrink-0 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">패키지 목록</h2>
           </header>
-          <div className="divide-y divide-gray-100 dark:divide-gray-700/60">
-            {packages.map((sendPackage) => {
+          <div className="min-h-0 flex-1 divide-y divide-gray-100 overflow-y-auto dark:divide-gray-700/60">
+            {filteredPackages.map((sendPackage) => {
               const selected = sendPackage.packageId === selectedPackage?.packageId;
 
               return (
@@ -329,8 +371,8 @@ export default function SendPackagesPage() {
           </div>
         </section>
 
-        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8">
-          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
+        <section className="col-span-12 flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8">
+          <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <div>
               <h2 className="font-semibold text-gray-900 dark:text-gray-100">거래처별 첨부 준비</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{selectedPackage?.packageName}</p>
@@ -340,8 +382,8 @@ export default function SendPackagesPage() {
             </span>
           </header>
 
-          <div className="grid lg:grid-cols-[minmax(0,1fr)_22rem]">
-            <div data-table-tools="false" className="max-h-[30rem] overflow-auto border-b border-gray-200 no-scrollbar dark:border-gray-700/60 lg:border-b-0 lg:border-r">
+          <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_22rem]">
+            <div data-table-tools="false" className="min-h-0 overflow-auto border-b border-gray-200 no-scrollbar dark:border-gray-700/60 lg:border-b-0 lg:border-r">
               <table className="min-w-[760px] w-full border-separate border-spacing-0 text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr>
@@ -395,7 +437,7 @@ export default function SendPackagesPage() {
               </table>
             </div>
 
-            <aside className="p-4">
+            <aside className="min-h-0 overflow-y-auto p-4">
               <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">선택 대상</p>
               <h3 className="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{selectedItem?.customerName}</h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{selectedItem?.customerCode}</p>
@@ -416,6 +458,7 @@ export default function SendPackagesPage() {
             </aside>
           </div>
         </section>
+      </div>
       </div>
     </PageShell>
   );

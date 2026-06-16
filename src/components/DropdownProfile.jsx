@@ -108,7 +108,7 @@ function DropdownProfile({
             <li>
               <Link
                 className="font-medium text-sm text-accent-500 hover:text-accent-600 dark:hover:text-accent-400 flex items-center py-1 px-3"
-                to={isAdmin ? '/admin/preferences' : '/settings/preferences'}
+                to="/settings/preferences"
                 onClick={() => setDropdownOpen(!dropdownOpen)}
               >
                 마이페이지

@@ -75,32 +75,50 @@ function flattenPackageItems(packages) {
   ));
 }
 
+function monthToDate(month) {
+  return `${month || '1900-01'}-01`;
+}
+
+function isInDateRange(value, startDate, endDate) {
+  if (startDate && value < startDate) return false;
+  if (endDate && value > endDate) return false;
+  return true;
+}
+
 export default function SendHistoryPage() {
   const [items, setItems] = useState(fallbackItems);
   const [selectedId, setSelectedId] = useState(fallbackItems[0].itemId);
+  const [dateRange, setDateRange] = useState({
+    startDate: '2026-05-01',
+    endDate: '2026-05-31',
+  });
   const [loadState, setLoadState] = useState('브라우저 미리보기');
   const [memo, setMemo] = useState('');
   const [updateState, setUpdateState] = useState('');
 
+  const filteredItems = useMemo(() => (
+    items.filter((item) => isInDateRange(monthToDate(item.closingMonth), dateRange.startDate, dateRange.endDate))
+  ), [dateRange.endDate, dateRange.startDate, items]);
+
   const selectedItem = useMemo(
-    () => items.find((item) => item.itemId === selectedId) ?? items[0],
-    [items, selectedId],
+    () => filteredItems.find((item) => item.itemId === selectedId) ?? filteredItems[0] ?? items[0],
+    [filteredItems, items, selectedId],
   );
 
   const metrics = useMemo(() => {
-    const readyCount = items.filter((item) => item.status === 'READY').length;
-    const sentCount = items.filter((item) => item.status === 'SENT').length;
-    const repliedCount = items.filter((item) => item.status === 'REPLIED').length;
-    const closedCount = items.filter((item) => item.status === 'CLOSED').length;
-    const failedCount = items.filter((item) => item.status === 'FAILED').length;
+    const readyCount = filteredItems.filter((item) => item.status === 'READY').length;
+    const sentCount = filteredItems.filter((item) => item.status === 'SENT').length;
+    const repliedCount = filteredItems.filter((item) => item.status === 'REPLIED').length;
+    const closedCount = filteredItems.filter((item) => item.status === 'CLOSED').length;
+    const failedCount = filteredItems.filter((item) => item.status === 'FAILED').length;
 
     return [
-      { label: '전체 대상', value: `${items.length.toLocaleString('ko-KR')}건`, detail: '패키지 항목 기준' },
+      { label: '전체 대상', value: `${filteredItems.length.toLocaleString('ko-KR')}건`, detail: '패키지 항목 기준' },
       { label: '발송 전', value: `${readyCount.toLocaleString('ko-KR')}건`, detail: '수동 발송 대기' },
       { label: '진행 중', value: `${(sentCount + repliedCount).toLocaleString('ko-KR')}건`, detail: `발송 ${sentCount.toLocaleString('ko-KR')} / 회신 ${repliedCount.toLocaleString('ko-KR')}` },
       { label: '종료/실패', value: `${(closedCount + failedCount).toLocaleString('ko-KR')}건`, detail: `종료 ${closedCount.toLocaleString('ko-KR')} / 실패 ${failedCount.toLocaleString('ko-KR')}` },
     ];
-  }, [items]);
+  }, [filteredItems]);
 
   const setNextItems = (packages) => {
     const nextItems = flattenPackageItems(packages ?? []);
@@ -158,6 +176,7 @@ export default function SendHistoryPage() {
 
   return (
     <PageShell title="발송 이력" description="문서 기준 4단계: 발송 완료, 회신, 종료 상태를 거래처별로 수동 체크합니다.">
+      <div className="flex h-[calc(100vh-14rem)] flex-col">
       <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
@@ -174,6 +193,29 @@ export default function SendHistoryPage() {
             </button>
           </div>
         </div>
+        <div className="mt-3 grid gap-3 border-t border-gray-100 pt-3 dark:border-gray-700/60 sm:grid-cols-[136px_136px_minmax(0,1fr)] sm:items-end">
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">시작일</span>
+            <input
+              className="form-input w-full"
+              type="date"
+              value={dateRange.startDate}
+              onChange={(event) => setDateRange((current) => ({ ...current, startDate: event.target.value }))}
+              onInput={(event) => setDateRange((current) => ({ ...current, startDate: event.target.value }))}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">마지막일</span>
+            <input
+              className="form-input w-full"
+              type="date"
+              value={dateRange.endDate}
+              onChange={(event) => setDateRange((current) => ({ ...current, endDate: event.target.value }))}
+              onInput={(event) => setDateRange((current) => ({ ...current, endDate: event.target.value }))}
+            />
+          </label>
+          <p className="text-sm text-gray-500 dark:text-gray-400">마감월 기준으로 날짜 범위에 포함된 발송 이력만 표시합니다.</p>
+        </div>
       </section>
 
       {updateState && (
@@ -182,19 +224,19 @@ export default function SendHistoryPage() {
         </section>
       )}
 
-      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-4 grid shrink-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
           <MetricCard key={metric.label} {...metric} />
         ))}
       </div>
 
-      <div className="grid grid-cols-12 gap-5">
-        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8">
-          <header className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
+      <div className="grid min-h-0 flex-1 grid-cols-12 gap-5">
+        <section className="col-span-12 flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8">
+          <header className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">거래처별 이력</h2>
-            <span className="text-xs font-semibold text-gray-400 dark:text-gray-500">{items.length.toLocaleString('ko-KR')}건</span>
+            <span className="text-xs font-semibold text-gray-400 dark:text-gray-500">{filteredItems.length.toLocaleString('ko-KR')}건</span>
           </header>
-          <div className="max-h-[31rem] overflow-auto no-scrollbar">
+          <div className="min-h-0 flex-1 overflow-auto no-scrollbar">
             <table className="min-w-[900px] w-full border-separate border-spacing-0 text-sm">
               <thead className="sticky top-0 z-10">
                 <tr>
@@ -206,7 +248,7 @@ export default function SendHistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => {
+                {filteredItems.map((item) => {
                   const selected = item.itemId === selectedItem?.itemId;
 
                   return (
@@ -288,6 +330,7 @@ export default function SendHistoryPage() {
             ))}
           </div>
         </aside>
+      </div>
       </div>
     </PageShell>
   );

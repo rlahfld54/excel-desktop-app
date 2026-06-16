@@ -354,12 +354,6 @@ export default function ContactListPage() {
 
   return (
     <PageShell title="거래처 담당자 관리" description="거래처별 담당자를 등록하고, 연락처와 발송 채널을 바로 수정하거나 삭제합니다.">
-      <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((metric) => (
-          <MetricCard key={metric.label} {...metric} />
-        ))}
-      </div>
-
       <section className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_150px_150px_auto] xl:items-end">
           <Field label="검색">
@@ -388,7 +382,6 @@ export default function ContactListPage() {
             <button className="btn btn-secondary whitespace-nowrap" type="button" onClick={resetSample}>샘플 복구</button>
           </div>
         </div>
-        <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">{notice}</p>
       </section>
 
       <div className="grid grid-cols-12 gap-5">

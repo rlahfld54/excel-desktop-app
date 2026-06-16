@@ -198,13 +198,9 @@ function Dashboard() {
   const setRowActions = useWorkspaceDataStore((state) => state.setRowActions);
   const setValidationIssues = useWorkspaceDataStore((state) => state.setValidationIssues);
   const saveRows = useWorkspaceDataStore((state) => state.saveRows);
-  const [logs, setLogs] = useState(initialLogs);
-  const [uploadState, setUploadState] = useState('샘플 데이터 로드됨');
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [downloadTitle, setDownloadTitle] = useState('excel-sample-data-1200');
-  const [downloadState, setDownloadState] = useState('저장 위치 선택 가능');
   const [automationState, setAutomationState] = useState('대기 중');
-  const [automationQueue, setAutomationQueue] = useState(automationSteps);
   const [lastSavedAt, setLastSavedAt] = useState('방금 전');
   const [selectedRowIndex, setSelectedRowIndex] = useState(0);
   const [tableRevision, setTableRevision] = useState(0);

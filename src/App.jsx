@@ -15,30 +15,20 @@ import './charts/ChartjsConfig';
 import Dashboard from './pages/Dashboard';
 import WelcomePage from './pages/WelcomePage';
 import LoginPage from './pages/LoginPage';
-import WorkspaceDashboardPage from './pages/WorkspaceDashboardPage';
 import RecentTasksPage from './pages/RecentTasksPage';
 import FileManagerPage from './pages/FileManagerPage';
-import AutomationPage from './pages/AutomationPage';
 import ExecutiveReportDashboardPage from './pages/ExecutiveReportDashboardPage';
 import ReportGeneratorPage from './pages/ReportGeneratorPage';
 import ReportTemplatesPage from './pages/ReportTemplatesPage';
 import ClosingSendQueuePage from './pages/ClosingSendQueuePage';
 import ClosingWorkspacePage from './pages/ClosingWorkspacePage';
-import SalesClosingComparePage from './pages/SalesClosingComparePage';
-import ExcelTemplatesPage from './pages/ExcelTemplatesPage';
 import UploadValidationPage from './pages/UploadValidationPage';
 import DataTablePage from './pages/DataTablePage';
 import CodeMappingPage from './pages/CodeMappingPage';
-import DuplicateCheckerPage from './pages/DuplicateCheckerPage';
 import ActivityLogsPage from './pages/ActivityLogsPage';
 import LocalBackupPage from './pages/LocalBackupPage';
 import CloudBackupPage from './pages/CloudBackupPage';
-import RequestDashboardPage from './pages/RequestDashboardPage';
 import ContactListPage from './pages/ContactListPage';
-import MessageTemplatesPage from './pages/MessageTemplatesPage';
-import SendPackagesPage from './pages/SendPackagesPage';
-import SendHistoryPage from './pages/SendHistoryPage';
-import AdminPreferencesPage from './pages/AdminPreferencesPage';
 import UserPreferencesPage from './pages/UserPreferencesPage';
 import SchedulePage from './pages/SchedulePage';
 import SaveSettingsPage from './pages/SaveSettingsPage';
@@ -55,27 +45,17 @@ const routeComponents = {
   ExecutiveReportDashboardPage,
   ClosingSendQueuePage,
   ClosingWorkspacePage,
-  SalesClosingComparePage,
-  ExcelTemplatesPage,
   UploadValidationPage,
-  WorkspaceDashboardPage,
   RecentTasksPage,
   FileManagerPage,
-  AutomationPage,
   ReportGeneratorPage,
   ReportTemplatesPage,
   DataTablePage,
   CodeMappingPage,
-  DuplicateCheckerPage,
   ActivityLogsPage,
   LocalBackupPage,
   CloudBackupPage,
-  RequestDashboardPage,
   ContactListPage,
-  MessageTemplatesPage,
-  SendPackagesPage,
-  SendHistoryPage,
-  AdminPreferencesPage,
   UserPreferencesPage,
   SchedulePage,
   SaveSettingsPage,

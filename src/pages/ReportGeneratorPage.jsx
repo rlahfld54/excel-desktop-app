@@ -69,10 +69,8 @@ function downloadBlob(blob, fileName) {
 
 export default function ReportGeneratorPage() {
   const currentUser = getCurrentUser();
-  const { rows, loadLatest } = useWorkspaceDataStore((state) => ({
-    rows: state.rows,
-    loadLatest: state.loadLatest,
-  }));
+  const rows = useWorkspaceDataStore((state) => state.rows);
+  const loadLatest = useWorkspaceDataStore((state) => state.loadLatest);
   const [templates] = useState(() => readReportTemplates());
   const [selectedTemplateId, setSelectedTemplateId] = useState(templates[0]?.id);
   const [reportTitle, setReportTitle] = useState('2026년 5월 총무팀 월간 보고서');

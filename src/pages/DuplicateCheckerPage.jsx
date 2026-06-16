@@ -27,10 +27,8 @@ function MetricCard({ label, value, detail }) {
 }
 
 export default function DuplicateCheckerPage() {
-  const { rows, loadLatest } = useWorkspaceDataStore((state) => ({
-    rows: state.rows,
-    loadLatest: state.loadLatest,
-  }));
+  const rows = useWorkspaceDataStore((state) => state.rows);
+  const loadLatest = useWorkspaceDataStore((state) => state.loadLatest);
   const [groups, setGroups] = useState(() => findDuplicateGroups(rows));
   const [selectedGroupId, setSelectedGroupId] = useState(groups[0]?.id);
   const [actionState, setActionState] = useState(`${groups.length.toLocaleString('ko-KR')}개 중복 그룹을 찾았습니다.`);

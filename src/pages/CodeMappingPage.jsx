@@ -263,53 +263,6 @@ export default function CodeMappingPage() {
 
   return (
     <PageShell title="코드 매핑" description="1,200건 거래 데이터를 기초로 거래처명, 제품명, 단가 기준을 만들고 매핑 후보를 확인합니다.">
-      <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Master data</p>
-            <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">거래처/제품/단가 기준 데이터</p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{loadState}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="btn btn-secondary" type="button" onClick={loadMasterData}>새로고침</button>
-            <button className="btn btn-secondary" type="button" onClick={() => setLoadState('후보 승인 기능은 다음 단계에서 실제 DB 업데이트와 연결합니다.')}>후보 승인</button>
-            <button className="btn btn-primary" type="button" onClick={handleSeed} disabled={isSeeding}>{isSeeding ? '저장 중' : '기준 데이터 저장'}</button>
-          </div>
-        </div>
-      </section>
-
-      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}
-      </div>
-
-      <section className="mb-4 rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="flex flex-wrap gap-2">
-          {tableViews.map((view) => (
-            <button
-              key={view.id}
-              className={`rounded-md border px-3 py-2 text-left text-sm transition ${activeView === view.id ? 'border-teal-500 bg-teal-50 text-teal-800 dark:border-teal-400 dark:bg-teal-500/10 dark:text-teal-200' : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900/30'}`}
-              type="button"
-              onClick={() => setActiveView(view.id)}
-            >
-              <span className="block font-semibold">{view.title}</span>
-              <span className="mt-0.5 block text-xs opacity-80">{view.count.toLocaleString('ko-KR')}건</span>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">Selected view</p>
-            <h2 className="mt-1 font-semibold text-gray-900 dark:text-gray-100">{activeTable.title}</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{activeTable.detail}</p>
-          </div>
-          <span className="rounded-md bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-500 dark:bg-gray-700/60 dark:text-gray-300">
-            한 번에 한 보기
-          </span>
-        </div>
-      </section>
 
       <DataTable
         title={activeTable.title}
