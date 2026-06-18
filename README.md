@@ -6,6 +6,8 @@
 
 이 프로젝트는 단순한 관리자 대시보드나 Excel 편집기가 아닙니다. 매출 자료 취합, 오류 검증, 코드 매핑, 거래처 확인, 마감장 생성, 보고서 작성처럼 여러 도구에 흩어진 업무를 하나의 워크스페이스에서 처리할 수 있도록 설계한 **React + Electron 기반 데스크톱 애플리케이션**입니다.
 
+<img width="1920" height="1040" alt="포트폴리오 화면" src="https://github.com/user-attachments/assets/dd41883b-13fe-4fb5-a6d6-44eb632591a7" />
+
 ## 다운로드
 
 Windows 설치 파일은 GitHub Releases에서 받을 수 있습니다.
@@ -21,7 +23,6 @@ Windows 설치 파일은 GitHub Releases에서 받을 수 있습니다.
   <img src="https://img.shields.io/badge/SQLite-Local_DB-003B57?style=for-the-badge&logo=sqlite&logoColor=ffffff" alt="SQLite" />
 </p>
 
-![Excel Automation Workspace preview](docs/images/excel-automation-workspace.png)
 
 ## 프로젝트 한 줄 소개
 
