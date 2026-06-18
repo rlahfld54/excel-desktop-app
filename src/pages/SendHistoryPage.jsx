@@ -88,7 +88,7 @@ function isInDateRange(value, startDate, endDate) {
 export default function SendHistoryPage() {
   const [items, setItems] = useState(fallbackItems);
   const [selectedId, setSelectedId] = useState(fallbackItems[0].itemId);
-  const [dateRange, setDateRange] = useState({
+  const [params, setParams] = useState({
     startDate: '2026-05-01',
     endDate: '2026-05-31',
   });
@@ -97,8 +97,8 @@ export default function SendHistoryPage() {
   const [updateState, setUpdateState] = useState('');
 
   const filteredItems = useMemo(() => (
-    items.filter((item) => isInDateRange(monthToDate(item.closingMonth), dateRange.startDate, dateRange.endDate))
-  ), [dateRange.endDate, dateRange.startDate, items]);
+    items.filter((item) => isInDateRange(monthToDate(item.closingMonth), params.startDate, params.endDate))
+  ), [items, params.endDate, params.startDate]);
 
   const selectedItem = useMemo(
     () => filteredItems.find((item) => item.itemId === selectedId) ?? filteredItems[0] ?? items[0],
@@ -199,9 +199,8 @@ export default function SendHistoryPage() {
             <input
               className="form-input w-full"
               type="date"
-              value={dateRange.startDate}
-              onChange={(event) => setDateRange((current) => ({ ...current, startDate: event.target.value }))}
-              onInput={(event) => setDateRange((current) => ({ ...current, startDate: event.target.value }))}
+              value={params.startDate}
+              onChange={(event) => setParams((current) => ({ ...current, startDate: event.target.value }))}
             />
           </label>
           <label className="block">
@@ -209,9 +208,8 @@ export default function SendHistoryPage() {
             <input
               className="form-input w-full"
               type="date"
-              value={dateRange.endDate}
-              onChange={(event) => setDateRange((current) => ({ ...current, endDate: event.target.value }))}
-              onInput={(event) => setDateRange((current) => ({ ...current, endDate: event.target.value }))}
+              value={params.endDate}
+              onChange={(event) => setParams((current) => ({ ...current, endDate: event.target.value }))}
             />
           </label>
           <p className="text-sm text-gray-500 dark:text-gray-400">마감월 기준으로 날짜 범위에 포함된 발송 이력만 표시합니다.</p>

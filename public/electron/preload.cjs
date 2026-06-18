@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("api", {
   openFile: () => ipcRenderer.invoke("file:open"),
   saveData: (data) => ipcRenderer.invoke("data:save", data),
   getLatestData: () => ipcRenderer.invoke("data:latest"),
+  querySalesData: (options) => ipcRenderer.invoke("data:query", options),
   getDailySalesTrend: (options) => ipcRenderer.invoke("dashboard:sales-daily", options),
   saveFileAs: (file) => ipcRenderer.invoke("file:save-as", file),
   saveGeneratedFiles: (payload) => ipcRenderer.invoke("files:save-generated", payload),

@@ -73,6 +73,11 @@ function getDefaultAppSettings() {
     desktopNotificationsEnabled: true,
     notificationSoundEnabled: true,
     notificationSoundPath: "",
+    gmailSenderName: "",
+    gmailAddress: "",
+    gmailAppPassword: "",
+    gmailTestEmail: "",
+    gmailReplyToEmail: "",
   };
 }
 

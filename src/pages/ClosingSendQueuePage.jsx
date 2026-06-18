@@ -980,10 +980,12 @@ export default function ClosingSendQueuePage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [closingTargets, setClosingTargets] = useState(defaultClosingTargets);
   const [selectedIds, setSelectedIds] = useState(() => defaultClosingTargets.filter((item) => item.reason !== '마감 완료').map((item) => item.id));
-  const [dateRange, setDateRange] = useState({
+  const [params, setParams] = useState({
     month: '2026-06',
     startDate: '2026-06-01',
     endDate: '2026-06-30',
+    page: 1,
+    pageSize: 10,
   });
   const [isGenerated, setIsGenerated] = useState(false);
   const [isGeneratingFiles, setIsGeneratingFiles] = useState(false);
@@ -1021,19 +1023,49 @@ export default function ClosingSendQueuePage() {
         // Keep fallback targets in browser-only development.
       });
 
+    if (window.api?.getAppSettings) {
+      window.api.getAppSettings()
+        .then((result) => {
+          const settings = result?.settings ?? result;
+          if (!isMounted || !settings) return;
+          setMailSettings({
+            senderName: settings.gmailSenderName || getDefaultSenderName(currentUser),
+            gmailAddress: settings.gmailAddress || currentUserEmail,
+            appPassword: settings.gmailAppPassword || '',
+            testEmail: settings.gmailTestEmail || '',
+            replyToEmail: settings.gmailReplyToEmail || currentUserEmail,
+          });
+        })
+        .catch(() => {
+          // Keep user profile defaults when app settings are unavailable.
+        });
+    }
+
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentUser.name, currentUserEmail]);
 
   const visibleClosingTargets = useMemo(
-    () => closingTargets.filter((target) => isInDateRange(getTargetDate(target, dateRange.month), dateRange.startDate, dateRange.endDate)),
-    [closingTargets, dateRange.endDate, dateRange.month, dateRange.startDate]
+    () => closingTargets.filter((target) => isInDateRange(getTargetDate(target, params.month), params.startDate, params.endDate)),
+    [closingTargets, params.endDate, params.month, params.startDate]
   );
   const selectedTargets = useMemo(
     () => visibleClosingTargets.filter((target) => selectedIds.includes(target.id)),
     [selectedIds, visibleClosingTargets]
   );
+  const queueTotalPages = Math.max(Math.ceil(visibleClosingTargets.length / params.pageSize), 1);
+  const paginatedClosingTargets = useMemo(
+    () => visibleClosingTargets.slice((params.page - 1) * params.pageSize, params.page * params.pageSize),
+    [params.page, params.pageSize, visibleClosingTargets]
+  );
+
+  useEffect(() => {
+    setParams((current) => ({
+      ...current,
+      page: Math.min(current.page, queueTotalPages),
+    }));
+  }, [queueTotalPages]);
   const groupedCounts = useMemo(() => selectedTargets.reduce((acc, target) => {
     const type = getSendType(target);
     acc[type] = (acc[type] ?? 0) + 1;
@@ -1053,16 +1085,12 @@ export default function ClosingSendQueuePage() {
   );
   const isPreflightReady = preflightChecks.every((check) => check.ok);
 
-  const handleMailSettingChange = (field, value) => {
-    setMailSettings((current) => ({ ...current, [field]: value }));
-    setPreflightChecked(false);
-  };
-
   const updateDateRange = (key, value) => {
-    setDateRange((current) => ({
+    setParams((current) => ({
       ...current,
       [key]: value,
       month: key === 'startDate' && value ? value.slice(0, 7) : current.month,
+      page: 1,
     }));
     setGeneratedFileGroups([]);
     setIsGenerated(false);
@@ -1086,6 +1114,7 @@ export default function ClosingSendQueuePage() {
   const selectByPredicate = (predicate, message) => {
     setSelectedIds(visibleClosingTargets.filter(predicate).map((target) => target.id));
     setStatusText(message);
+    setParams((current) => ({ ...current, page: 1 }));
     setGeneratedFileGroups([]);
     setIsGenerated(false);
     setMailDraftStatus('대상이 바뀌었습니다. 첨부 파일을 다시 생성하세요.');
@@ -1318,13 +1347,13 @@ export default function ClosingSendQueuePage() {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="font-bold text-gray-900 dark:text-gray-100">Gmail 테스트 설정</h2>
+              <h2 className="font-bold text-gray-900 dark:text-gray-100">발송 작업</h2>
               <StatusPill className={isPreflightReady ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}>
                 {isPreflightReady ? '전송 전 준비 완료' : '점검 필요'}
               </StatusPill>
             </div>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Gmail SMTP로 테스트 수신자에게 실제 발송할 수 있습니다. 앱 비밀번호는 이 화면 세션에서만 점검용으로 사용합니다.
+              Gmail 테스트 조건은 마이페이지에 저장된 설정을 사용합니다. 이 화면에서는 문구 수정과 전송 전 점검을 바로 실행합니다.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1335,64 +1364,6 @@ export default function ClosingSendQueuePage() {
               전송 전 점검
             </button>
           </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <label className="block">
-            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">발송자 이름</span>
-            <input
-              className="form-input mt-1"
-              type="text"
-              value={mailSettings.senderName}
-              onChange={(event) => handleMailSettingChange('senderName', event.target.value)}
-              placeholder={getDefaultSenderName(currentUser)}
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">Gmail 주소</span>
-            <input
-              className="form-input mt-1"
-              type="email"
-              value={mailSettings.gmailAddress}
-              onChange={(event) => handleMailSettingChange('gmailAddress', event.target.value)}
-              placeholder={currentUserEmail || 'name@gmail.com'}
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">앱 비밀번호</span>
-            <input
-              className="form-input mt-1"
-              type="password"
-              value={mailSettings.appPassword}
-              onChange={(event) => handleMailSettingChange('appPassword', event.target.value)}
-              placeholder="16자리 앱 비밀번호"
-              autoComplete="new-password"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">테스트 수신 이메일</span>
-            <input
-              className="form-input mt-1"
-              type="email"
-              value={mailSettings.testEmail}
-              onChange={(event) => handleMailSettingChange('testEmail', event.target.value)}
-              placeholder="내 메일 주소"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">회신 받을 이메일</span>
-            <input
-              className="form-input mt-1"
-              type="email"
-              value={mailSettings.replyToEmail}
-              onChange={(event) => handleMailSettingChange('replyToEmail', event.target.value)}
-              placeholder="비우면 Gmail 사용"
-            />
-          </label>
-        </div>
-
-        <div className="mt-4 rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:border-gray-700/60 dark:bg-gray-900/30 dark:text-gray-300">
-          Gmail 주소는 마이페이지 이메일을 기본값으로 사용합니다. SMTP 서버는 <span className="font-semibold">smtp.gmail.com:587</span> 기준으로 준비하고, 발송 대상/첨부/본문 준비 상태를 확인합니다.
         </div>
 
         {preflightChecked && (
@@ -1433,6 +1404,13 @@ export default function ClosingSendQueuePage() {
               <h2 className="font-bold text-gray-900 dark:text-gray-100">{steps[currentStep].title}</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{steps[currentStep].description}</p>
             </div>
+            {currentStep === 0 && visibleClosingTargets.length > params.pageSize && (
+              <div className="flex items-center gap-2">
+                <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page <= 1} onClick={() => setParams((current) => ({ ...current, page: Math.max(current.page - 1, 1) }))}>이전</button>
+                <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">{params.page} / {queueTotalPages}</span>
+                <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page >= queueTotalPages} onClick={() => setParams((current) => ({ ...current, page: Math.min(current.page + 1, queueTotalPages) }))}>다음</button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1451,7 +1429,7 @@ export default function ClosingSendQueuePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60">
-                {visibleClosingTargets.map((target) => {
+                {paginatedClosingTargets.map((target) => {
                   const sendType = getSendType(target);
 
                   return (
@@ -1464,7 +1442,7 @@ export default function ClosingSendQueuePage() {
                         <p className="mt-1 text-xs text-gray-500">{target.email}</p>
                       </td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{target.manager}</td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{getTargetDate(target, dateRange.month)}</td>
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{getTargetDate(target, params.month)}</td>
                       <td className="px-4 py-3">
                         <StatusPill className={getSendTone(sendType)}>{sendType}</StatusPill>
                       </td>
@@ -1473,6 +1451,11 @@ export default function ClosingSendQueuePage() {
                     </tr>
                   );
                 })}
+                {visibleClosingTargets.length === 0 && (
+                  <tr>
+                    <td className="px-4 py-10 text-center text-gray-500 dark:text-gray-400" colSpan={7}>조회 기간에 해당하는 발송 대상이 없습니다.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

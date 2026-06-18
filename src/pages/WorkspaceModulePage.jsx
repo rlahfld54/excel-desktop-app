@@ -454,8 +454,7 @@ function WorkspaceModulePage({ moduleKey }) {
   const [rows, setRows] = useState(() => config.rows);
   const [selectedRowIndex, setSelectedRowIndex] = useState(0);
   const [selectedSideItem, setSelectedSideItem] = useState(config.sideItems[0]);
-  const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [params, setParams] = useState({ query: '', status: 'all' });
   const [summaryText, setSummaryText] = useState(`${config.title} 준비 완료`);
   const [activityLog, setActivityLog] = useState([`${config.title} 화면을 열었습니다.`]);
   const primaryMetric = config.stats[0];
@@ -463,17 +462,17 @@ function WorkspaceModulePage({ moduleKey }) {
 
   const statusOptions = useMemo(() => Array.from(new Set(rows.map((row) => row[row.length - 1]))), [rows]);
   const filteredRows = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedQuery = params.query.trim().toLowerCase();
 
     return rows
       .map((row, rowIndex) => ({ row, rowIndex }))
       .filter(({ row }) => {
         const matchesQuery = normalizedQuery === ''
           || row.some((cell) => String(cell ?? '').toLowerCase().includes(normalizedQuery));
-        const matchesStatus = statusFilter === 'all' || row[row.length - 1] === statusFilter;
+        const matchesStatus = params.status === 'all' || row[row.length - 1] === params.status;
         return matchesQuery && matchesStatus;
       });
-  }, [query, rows, statusFilter]);
+  }, [params.query, params.status, rows]);
 
   const selectedRow = rows[selectedRowIndex] ?? rows[0] ?? [];
 
@@ -531,15 +530,14 @@ function WorkspaceModulePage({ moduleKey }) {
 
   const handleTableTool = (action) => {
     if (action === '검색 초기화') {
-      setQuery('');
-      setStatusFilter('all');
+      setParams({ query: '', status: 'all' });
       addActivity('검색 조건을 초기화했습니다.');
       return;
     }
 
     if (action === '상태 필터') {
       const nextStatus = statusOptions[0] ?? 'all';
-      setStatusFilter((current) => (current === 'all' ? nextStatus : 'all'));
+      setParams((current) => ({ ...current, status: current.status === 'all' ? nextStatus : 'all' }));
       addActivity('상태 필터를 전환했습니다.');
       return;
     }
@@ -608,8 +606,8 @@ function WorkspaceModulePage({ moduleKey }) {
               <input
                 className="h-8 w-44 rounded-md border border-gray-200 bg-white px-2.5 text-xs text-gray-700 outline-none focus:border-accent-400 dark:border-gray-700/60 dark:bg-gray-900/30 dark:text-gray-200"
                 type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                value={params.query}
+                onChange={(event) => setParams((current) => ({ ...current, query: event.target.value }))}
                 placeholder="검색"
               />
               {['검색 초기화', '상태 필터', 'CSV 내보내기'].map((action) => (

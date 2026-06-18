@@ -41,10 +41,8 @@ function ExcelTable({
   visibleRowCount = 10,
   fillAvailableHeight = false,
 }) {
-  const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('전체');
+  const [params, setParams] = useState({ query: '', status: '전체', page: 1 });
   const [sortConfig, setSortConfig] = useState({ index: -1, direction: 'asc' });
-  const [currentPage, setCurrentPage] = useState(1);
   const [activeTab, setActiveTab] = useState('Sheet 1');
   const [isFirstColumnPinned, setIsFirstColumnPinned] = useState(false);
   const tableViewportRef = useRef(null);
@@ -58,7 +56,7 @@ function ExcelTable({
   }, [rows, statusColumnIndex]);
 
   const filteredRows = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedQuery = params.query.trim().toLowerCase();
 
     return rows.map((row, rowIndex) => ({ row, rowIndex })).filter(({ row }) => {
       const statusValue = statusColumnIndex < 0 ? '' : row[statusColumnIndex];
@@ -67,13 +65,13 @@ function ExcelTable({
         || activeTab === '오류 목록' && issueStatuses.includes(statusValue);
       const matchesQuery = normalizedQuery === ''
         || row.some((cell) => String(cell ?? '').toLowerCase().includes(normalizedQuery));
-      const matchesStatus = statusFilter === '전체'
+      const matchesStatus = params.status === '전체'
         || statusColumnIndex < 0
-        || statusValue === statusFilter;
+        || statusValue === params.status;
 
       return matchesTab && matchesQuery && matchesStatus;
     });
-  }, [activeTab, query, rows, statusColumnIndex, statusFilter]);
+  }, [activeTab, params.query, params.status, rows, statusColumnIndex]);
 
   const sortedRows = useMemo(() => {
     if (sortConfig.index < 0) return filteredRows;
@@ -85,19 +83,19 @@ function ExcelTable({
   }, [filteredRows, sortConfig]);
 
   const totalPages = Math.max(Math.ceil(sortedRows.length / pageSize), 1);
-  const safePage = Math.min(currentPage, totalPages);
-  const hasActiveTools = activeTab !== 'Sheet 1' || query || statusFilter !== '전체' || sortConfig.index >= 0;
+  const safePage = Math.min(params.page, totalPages);
+  const hasActiveTools = activeTab !== 'Sheet 1' || params.query || params.status !== '전체' || sortConfig.index >= 0;
 
   const goToPage = (page) => {
     const nextPage = Math.min(Math.max(page, 1), totalPages);
-    setCurrentPage(nextPage);
+    setParams((current) => ({ ...current, page: nextPage }));
     tableViewportRef.current?.scrollTo({
       top: (nextPage - 1) * pageSize * rowHeight,
     });
   };
 
   const handleSort = (columnIndex) => {
-    setCurrentPage(1);
+    setParams((current) => ({ ...current, page: 1 }));
     tableViewportRef.current?.scrollTo({ top: 0 });
     setSortConfig((current) => {
       if (current.index !== columnIndex) return { index: columnIndex, direction: 'asc' };
@@ -108,43 +106,38 @@ function ExcelTable({
 
   const resetTools = () => {
     setActiveTab('Sheet 1');
-    setQuery('');
-    setStatusFilter('전체');
+    setParams({ query: '', status: '전체', page: 1 });
     setSortConfig({ index: -1, direction: 'asc' });
-    setCurrentPage(1);
     tableViewportRef.current?.scrollTo({ top: 0 });
   };
 
   const handleTableScroll = (event) => {
     const nextPage = Math.floor(event.currentTarget.scrollTop / (pageSize * rowHeight)) + 1;
-    setCurrentPage(Math.min(Math.max(nextPage, 1), totalPages));
+    setParams((current) => ({ ...current, page: Math.min(Math.max(nextPage, 1), totalPages) }));
   };
 
   useEffect(() => {
-    setCurrentPage(1);
+    setParams((current) => ({ ...current, page: 1 }));
     tableViewportRef.current?.scrollTo({ top: 0 });
-  }, [activeTab, query, statusFilter, sortConfig.index, sortConfig.direction]);
+  }, [activeTab, params.query, params.status, sortConfig.index, sortConfig.direction]);
 
   useEffect(() => {
     setActiveTab('Sheet 1');
-    setQuery('');
-    setStatusFilter('전체');
+    setParams({ query: '', status: '전체', page: 1 });
     setSortConfig({ index: -1, direction: 'asc' });
-    setCurrentPage(1);
     setIsFirstColumnPinned(false);
     tableViewportRef.current?.scrollTo({ top: 0 });
   }, [columns, fileName, resetKey]);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    setStatusFilter('전체');
-    setCurrentPage(1);
+    setParams((current) => ({ ...current, status: '전체', page: 1 }));
     tableViewportRef.current?.scrollTo({ top: 0 });
   };
 
   const handleValidateClick = () => {
     setActiveTab('오류 목록');
-    setStatusFilter('전체');
+    setParams((current) => ({ ...current, status: '전체', page: 1 }));
     onValidate?.();
   };
 
@@ -191,19 +184,17 @@ function ExcelTable({
           <input
             className="h-9 w-full rounded-md border border-gray-200 bg-white px-3 text-sm text-gray-700 placeholder-gray-400 focus:border-accent-400 focus:outline-none dark:border-gray-700/60 dark:bg-gray-900/30 dark:text-gray-200 sm:w-56"
             type="search"
-            value={query}
+            value={params.query}
             onChange={(event) => {
-              setQuery(event.target.value);
-              setCurrentPage(1);
+              setParams((current) => ({ ...current, query: event.target.value, page: 1 }));
             }}
             placeholder="전체 데이터 검색"
           />
           <select
             className="h-9 rounded-md border border-gray-200 bg-white px-2.5 text-sm text-gray-700 focus:border-accent-400 focus:outline-none dark:border-gray-700/60 dark:bg-gray-900/30 dark:text-gray-200"
-            value={statusFilter}
+            value={params.status}
             onChange={(event) => {
-              setStatusFilter(event.target.value);
-              setCurrentPage(1);
+              setParams((current) => ({ ...current, status: event.target.value, page: 1 }));
             }}
             disabled={statusOptions.length === 0}
           >

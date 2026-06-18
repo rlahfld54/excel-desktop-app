@@ -18,6 +18,20 @@ function countAppliedRows(rows) {
 }
 
 function readLocalWorkspaceData() {
+  if (window.api?.getLatestData) {
+    return {
+      fileName: 'sample_sales_1200.xlsx',
+      columns: sampleColumns,
+      rows: sampleRows,
+      rowActions: {},
+      validationIssues: {},
+      savedAt: null,
+      appliedCount: 0,
+      sourceMode: 'sqlite-loading',
+      isDirty: false,
+    };
+  }
+
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey));
     if (Array.isArray(saved?.rows) && saved.rows.length > 0) {

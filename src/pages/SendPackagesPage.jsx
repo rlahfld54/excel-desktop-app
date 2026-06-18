@@ -146,7 +146,7 @@ export default function SendPackagesPage() {
   const [packages, setPackages] = useState(fallbackPackages);
   const [selectedPackageId, setSelectedPackageId] = useState(fallbackPackages[0].packageId);
   const [selectedItemId, setSelectedItemId] = useState(fallbackPackages[0].items[0].itemId);
-  const [dateRange, setDateRange] = useState({
+  const [params, setParams] = useState({
     startDate: '2026-05-01',
     endDate: '2026-05-31',
   });
@@ -156,8 +156,8 @@ export default function SendPackagesPage() {
   const [isPreparing, setIsPreparing] = useState(false);
 
   const filteredPackages = useMemo(() => (
-    packages.filter((sendPackage) => isInDateRange(monthToDate(sendPackage.closingMonth), dateRange.startDate, dateRange.endDate))
-  ), [dateRange.endDate, dateRange.startDate, packages]);
+    packages.filter((sendPackage) => isInDateRange(monthToDate(sendPackage.closingMonth), params.startDate, params.endDate))
+  ), [packages, params.endDate, params.startDate]);
 
   const selectedPackage = useMemo(
     () => filteredPackages.find((item) => item.packageId === selectedPackageId) ?? filteredPackages[0] ?? packages[0],
@@ -305,9 +305,8 @@ export default function SendPackagesPage() {
             <input
               className="form-input w-full"
               type="date"
-              value={dateRange.startDate}
-              onChange={(event) => setDateRange((current) => ({ ...current, startDate: event.target.value }))}
-              onInput={(event) => setDateRange((current) => ({ ...current, startDate: event.target.value }))}
+              value={params.startDate}
+              onChange={(event) => setParams((current) => ({ ...current, startDate: event.target.value }))}
             />
           </label>
           <label className="block">
@@ -315,9 +314,8 @@ export default function SendPackagesPage() {
             <input
               className="form-input w-full"
               type="date"
-              value={dateRange.endDate}
-              onChange={(event) => setDateRange((current) => ({ ...current, endDate: event.target.value }))}
-              onInput={(event) => setDateRange((current) => ({ ...current, endDate: event.target.value }))}
+              value={params.endDate}
+              onChange={(event) => setParams((current) => ({ ...current, endDate: event.target.value }))}
             />
           </label>
           <p className="text-sm text-gray-500 dark:text-gray-400">마감월 기준으로 날짜 범위에 포함된 패키지만 표시합니다.</p>

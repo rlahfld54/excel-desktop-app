@@ -4,6 +4,54 @@ import PageShell from './PageShell';
 
 const storageKey = 'excel-workspace:customerContacts';
 
+
+const fields = [
+  {
+    label: '거래처명',
+    key: 'customerName',
+    required: true,
+    placeholder: '거래처명을 입력',
+  },
+  {
+    label: '거래처 코드',
+    key: 'customerCode',
+    placeholder: 'CUST-001',
+  },
+  {
+    label: '사업자번호',
+    key: 'businessNumber',
+    placeholder: '000-00-00000',
+  },
+  {
+    label: '부서',
+    key: 'departmentName',
+    placeholder: '정산팀',
+  },
+  {
+    label: '담당자명',
+    key: 'recipientName',
+    required: true,
+    placeholder: '담당자명',
+  },
+  {
+    label: '직함',
+    key: 'recipientTitle',
+    placeholder: '대리 / 팀장',
+  },
+  {
+    label: '이메일',
+    key: 'recipientEmail',
+    type: 'email',
+    placeholder: 'name@company.com',
+  },
+  {
+    label: '전화번호',
+    key: 'recipientPhone',
+    placeholder: '010-0000-0000',
+  },
+];
+
+//이거 sql테이블에서 가져와야됨..
 const fallbackContacts = [
   {
     contactId: 'CONTACT-001',
@@ -132,65 +180,75 @@ function Field({ label, children }) {
   );
 }
 
-function MetricCard({ label, value, detail }) {
-  return (
-    <section className="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-      <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
-      <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
-      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
-    </section>
-  );
-}
 
-function ContactForm({ draft, mode, onChange, onSubmit, onCancel }) {
-  const update = (field, value) => onChange({ ...draft, [field]: value });
+
+  
+function ContactForm({ draft = emptyDraft, mode, onChange, onSubmit, onCancel }) {
+  const update = (field, value) => {
+    onChange({ ...draft, [field]: value });
+  };
 
   return (
     <form className="space-y-4" onSubmit={onSubmit}>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="거래처명">
-          <input className="form-input w-full" value={draft.customerName} onChange={(event) => update('customerName', event.target.value)} required placeholder="거래처명을 입력" />
-        </Field>
-        <Field label="거래처 코드">
-          <input className="form-input w-full" value={draft.customerCode} onChange={(event) => update('customerCode', event.target.value)} placeholder="CUST-001" />
-        </Field>
-        <Field label="사업자번호">
-          <input className="form-input w-full" value={draft.businessNumber} onChange={(event) => update('businessNumber', event.target.value)} placeholder="000-00-00000" />
-        </Field>
-        <Field label="부서">
-          <input className="form-input w-full" value={draft.departmentName} onChange={(event) => update('departmentName', event.target.value)} placeholder="정산팀" />
-        </Field>
-        <Field label="담당자명">
-          <input className="form-input w-full" value={draft.recipientName} onChange={(event) => update('recipientName', event.target.value)} required placeholder="담당자명" />
-        </Field>
-        <Field label="직함">
-          <input className="form-input w-full" value={draft.recipientTitle} onChange={(event) => update('recipientTitle', event.target.value)} placeholder="대리 / 팀장" />
-        </Field>
-        <Field label="이메일">
-          <input className="form-input w-full" type="email" value={draft.recipientEmail} onChange={(event) => update('recipientEmail', event.target.value)} placeholder="name@company.com" />
-        </Field>
-        <Field label="전화번호">
-          <input className="form-input w-full" value={draft.recipientPhone} onChange={(event) => update('recipientPhone', event.target.value)} placeholder="010-0000-0000" />
-        </Field>
+        {fields.map((field) => (
+          <Field key={field.key} label={field.label}>
+            <input
+              className="form-input w-full"
+              type={field.type ?? 'text'}
+              value={draft[field.key] ?? ''}
+              required={field.required}
+              placeholder={field.placeholder}
+              onChange={(e) => update(field.key, e.target.value)}
+            />
+          </Field>
+        ))}
+
         <Field label="선호 채널">
-          <select className="form-select w-full" value={draft.preferredChannel} onChange={(event) => update('preferredChannel', event.target.value)}>
-            {Object.entries(channelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <select
+            className="form-select w-full"
+            value={draft.preferredChannel ?? 'EMAIL'}
+            onChange={(e) => update('preferredChannel', e.target.value)}
+          >
+            {Object.entries(channelLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </Field>
+
         <Field label="상태">
-          <select className="form-select w-full" value={draft.status} onChange={(event) => update('status', event.target.value)}>
-            {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <select
+            className="form-select w-full"
+            value={draft.status ?? 'ACTIVE'}
+            onChange={(e) => update('status', e.target.value)}
+          >
+            {Object.entries(statusLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </Field>
       </div>
 
       <Field label="메모">
-        <textarea className="form-textarea min-h-24 w-full" value={draft.memo} onChange={(event) => update('memo', event.target.value)} placeholder="마감일, 연락 시 주의사항, 담당자 특이사항" />
+        <textarea
+          className="form-textarea min-h-24 w-full"
+          value={draft.memo ?? ''}
+          onChange={(e) => update('memo', e.target.value)}
+          placeholder="마감일, 연락 시 주의사항, 담당자 특이사항"
+        />
       </Field>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <button className="btn btn-secondary" type="button" onClick={onCancel}>취소</button>
-        <button className="btn btn-primary" type="submit">{mode === 'edit' ? '수정 저장' : '신규 등록'}</button>
+        <button className="btn btn-secondary" type="button" onClick={onCancel}>
+          취소
+        </button>
+        <button className="btn btn-primary" type="submit">
+          {mode === 'edit' ? '수정 저장' : '신규 등록'}
+        </button>
       </div>
     </form>
   );
@@ -204,13 +262,13 @@ export default function ContactListPage() {
   const [selectedId, setSelectedId] = useState(() => contacts[0]?.contactId ?? '');
   const [draft, setDraft] = useState(emptyDraft);
   const [formMode, setFormMode] = useState('create');
-  const [filters, setFilters] = useState({ query: '', channel: 'ALL', status: 'ALL' });
+  const [params, setParams] = useState({ query: '', channel: 'ALL', status: 'ALL', page: 1, pageSize: 10 });
   const [notice, setNotice] = useState('거래처 담당자를 등록하거나 행을 선택해 바로 수정할 수 있습니다.');
 
   useEffect(() => {
     let isMounted = true;
 
-    if (!window.api?.getMasterData || readStoredContacts().length > 0) return undefined;
+    if (!window.api?.getMasterData) return undefined;
 
     window.api.getMasterData()
       .then((data) => {
@@ -239,7 +297,7 @@ export default function ContactListPage() {
   );
 
   const filteredContacts = useMemo(() => {
-    const query = filters.query.trim().toLowerCase();
+    const query = params.query.trim().toLowerCase();
 
     return contacts.filter((contact) => {
       const matchesQuery = query === '' || [
@@ -252,11 +310,31 @@ export default function ContactListPage() {
         contact.recipientPhone,
         contact.memo,
       ].join(' ').toLowerCase().includes(query);
-      const matchesChannel = filters.channel === 'ALL' || contact.preferredChannel === filters.channel;
-      const matchesStatus = filters.status === 'ALL' || contact.status === filters.status;
+      const matchesChannel = params.channel === 'ALL' || contact.preferredChannel === params.channel;
+      const matchesStatus = params.status === 'ALL' || contact.status === params.status;
       return matchesQuery && matchesChannel && matchesStatus;
     });
-  }, [contacts, filters]);
+  }, [contacts, params.channel, params.query, params.status]);
+  const totalPages = Math.max(Math.ceil(filteredContacts.length / params.pageSize), 1);
+  const paginatedContacts = useMemo(
+    () => filteredContacts.slice((params.page - 1) * params.pageSize, params.page * params.pageSize),
+    [filteredContacts, params.page, params.pageSize]
+  );
+
+  useEffect(() => {
+    setParams((current) => ({
+      ...current,
+      page: Math.min(current.page, totalPages),
+    }));
+  }, [totalPages]);
+
+  const updateParams = (nextValues) => {
+    setParams((current) => ({
+      ...current,
+      ...nextValues,
+      page: nextValues.page ?? 1,
+    }));
+  };
 
   const metrics = useMemo(() => {
     const customerCount = new Set(contacts.map((contact) => contact.customerCode || contact.customerName).filter(Boolean)).size;
@@ -343,14 +421,7 @@ export default function ContactListPage() {
     setNotice('담당자 정보가 삭제되었습니다.');
   };
 
-  const resetSample = () => {
-    const nextContacts = fallbackContacts.map(normalizeContact);
-    setContacts(nextContacts);
-    setSelectedId(nextContacts[0].contactId);
-    setDraft(normalizeContact(nextContacts[0]));
-    setFormMode('edit');
-    setNotice('샘플 담당자 목록으로 다시 채웠습니다.');
-  };
+
 
   return (
     <PageShell title="거래처 담당자 관리" description="거래처별 담당자를 등록하고, 연락처와 발송 채널을 바로 수정하거나 삭제합니다.">
@@ -359,27 +430,26 @@ export default function ContactListPage() {
           <Field label="검색">
             <input
               className="form-input w-full"
-              value={filters.query}
-              onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
+              value={params.query}
+              onChange={(event) => updateParams({ query: event.target.value })}
               placeholder="거래처, 담당자, 이메일, 전화번호 검색"
               type="search"
             />
           </Field>
           <Field label="채널">
-            <select className="form-select w-full" value={filters.channel} onChange={(event) => setFilters((current) => ({ ...current, channel: event.target.value }))}>
+            <select className="form-select w-full" value={params.channel} onChange={(event) => updateParams({ channel: event.target.value })}>
               <option value="ALL">전체</option>
               {Object.entries(channelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </Field>
           <Field label="상태">
-            <select className="form-select w-full" value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
+            <select className="form-select w-full" value={params.status} onChange={(event) => updateParams({ status: event.target.value })}>
               <option value="ALL">전체</option>
               {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </Field>
           <div className="flex gap-2">
             <button className="btn btn-primary whitespace-nowrap" type="button" onClick={startCreate}>새 담당자</button>
-            <button className="btn btn-secondary whitespace-nowrap" type="button" onClick={resetSample}>샘플 복구</button>
           </div>
         </div>
       </section>
@@ -391,14 +461,23 @@ export default function ContactListPage() {
               <h2 className="font-bold text-gray-900 dark:text-gray-100">거래처 담당자 목록</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{filteredContacts.length.toLocaleString('ko-KR')}명 표시 중</p>
             </div>
-            {selectedContact && (
-              <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {filteredContacts.length > params.pageSize && (
+                <div className="flex items-center gap-2">
+                  <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page <= 1} onClick={() => updateParams({ page: params.page - 1 })}>이전</button>
+                  <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">{params.page} / {totalPages}</span>
+                  <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page >= totalPages} onClick={() => updateParams({ page: params.page + 1 })}>다음</button>
+                </div>
+              )}
+              {selectedContact && (
+                <>
                 <button className="btn btn-secondary" type="button" onClick={() => startEdit(selectedContact)}>선택 수정</button>
                 <button className="rounded-md border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-gray-800 dark:text-rose-300 dark:hover:bg-rose-500/10" type="button" onClick={() => handleDelete(selectedContact)}>
                   삭제
                 </button>
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </header>
 
           <div className="overflow-x-auto">
@@ -414,7 +493,7 @@ export default function ContactListPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60">
-                {filteredContacts.map((contact) => {
+                {paginatedContacts.map((contact) => {
                   const selected = contact.contactId === selectedContact?.contactId;
 
                   return (

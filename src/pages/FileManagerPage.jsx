@@ -59,13 +59,13 @@ export default function FileManagerPage() {
   const [folders, setFolders] = useState(readFolderPlan);
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [stateText, setStateText] = useState('보고서 종류/년도/월별 폴더 구조가 준비되었습니다.');
-  const [query, setQuery] = useState('');
+  const [params, setParams] = useState({ query: '' });
 
   const filteredFolders = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
+    const normalized = params.query.trim().toLowerCase();
     if (!normalized) return folders;
     return folders.filter((folder) => folder.path.toLowerCase().includes(normalized) || folder.type.toLowerCase().includes(normalized));
-  }, [folders, query]);
+  }, [folders, params.query]);
 
   const metrics = useMemo(() => {
     const reportCount = folders.filter((folder) => folder.type === '보고서').length;
@@ -142,7 +142,7 @@ export default function FileManagerPage() {
         <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">폴더 구조</h2>
-            <input className="form-input h-9 w-64" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="폴더 검색" />
+            <input className="form-input h-9 w-64" type="search" value={params.query} onChange={(event) => setParams({ query: event.target.value })} placeholder="폴더 검색" />
           </header>
           <div className="max-h-[480px] overflow-auto no-scrollbar">
             <table className="min-w-[760px] w-full border-separate border-spacing-0 text-sm">

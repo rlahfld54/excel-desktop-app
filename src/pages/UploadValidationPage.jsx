@@ -97,6 +97,10 @@ function similarity(a, b) {
 }
 
 function readLocalMasterData() {
+  if (window.api?.getMasterData) {
+    return buildMasterDataFromRows(createSampleSalesRows(1200));
+  }
+
   try {
     const saved = JSON.parse(localStorage.getItem(masterStorageKey));
     if (saved?.customers?.length || saved?.products?.length) return saved;
@@ -107,6 +111,10 @@ function readLocalMasterData() {
 }
 
 function getLatestRowsFallback() {
+  if (window.api?.getLatestData) {
+    return { columns: sampleColumns, rows: createSampleSalesRows(1200) };
+  }
+
   try {
     const saved = JSON.parse(localStorage.getItem('excel-workspace:workspaceData'));
     if (Array.isArray(saved?.rows)) {

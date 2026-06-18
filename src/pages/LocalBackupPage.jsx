@@ -119,7 +119,7 @@ export default function LocalBackupPage() {
   const [backups, setBackups] = useState(sampleBackups);
   const [selectedBackup, setSelectedBackup] = useState(sampleBackups[0]);
   const [message, setMessage] = useState('');
-  const [query, setQuery] = useState('');
+  const [params, setParams] = useState({ query: '' });
   const [statusText, setStatusText] = useState('브라우저 미리보기 데이터입니다.');
   const [isBusy, setIsBusy] = useState(false);
 
@@ -153,7 +153,7 @@ export default function LocalBackupPage() {
   }, []);
 
   const filteredBackups = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedQuery = params.query.trim().toLowerCase();
     if (!normalizedQuery) return backups;
 
     return backups.filter((backup) => [
@@ -162,7 +162,7 @@ export default function LocalBackupPage() {
       backup.createdBy,
       backup.createdAt,
     ].some((value) => String(value ?? '').toLowerCase().includes(normalizedQuery)));
-  }, [backups, query]);
+  }, [backups, params.query]);
 
   const yesterdayBackup = useMemo(() => getYesterdayBackup(backups), [backups]);
 
@@ -306,8 +306,8 @@ export default function LocalBackupPage() {
               <input
                 className="form-input h-9 w-full sm:w-64"
                 type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                value={params.query}
+                onChange={(event) => setParams({ query: event.target.value })}
                 placeholder="메모, 날짜, 유형 검색"
               />
             </div>

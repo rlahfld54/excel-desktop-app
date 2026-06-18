@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { addActivityLog, getCurrentUser, updateUser } from '../utils/authSession';
@@ -24,12 +24,51 @@ function makeForm(user) {
   };
 }
 
+function makeMailSettings(user = {}) {
+  return {
+    gmailSenderName: user.name ?? '',
+    gmailAddress: user.email ?? '',
+    gmailAppPassword: '',
+    gmailTestEmail: '',
+    gmailReplyToEmail: user.email ?? '',
+  };
+}
+
 export default function UserPreferencesPage() {
   const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
   const [form, setForm] = useState(() => makeForm(currentUser));
+  const [appSettings, setAppSettings] = useState(null);
+  const [mailSettings, setMailSettings] = useState(() => makeMailSettings(currentUser));
   const [stateText, setStateText] = useState('개인 정보와 메일 명함 정보를 관리합니다.');
   const [copyText, setCopyText] = useState('');
   const businessCard = getBusinessCard(currentUser);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!window.api?.getAppSettings) return undefined;
+
+    window.api.getAppSettings()
+      .then((result) => {
+        const settings = result?.settings ?? result;
+        if (!isMounted || !settings) return;
+        setAppSettings(settings);
+        setMailSettings({
+          gmailSenderName: settings.gmailSenderName || currentUser.name || '',
+          gmailAddress: settings.gmailAddress || currentUser.email || '',
+          gmailAppPassword: settings.gmailAppPassword || '',
+          gmailTestEmail: settings.gmailTestEmail || '',
+          gmailReplyToEmail: settings.gmailReplyToEmail || currentUser.email || '',
+        });
+      })
+      .catch(() => {
+        setStateText('앱 설정을 불러오지 못했습니다. 프로필 정보는 계속 수정할 수 있습니다.');
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser.email, currentUser.name]);
 
   const profileRows = useMemo(() => [
     ['아이디', currentUser.id],
@@ -46,6 +85,13 @@ export default function UserPreferencesPage() {
     }));
   };
 
+  const handleMailSettingChange = (field, value) => {
+    setMailSettings((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
   const refreshUser = (message) => {
     const nextUser = getCurrentUser();
     setCurrentUser(nextUser);
@@ -53,10 +99,25 @@ export default function UserPreferencesPage() {
     setStateText(message);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     updateUser(currentUser.id, form);
+    if (window.api?.saveAppSettings) {
+      try {
+        const nextSettings = {
+          ...(appSettings ?? {}),
+          ...mailSettings,
+        };
+        const result = await window.api.saveAppSettings(nextSettings);
+        if (result?.ok && result.settings) {
+          setAppSettings(result.settings);
+        }
+      } catch {
+        setStateText('프로필은 저장했지만 Gmail 설정 저장은 실패했습니다.');
+        return;
+      }
+    }
     addActivityLog('INFO', '사용자 마이페이지 수정', currentUser.id);
-    refreshUser('프로필 정보가 저장되었습니다. 메일 명함에도 반영됩니다.');
+    refreshUser('프로필 정보와 Gmail 테스트 조건이 저장되었습니다.');
   };
 
   const handleReset = () => {
@@ -130,6 +191,30 @@ export default function UserPreferencesPage() {
           </div>
         </aside>
       </div>
+
+      <section className="mt-5 rounded-lg border border-gray-200 bg-white p-5 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+        <div className="flex flex-col gap-1">
+          <h2 className="font-semibold text-gray-900 dark:text-gray-100">Gmail 테스트 조건</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">마감 발송 큐의 전송 전 점검과 테스트 발송에서 이 값을 사용합니다.</p>
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <Field label="발송자 이름">
+            <input className="form-input w-full" value={mailSettings.gmailSenderName} onChange={(event) => handleMailSettingChange('gmailSenderName', event.target.value)} />
+          </Field>
+          <Field label="Gmail 주소">
+            <input className="form-input w-full" type="email" value={mailSettings.gmailAddress} onChange={(event) => handleMailSettingChange('gmailAddress', event.target.value)} />
+          </Field>
+          <Field label="앱 비밀번호">
+            <input className="form-input w-full" type="password" value={mailSettings.gmailAppPassword} onChange={(event) => handleMailSettingChange('gmailAppPassword', event.target.value)} autoComplete="new-password" />
+          </Field>
+          <Field label="테스트 수신 이메일">
+            <input className="form-input w-full" type="email" value={mailSettings.gmailTestEmail} onChange={(event) => handleMailSettingChange('gmailTestEmail', event.target.value)} />
+          </Field>
+          <Field label="회신 받을 이메일">
+            <input className="form-input w-full" type="email" value={mailSettings.gmailReplyToEmail} onChange={(event) => handleMailSettingChange('gmailReplyToEmail', event.target.value)} />
+          </Field>
+        </div>
+      </section>
 
       <section className="mt-5 rounded-lg border border-gray-200 bg-white p-5 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

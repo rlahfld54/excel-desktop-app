@@ -406,7 +406,7 @@ export default function ClosingWorkspacePage() {
   });
   const [selectedId, setSelectedId] = useState(baseCompanies[0].id);
   const [tab, setTab] = useState('all');
-  const [filters, setFilters] = useState({
+  const [params, setParams] = useState({
     month: '2026-05',
     startDate: '2026-05-01',
     endDate: '2026-05-31',
@@ -440,14 +440,14 @@ export default function ClosingWorkspacePage() {
   }, []);
 
   const filteredRows = useMemo(() => {
-    const query = filters.query.trim().toLowerCase();
+    const query = params.query.trim().toLowerCase();
 
     return rows.filter((row) => {
-      const closingDate = getClosingDate(row, filters.month);
-      const matchesDateRange = isWithinDateRange(closingDate, filters.startDate, filters.endDate);
-      const matchesOwner = filters.owner === '전체' || row.owner === filters.owner;
-      const matchesDeadline = filters.deadline === '전체' || row.deadline === filters.deadline;
-      const matchesStatus = filters.status === '전체' || row.status === filters.status || row.reason === filters.status;
+      const closingDate = getClosingDate(row, params.month);
+      const matchesDateRange = isWithinDateRange(closingDate, params.startDate, params.endDate);
+      const matchesOwner = params.owner === '전체' || row.owner === params.owner;
+      const matchesDeadline = params.deadline === '전체' || row.deadline === params.deadline;
+      const matchesStatus = params.status === '전체' || row.status === params.status || row.reason === params.status;
       const matchesQuery = query === '' || [row.company, row.contactName, row.owner, row.reason].join(' ').toLowerCase().includes(query);
       const matchesTab =
         tab === 'all'
@@ -458,9 +458,9 @@ export default function ClosingWorkspacePage() {
       return matchesDateRange && matchesOwner && matchesDeadline && matchesStatus && matchesQuery && matchesTab;
     }).sort((a, b) => {
       if (tab === 'done') return b.progress - a.progress || a.company.localeCompare(b.company, 'ko-KR');
-      return b.riskScore - a.riskScore || getClosingDate(a, filters.month).localeCompare(getClosingDate(b, filters.month), 'ko-KR');
+      return b.riskScore - a.riskScore || getClosingDate(a, params.month).localeCompare(getClosingDate(b, params.month), 'ko-KR');
     });
-  }, [filters, rows, tab]);
+  }, [params, rows, tab]);
 
   const selectedRow = rows.find((row) => row.id === selectedId) ?? filteredRows[0] ?? rows[0];
   const summary = useMemo(() => {
@@ -498,7 +498,7 @@ export default function ClosingWorkspacePage() {
   ];
 
   const updateDateFilter = (key, value) => {
-    setFilters((current) => ({
+    setParams((current) => ({
       ...current,
       [key]: value,
       month: key === 'startDate' && value ? value.slice(0, 7) : current.month,
@@ -509,7 +509,7 @@ export default function ClosingWorkspacePage() {
     setIsLoading(true);
     addNotification({
       title: '마감 워크스페이스 조회 시작',
-      message: `${filters.startDate}~${filters.endDate} / ${filters.owner} / ${filters.deadline} 조건으로 데이터를 요청합니다.`,
+      message: `${params.startDate}~${params.endDate} / ${params.owner} / ${params.deadline} 조건으로 데이터를 요청합니다.`,
       level: 'INFO',
       target: 'closing-workspace',
       href: '/closing-workspace/overview',
@@ -522,7 +522,7 @@ export default function ClosingWorkspacePage() {
         return nextRows;
       });
       setIsLoading(false);
-      addActivityLog('INFO', '마감 워크스페이스 조회', `${filters.startDate}~${filters.endDate} ${filters.owner} ${filters.deadline}`, currentUser.id);
+      addActivityLog('INFO', '마감 워크스페이스 조회', `${params.startDate}~${params.endDate} ${params.owner} ${params.deadline}`, currentUser.id);
       addNotification({
         title: '마감 워크스페이스 조회 완료',
         message: `${filteredRows.length.toLocaleString('ko-KR')}개 업체를 불러왔습니다.`,
@@ -570,7 +570,7 @@ export default function ClosingWorkspacePage() {
 
   return (
     <PageShell title="마감 워크스페이스" description="업체별 마감 현황, 거래처 확인, 금액 확정, 요청 발송 준비를 한 화면에서 처리합니다.">
-      <div className="flex h-[calc(100vh-14rem)] flex-col">
+      <div>
       <section className="mb-3 shrink-0 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="grid gap-3 xl:grid-cols-[136px_136px_120px_104px_150px_minmax(220px,1fr)_auto] xl:items-end">
           <label className="block">
@@ -578,9 +578,8 @@ export default function ClosingWorkspacePage() {
             <input
               className="form-input w-full"
               type="date"
-              value={filters.startDate}
+              value={params.startDate}
               onChange={(event) => updateDateFilter('startDate', event.target.value)}
-              onInput={(event) => updateDateFilter('startDate', event.target.value)}
             />
           </label>
           <label className="block">
@@ -588,28 +587,27 @@ export default function ClosingWorkspacePage() {
             <input
               className="form-input w-full"
               type="date"
-              value={filters.endDate}
+              value={params.endDate}
               onChange={(event) => updateDateFilter('endDate', event.target.value)}
-              onInput={(event) => updateDateFilter('endDate', event.target.value)}
             />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">담당자</span>
-            <select className="form-select w-full" value={filters.owner} onChange={(event) => setFilters((current) => ({ ...current, owner: event.target.value }))}>
+            <select className="form-select w-full" value={params.owner} onChange={(event) => setParams((current) => ({ ...current, owner: event.target.value }))}>
               <option>전체</option>
               {owners.map((owner) => <option key={owner}>{owner}</option>)}
             </select>
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">마감일</span>
-            <select className="form-select w-full" value={filters.deadline} onChange={(event) => setFilters((current) => ({ ...current, deadline: event.target.value }))}>
+            <select className="form-select w-full" value={params.deadline} onChange={(event) => setParams((current) => ({ ...current, deadline: event.target.value }))}>
               <option>전체</option>
               {closingDays.map((day) => <option key={day}>{day}</option>)}
             </select>
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">상태/사유</span>
-            <select className="form-select w-full" value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
+            <select className="form-select w-full" value={params.status} onChange={(event) => setParams((current) => ({ ...current, status: event.target.value }))}>
               <option>전체</option>
               <option>완료</option>
               <option>연락 필요</option>
@@ -623,8 +621,8 @@ export default function ClosingWorkspacePage() {
               className="form-input w-full"
               placeholder="업체, 담당자, 미확정 사유 검색"
               type="search"
-              value={filters.query}
-              onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))}
+              value={params.query}
+              onChange={(event) => setParams((current) => ({ ...current, query: event.target.value }))}
             />
           </label>
           <div className="flex items-end">
@@ -676,14 +674,14 @@ export default function ClosingWorkspacePage() {
         ))}
       </div>
       
-      <div className="grid min-h-0 flex-1 grid-cols-12 gap-5">
-        <section className="col-span-12 flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8" data-table-tools="false">
-          <div className="shrink-0 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
+      <div className="grid grid-cols-12 gap-5">
+        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8" data-table-tools="false">
+          <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <h2 className="font-bold text-gray-900 dark:text-gray-100">업체별 마감 리스트</h2>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
-              <thead className="sticky top-0 z-10 bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+              <thead className="bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900/30 dark:text-gray-400">
                 <tr>
                   <th className="px-4 py-3">업체</th>
                   <th className="px-4 py-3">담당자</th>
@@ -716,7 +714,7 @@ export default function ClosingWorkspacePage() {
                       <p className="mt-1 text-xs text-gray-500">{row.reason}</p>
                     </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{row.owner}</td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{getClosingDate(row, filters.month)}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{getClosingDate(row, params.month)}</td>
                     <td className="px-4 py-3">
                       <div className="min-w-28">
                         <div className="mb-1 text-xs font-semibold text-gray-500">{row.progress}%</div>
@@ -739,7 +737,7 @@ export default function ClosingWorkspacePage() {
           </div>
         </section>
 
-        <aside className="col-span-12 min-h-0 overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4">
+        <aside className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">선택 업체 상세</p>
