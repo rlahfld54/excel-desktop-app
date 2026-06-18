@@ -1,4 +1,4 @@
-import { parseNumber, sampleProducts } from '../data/sampleSalesData';
+import { parseNumber } from '../data/sampleSalesData';
 
 export const blockingValidationTypes = [
   '거래처명 누락',
@@ -90,11 +90,7 @@ function findReferenceProduct(row, indexes, referenceData) {
     };
   }
 
-  return sampleProducts.find((product) => (
-    product.code === productCode
-    || product.name === productName
-    || product.aliases.includes(productName)
-  ));
+  return null;
 }
 
 export function validateBeforeInsert(columns, rows, options = {}) {

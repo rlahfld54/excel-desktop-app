@@ -3,14 +3,20 @@ import React, { useEffect, useMemo, useState } from 'react';
 import PageShell from './PageShell';
 
 const fallbackCounts = [
-  { tableName: 'customers', count: 0 },
   { tableName: 'products', count: 0 },
-  { tableName: 'sales_prices', count: 0 },
+  { tableName: 'customers', count: 0 },
+  { tableName: 'users', count: 0 },
   { tableName: 'sales_uploads', count: 0 },
-  { tableName: 'sales_rows', count: 0 },
+  { tableName: 'sales', count: 0 },
   { tableName: 'validation_issues', count: 0 },
   { tableName: 'workspace_snapshots', count: 0 },
-  { tableName: 'send_packages', count: 0 },
+  { tableName: 'contacts', count: 0 },
+  { tableName: 'message_templates', count: 0 },
+  { tableName: 'email_history', count: 0 },
+  { tableName: 'reports', count: 0 },
+  { tableName: 'report_templates', count: 0 },
+  { tableName: 'activity_logs', count: 0 },
+  { tableName: 'notifications', count: 0 },
 ];
 
 function statusClass(value) {
@@ -159,17 +165,18 @@ function getTableRole(tableName) {
   const roles = {
     customers: '거래처 기준 데이터',
     products: '제품 기준 데이터',
-    sales_prices: '영업 단가 기준 데이터',
+    users: '사용자와 부서 정보',
     sales_uploads: '업로드 파일 기록',
-    sales_rows: '업로드 행 데이터',
+    sales: '매출 데이터',
     validation_issues: '행별 검증 오류',
     workspace_snapshots: '작업 스냅샷',
-    recent_files: '최근 파일',
-    send_packages: '발송 패키지',
-    send_package_items: '발송 대상 항목',
+    email_history: '메일 발송과 상태 이력',
+    reports: '보고서 작업·옵션·파일',
+    report_templates: '보고서 양식',
     message_templates: '요청 문구 템플릿',
     contacts: '거래처 연락처',
-    app_events: '앱 이벤트 로그',
+    activity_logs: '로그인·감사·앱·백업 통합 기록',
+    notifications: '앱 알림',
   };
 
   return roles[tableName] ?? '업무 데이터';

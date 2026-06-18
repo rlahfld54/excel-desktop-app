@@ -54,7 +54,7 @@ export default function DuplicateCheckerPage() {
     const completed = groups.filter((group) => group.status !== '검토').length;
 
     return [
-      { label: '전체 데이터', value: `${rows.length.toLocaleString('ko-KR')}건`, detail: '샘플 거래 데이터' },
+      { label: '전체 데이터', value: `${rows.length.toLocaleString('ko-KR')}건`, detail: '현재 작업 데이터' },
       { label: '중복 그룹', value: `${groups.length.toLocaleString('ko-KR')}건`, detail: `${targetRows.toLocaleString('ko-KR')}개 행 포함` },
       { label: '처리 완료', value: `${completed.toLocaleString('ko-KR')}건`, detail: '병합 또는 예외 등록' },
       { label: '검사 기준', value: '5개', detail: '거래일/거래처/품목/수량/금액' },
@@ -82,7 +82,7 @@ export default function DuplicateCheckerPage() {
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Duplicate check</p>
             <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{actionState}</p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">샘플 데이터 안에 실제 중복 후보가 들어가도록 생성 기준을 보강했습니다.</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">현재 작업 데이터에서 중복 후보를 검사합니다.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button className="btn btn-secondary" type="button" onClick={rerunCheck}>검사 재실행</button>

@@ -11,6 +11,20 @@ function ensureColumn(database, tableName, columnName, definition) {
   );
 }
 
+function tableExists(database, tableName) {
+  return Boolean(database
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName));
+}
+
+function hasForeignKeyTo(database, tableName, referencedTable) {
+  if (!tableExists(database, tableName)) return false;
+  return database
+    .prepare(`PRAGMA foreign_key_list(${tableName})`)
+    .all()
+    .some((foreignKey) => foreignKey.table === referencedTable);
+}
+
 function getDatabase(app) {
   if (db) return db;
 
@@ -20,10 +34,18 @@ function getDatabase(app) {
   db.pragma("foreign_keys = ON");
 
   db.exec(`
-  CREATE TABLE IF NOT EXISTS app_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    level TEXT NOT NULL,
+  CREATE TABLE IF NOT EXISTS activity_logs (
+    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    log_type TEXT NOT NULL DEFAULT 'APP',
+    level TEXT NOT NULL DEFAULT 'INFO',
+    user_id INTEGER,
+    action TEXT,
+    target_type TEXT,
+    target_id TEXT,
     message TEXT NOT NULL,
+    result TEXT,
+    old_value TEXT,
+    new_value TEXT,
     meta_json TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -44,41 +66,17 @@ function getDatabase(app) {
   CREATE INDEX IF NOT EXISTS idx_notifications_created
   ON notifications(read_status, created_at DESC);
 
-  CREATE TABLE IF NOT EXISTS recent_files (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    file_name TEXT NOT NULL,
-    file_path TEXT,
-    row_count INTEGER DEFAULT 0,
-    column_count INTEGER DEFAULT 0,
-    opened_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
   CREATE TABLE IF NOT EXISTS workspace_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_name TEXT NOT NULL,
+    file_path TEXT,
     payload_json TEXT NOT NULL,
+    row_count INTEGER NOT NULL DEFAULT 0,
+    column_count INTEGER NOT NULL DEFAULT 0,
+    issue_count INTEGER NOT NULL DEFAULT 0,
+    duplicate_count INTEGER NOT NULL DEFAULT 0,
+    review_count INTEGER NOT NULL DEFAULT 0,
     saved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS validation_results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    snapshot_id INTEGER,
-    issue_count INTEGER DEFAULT 0,
-    duplicate_count INTEGER DEFAULT 0,
-    review_count INTEGER DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(snapshot_id) REFERENCES workspace_snapshots(id) ON DELETE SET NULL
-  );
-
-  -- =========================
-  -- 부서
-  -- 개인 담당자 대신 부서 기준으로 추적
-  -- =========================
-  CREATE TABLE IF NOT EXISTS departments (
-    department_code TEXT PRIMARY KEY,
-    department_name TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'ACTIVE',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
   -- =========================
@@ -92,24 +90,9 @@ function getDatabase(app) {
     tax_status TEXT DEFAULT 'UNKNOWN',
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     memo TEXT,
+    closing_json TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  -- =========================
-  -- 거래처 별칭
-  -- 삼성 / 삼성전자 / (주)삼성전자 정리용
-  -- =========================
-  CREATE TABLE IF NOT EXISTS customer_aliases (
-    alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    customer_code TEXT NOT NULL,
-    alias_name TEXT NOT NULL,
-    source TEXT DEFAULT 'MANUAL',
-    confidence REAL DEFAULT 1.0,
-    status TEXT NOT NULL DEFAULT 'ACTIVE',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(customer_code) REFERENCES customers(customer_code),
-    UNIQUE(alias_name)
   );
 
   -- =========================
@@ -120,52 +103,13 @@ function getDatabase(app) {
     product_code TEXT PRIMARY KEY,
     product_name TEXT NOT NULL,
     unit TEXT NOT NULL DEFAULT 'EA',
+    unit_price REAL NOT NULL DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'KRW',
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     memo TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
-
-  -- =========================
-  -- 제품 별칭
-  -- 제품명 흔들림 정리용
-  -- =========================
-  CREATE TABLE IF NOT EXISTS product_aliases (
-    alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_code TEXT NOT NULL,
-    alias_name TEXT NOT NULL,
-    source TEXT DEFAULT 'MANUAL',
-    confidence REAL DEFAULT 1.0,
-    status TEXT NOT NULL DEFAULT 'ACTIVE',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(product_code) REFERENCES products(product_code),
-    UNIQUE(alias_name)
-  );
-
-  -- =========================
-  -- 영업 단가
-  -- UPDATE보다 version/end_date 방식 권장
-  -- =========================
-  CREATE TABLE IF NOT EXISTS sales_prices (
-    price_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    customer_code TEXT NOT NULL,
-    product_code TEXT NOT NULL,
-    price REAL NOT NULL,
-    currency TEXT NOT NULL DEFAULT 'KRW',
-    start_date TEXT NOT NULL,
-    end_date TEXT,
-    version INTEGER NOT NULL DEFAULT 1,
-    status TEXT NOT NULL DEFAULT 'ACTIVE',
-    change_reason TEXT,
-    approved_department_code TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(customer_code) REFERENCES customers(customer_code),
-    FOREIGN KEY(product_code) REFERENCES products(product_code),
-    FOREIGN KEY(approved_department_code) REFERENCES departments(department_code)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_sales_prices_lookup
-  ON sales_prices(customer_code, product_code, start_date, end_date, status);
 
   -- =========================
   -- 업로드 파일 기록
@@ -181,18 +125,18 @@ function getDatabase(app) {
     uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status TEXT NOT NULL DEFAULT 'UPLOADED',
     memo TEXT,
-    FOREIGN KEY(snapshot_id) REFERENCES workspace_snapshots(id) ON DELETE SET NULL,
-    FOREIGN KEY(uploaded_department_code) REFERENCES departments(department_code)
+    FOREIGN KEY(snapshot_id) REFERENCES workspace_snapshots(id) ON DELETE SET NULL
   );
 
   -- =========================
   -- 업로드 행 데이터
   -- 엑셀 행 단위 검증용
   -- =========================
-  CREATE TABLE IF NOT EXISTS sales_rows (
+  CREATE TABLE IF NOT EXISTS sales (
     row_id INTEGER PRIMARY KEY AUTOINCREMENT,
     upload_id INTEGER NOT NULL,
     row_no INTEGER NOT NULL,
+    transaction_date TEXT,
 
     raw_customer_name TEXT,
     raw_product_name TEXT,
@@ -206,6 +150,7 @@ function getDatabase(app) {
 
     validation_status TEXT NOT NULL DEFAULT 'PENDING',
     review_status TEXT NOT NULL DEFAULT 'WAITING',
+    owner_name TEXT,
 
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -214,11 +159,11 @@ function getDatabase(app) {
     FOREIGN KEY(product_code) REFERENCES products(product_code)
   );
 
-  CREATE INDEX IF NOT EXISTS idx_sales_rows_upload
-  ON sales_rows(upload_id);
+  CREATE INDEX IF NOT EXISTS idx_sales_upload
+  ON sales(upload_id);
 
-  CREATE INDEX IF NOT EXISTS idx_sales_rows_codes
-  ON sales_rows(customer_code, product_code);
+  CREATE INDEX IF NOT EXISTS idx_sales_codes
+  ON sales(customer_code, product_code);
 
   -- =========================
   -- 상세 검증 결과
@@ -244,91 +189,38 @@ function getDatabase(app) {
     resolved_at TEXT,
 
     FOREIGN KEY(upload_id) REFERENCES sales_uploads(upload_id) ON DELETE CASCADE,
-    FOREIGN KEY(row_id) REFERENCES sales_rows(row_id) ON DELETE SET NULL,
-    FOREIGN KEY(assigned_department_code) REFERENCES departments(department_code)
+    FOREIGN KEY(row_id) REFERENCES sales(row_id) ON DELETE SET NULL
   );
 
   CREATE INDEX IF NOT EXISTS idx_validation_issues_upload
   ON validation_issues(upload_id, status, severity);
 
   -- =========================
-  -- 자동 추천 매핑
-  -- 기존 데이터가 정리 안 된 회사 대응용
-  -- =========================
-  CREATE TABLE IF NOT EXISTS mapping_suggestions (
-    suggestion_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    target_type TEXT NOT NULL,
-    raw_value TEXT NOT NULL,
-    suggested_code TEXT,
-    suggested_name TEXT,
-    confidence REAL DEFAULT 0,
-    source_upload_id INTEGER,
-    status TEXT NOT NULL DEFAULT 'PENDING',
-    approved_department_code TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    decided_at TEXT,
-
-    FOREIGN KEY(source_upload_id) REFERENCES sales_uploads(upload_id),
-    FOREIGN KEY(approved_department_code) REFERENCES departments(department_code)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_mapping_suggestions_status
-  ON mapping_suggestions(target_type, status);
-
-  -- =========================
   -- 최종 보고서 기록
   -- =========================
-  CREATE TABLE IF NOT EXISTS closing_reports (
+  CREATE TABLE IF NOT EXISTS reports (
     report_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    upload_id INTEGER NOT NULL,
-    closing_month TEXT NOT NULL,
+    template_id INTEGER,
+    upload_id INTEGER,
+    snapshot_id INTEGER,
+    report_name TEXT NOT NULL,
+    report_type TEXT,
+    closing_month TEXT,
     total_quantity REAL NOT NULL DEFAULT 0,
     total_sales_amount REAL NOT NULL DEFAULT 0,
-    report_file_path TEXT NOT NULL,
+    output_format TEXT NOT NULL DEFAULT 'XLSX',
+    output_file_path TEXT,
+    files_json TEXT,
+    tags_json TEXT,
+    options_json TEXT,
     generated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status TEXT NOT NULL DEFAULT 'GENERATED',
-    FOREIGN KEY(upload_id) REFERENCES sales_uploads(upload_id)
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(template_id) REFERENCES report_templates(template_id),
+    FOREIGN KEY(upload_id) REFERENCES sales_uploads(upload_id),
+    FOREIGN KEY(snapshot_id) REFERENCES workspace_snapshots(id)
   );
-
-  -- =========================
-  -- 기준 데이터 변경 이력
-  -- 단가/코드/거래처명 변경 시 필수
-  -- =========================
-  CREATE TABLE IF NOT EXISTS audit_logs (
-    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    table_name TEXT NOT NULL,
-    record_key TEXT NOT NULL,
-    field_name TEXT NOT NULL,
-    old_value TEXT,
-    new_value TEXT,
-    changed_department_code TEXT,
-    change_reason TEXT NOT NULL,
-    changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(changed_department_code) REFERENCES departments(department_code)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_audit_logs_record
-  ON audit_logs(table_name, record_key, changed_at);
-
-  -- =========================
-  -- 변경 전/후 백업 기록
-  -- 최소 3년 보관
-  -- =========================
-  CREATE TABLE IF NOT EXISTS backup_history (
-    backup_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    target_type TEXT NOT NULL,
-    target_key TEXT NOT NULL,
-    backup_reason TEXT NOT NULL,
-    before_snapshot_path TEXT,
-    after_snapshot_path TEXT,
-    retention_until TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_backup_history_target
-  ON backup_history(target_type, target_key);
-
-
 
   -- =========================
 -- 1. 보고서 템플릿
@@ -358,134 +250,6 @@ ON report_templates(report_type, status);
 
 
 -- =========================
--- 2. 보고서 생성 작업 목록
--- 화면의 "보고서 생성 목록"에 해당
--- =========================
-CREATE TABLE IF NOT EXISTS report_jobs (
-  job_id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-  template_id INTEGER,
-  upload_id INTEGER,
-  snapshot_id INTEGER,
-
-  report_name TEXT NOT NULL,
-  data_source_name TEXT,
-  data_source_path TEXT,
-
-  output_format TEXT NOT NULL DEFAULT 'XLSX',
-  -- PDF, XLSX, PDF_XLSX
-
-  status TEXT NOT NULL DEFAULT 'DRAFT',
-  -- DRAFT, WAITING, GENERATING, COMPLETED, FAILED, CANCELED
-
-  generated_at TEXT,
-  output_file_path TEXT,
-
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-  FOREIGN KEY(template_id) REFERENCES report_templates(template_id),
-  FOREIGN KEY(upload_id) REFERENCES sales_uploads(upload_id) ON DELETE SET NULL,
-  FOREIGN KEY(snapshot_id) REFERENCES workspace_snapshots(id) ON DELETE SET NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_report_jobs_status
-ON report_jobs(status, generated_at);
-
-CREATE INDEX IF NOT EXISTS idx_report_jobs_source
-ON report_jobs(data_source_name);
-
-
--- =========================
--- 3. 보고서 출력 옵션
--- 표지 포함, 오류 행 강조, 부서별 분리 등
--- =========================
-CREATE TABLE IF NOT EXISTS report_output_options (
-  option_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  job_id INTEGER NOT NULL,
-
-  include_cover INTEGER NOT NULL DEFAULT 0,
-  highlight_error_rows INTEGER NOT NULL DEFAULT 1,
-  split_by_department INTEGER NOT NULL DEFAULT 0,
-  attach_cloud_backup INTEGER NOT NULL DEFAULT 0,
-
-  option_json TEXT,
-
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-  FOREIGN KEY(job_id) REFERENCES report_jobs(job_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_report_output_options_job
-ON report_output_options(job_id);
-
-
--- =========================
--- 4. 보고서 생성 파일
--- PDF/XLSX를 둘 다 만들 수 있으니 파일 단위로 분리
--- =========================
-CREATE TABLE IF NOT EXISTS report_files (
-  file_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  job_id INTEGER NOT NULL,
-
-  file_format TEXT NOT NULL,
-  -- PDF, XLSX
-
-  file_path TEXT NOT NULL,
-  file_name TEXT NOT NULL,
-  file_size INTEGER DEFAULT 0,
-
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-  FOREIGN KEY(job_id) REFERENCES report_jobs(job_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_report_files_job
-ON report_files(job_id);
-
-
--- =========================
--- 5. 보고서 검색/필터용 태그
--- 예: 매출마감, 오류, 백업, 거래처별
--- =========================
-CREATE TABLE IF NOT EXISTS report_tags (
-  tag_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  tag_name TEXT NOT NULL UNIQUE
-);
-
-CREATE TABLE IF NOT EXISTS report_job_tags (
-  job_id INTEGER NOT NULL,
-  tag_id INTEGER NOT NULL,
-
-  PRIMARY KEY(job_id, tag_id),
-
-  FOREIGN KEY(job_id) REFERENCES report_jobs(job_id) ON DELETE CASCADE,
-  FOREIGN KEY(tag_id) REFERENCES report_tags(tag_id) ON DELETE CASCADE
-);
-
-
--- =========================
--- 6. 보고서 생성 로그
--- 실패 원인, 생성 단계 추적
--- =========================
-CREATE TABLE IF NOT EXISTS report_job_logs (
-  log_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  job_id INTEGER NOT NULL,
-
-  level TEXT NOT NULL DEFAULT 'INFO',
-  message TEXT NOT NULL,
-  meta_json TEXT,
-
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-  FOREIGN KEY(job_id) REFERENCES report_jobs(job_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_report_job_logs_job
-ON report_job_logs(job_id, created_at);
-
-
--- =========================
 -- 1. 사용자 계정
 -- 로컬 관리자 모드 기준
 -- 비밀번호는 실제 값 저장 X, hash 저장
@@ -498,71 +262,17 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL DEFAULT 'ADMIN',
   -- ADMIN, MANAGER, VIEWER
 
-  department_code TEXT,
+  department_name TEXT,
   status TEXT NOT NULL DEFAULT 'ACTIVE',
   last_login_at TEXT,
 
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-  FOREIGN KEY(department_code) REFERENCES departments(department_code)
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_department
-ON users(department_code, status);
+ON users(department_name, status);
 
-
--- =========================
--- 2. 로그인 기록
--- =========================
-CREATE TABLE IF NOT EXISTS login_logs (
-  login_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER,
-  username TEXT,
-  login_result TEXT NOT NULL,
-  -- SUCCESS, FAILED, LOGOUT
-
-  message TEXT,
-  logged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE SET NULL
-);
-
-
--- =========================
--- 3. 기본 부서 데이터
--- =========================
-INSERT OR IGNORE INTO departments (
-  department_code,
-  department_name,
-  status
-)
-VALUES
-  ('GENERAL_AFFAIRS', '총무팀', 'ACTIVE'),
-  ('LOGISTICS', '물류팀', 'ACTIVE');
-
-
--- =========================
--- 4. 기본 관리자 계정
--- 최초 개발용
--- 실제 배포 전에는 password_hash 교체 필요
--- =========================
-INSERT OR IGNORE INTO users (
-  username,
-  display_name,
-  password_hash,
-  role,
-  department_code,
-  status
-)
-VALUES (
-  '황주은',
-  '황주은',
-  '0000',
-  'ADMIN',
-  'GENERAL_AFFAIRS',
-  'ACTIVE'
-);
 
 CREATE TABLE IF NOT EXISTS contacts (
   contact_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -614,113 +324,407 @@ VALUES (
 );
 
 
-CREATE TABLE IF NOT EXISTS send_packages (
-  package_id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS email_history (
+  email_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  package_id INTEGER,
   package_name TEXT NOT NULL,
   upload_id INTEGER,
   closing_month TEXT,
   output_folder_path TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'CREATED',
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY(upload_id) REFERENCES sales_uploads(upload_id)
-);
-
-CREATE TABLE IF NOT EXISTS send_package_items (
-  item_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  package_id INTEGER NOT NULL,
   customer_code TEXT,
   contact_id INTEGER,
-
   customer_name TEXT,
   recipient_email TEXT,
   recipient_phone TEXT,
-
   channel TEXT NOT NULL DEFAULT 'EMAIL',
   subject TEXT,
   body TEXT NOT NULL,
-
   attachment_pdf_path TEXT,
   attachment_xlsx_path TEXT,
-
   status TEXT NOT NULL DEFAULT 'READY',
-  -- READY, COPIED, OPENED, SENT, REPLIED, CLOSED, FAILED
-
   sent_checked_at TEXT,
   memo TEXT,
+  export_type TEXT,
+  export_file_path TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-  FOREIGN KEY(package_id) REFERENCES send_packages(package_id) ON DELETE CASCADE,
+  FOREIGN KEY(upload_id) REFERENCES sales_uploads(upload_id),
   FOREIGN KEY(customer_code) REFERENCES customers(customer_code),
   FOREIGN KEY(contact_id) REFERENCES contacts(contact_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_send_package_items_package
-ON send_package_items(package_id, status);
-
-CREATE TABLE IF NOT EXISTS send_exports (
-  export_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  package_id INTEGER NOT NULL,
-  export_type TEXT NOT NULL,
-  -- CSV, EXCEL_MACRO, PYTHON_SCRIPT, OUTLOOK, MANUAL
-
-  export_file_path TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-  FOREIGN KEY(package_id) REFERENCES send_packages(package_id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS department_requests (
-  request_id TEXT PRIMARY KEY,
-  department TEXT NOT NULL,
-  title TEXT NOT NULL,
-  due TEXT,
-  owner TEXT,
-  priority TEXT NOT NULL DEFAULT 'LOW',
-  status TEXT NOT NULL DEFAULT '접수',
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_department_requests_priority
-ON department_requests(priority, status, due);
-
-CREATE TABLE IF NOT EXISTS closing_companies (
-  closing_id TEXT PRIMARY KEY,
-  company TEXT NOT NULL,
-  owner TEXT,
-  deadline TEXT,
-  contact_name TEXT,
-  contact_department TEXT,
-  contact_title TEXT,
-  email TEXT,
-  phone TEXT,
-  channel TEXT NOT NULL DEFAULT 'EMAIL',
-  sales_amount REAL NOT NULL DEFAULT 0,
-  confirmed_amount REAL NOT NULL DEFAULT 0,
-  tax_amount REAL NOT NULL DEFAULT 0,
-  contact_confirmed INTEGER NOT NULL DEFAULT 0,
-  amount_confirmed INTEGER NOT NULL DEFAULT 0,
-  tax_matched INTEGER NOT NULL DEFAULT 0,
-  tax_issued INTEGER NOT NULL DEFAULT 0,
-  request_ready INTEGER NOT NULL DEFAULT 0,
-  request_sent INTEGER NOT NULL DEFAULT 0,
-  closing_sheet_sent INTEGER NOT NULL DEFAULT 1,
-  reason TEXT,
-  memo TEXT,
-  last_contact_at TEXT,
-  contact_count INTEGER NOT NULL DEFAULT 0,
-  history_json TEXT,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_closing_companies_status
-ON closing_companies(owner, deadline, contact_confirmed, amount_confirmed, tax_matched, request_sent);
+CREATE INDEX IF NOT EXISTS idx_email_history_package
+ON email_history(package_id, status);
 
 `);
 
-  ensureColumn(db, "sales_rows", "transaction_date", "TEXT");
-  ensureColumn(db, "sales_rows", "owner_name", "TEXT");
+  db.pragma("foreign_keys = OFF");
+  db.exec("DROP TABLE IF EXISTS product_aliases");
+  db.exec("DROP TABLE IF EXISTS customer_aliases");
+
+  ensureColumn(db, "products", "unit_price", "REAL NOT NULL DEFAULT 0");
+  ensureColumn(db, "products", "currency", "TEXT NOT NULL DEFAULT 'KRW'");
+  ensureColumn(db, "customers", "closing_json", "TEXT");
+  ensureColumn(db, "users", "department_name", "TEXT");
+  ensureColumn(db, "workspace_snapshots", "file_path", "TEXT");
+  ensureColumn(db, "workspace_snapshots", "row_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "workspace_snapshots", "column_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "workspace_snapshots", "issue_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "workspace_snapshots", "duplicate_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "workspace_snapshots", "review_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "sales", "transaction_date", "TEXT");
+  ensureColumn(db, "sales", "owner_name", "TEXT");
+  if (tableExists(db, "sales_rows")) {
+    ensureColumn(db, "sales_rows", "transaction_date", "TEXT");
+    ensureColumn(db, "sales_rows", "owner_name", "TEXT");
+  }
+
+  if (tableExists(db, "departments")) {
+    db.exec(`
+      UPDATE users
+      SET department_name = COALESCE(
+        department_name,
+        (SELECT department_name FROM departments WHERE department_code = users.department_code)
+      );
+    `);
+  }
+
+  if (hasForeignKeyTo(db, "users", "departments")) {
+    db.exec(`
+      CREATE TABLE users_rebuilt (
+        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        password_hash TEXT,
+        role TEXT NOT NULL DEFAULT 'ADMIN',
+        department_name TEXT,
+        status TEXT NOT NULL DEFAULT 'ACTIVE',
+        last_login_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO users_rebuilt
+      SELECT user_id, username, display_name, password_hash, role,
+             department_name, status, last_login_at, created_at, updated_at
+      FROM users;
+      DROP TABLE users;
+      ALTER TABLE users_rebuilt RENAME TO users;
+      CREATE INDEX idx_users_department ON users(department_name, status);
+    `);
+  }
+
+  if (hasForeignKeyTo(db, "sales_uploads", "departments")) {
+    db.exec(`
+      CREATE TABLE sales_uploads_rebuilt (
+        upload_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshot_id INTEGER,
+        file_name TEXT NOT NULL,
+        file_path TEXT,
+        normalized_json_path TEXT,
+        closing_month TEXT NOT NULL,
+        uploaded_department_code TEXT,
+        uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'UPLOADED',
+        memo TEXT,
+        FOREIGN KEY(snapshot_id) REFERENCES workspace_snapshots(id) ON DELETE SET NULL
+      );
+      INSERT INTO sales_uploads_rebuilt SELECT * FROM sales_uploads;
+      DROP TABLE sales_uploads;
+      ALTER TABLE sales_uploads_rebuilt RENAME TO sales_uploads;
+    `);
+  }
+
+  if (hasForeignKeyTo(db, "validation_issues", "departments")) {
+    db.exec(`
+      CREATE TABLE validation_issues_rebuilt (
+        issue_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        upload_id INTEGER NOT NULL,
+        row_id INTEGER,
+        error_type TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'WARNING',
+        message TEXT NOT NULL,
+        expected_value TEXT,
+        actual_value TEXT,
+        assigned_department_code TEXT,
+        status TEXT NOT NULL DEFAULT 'OPEN',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TEXT,
+        FOREIGN KEY(upload_id) REFERENCES sales_uploads(upload_id) ON DELETE CASCADE,
+        FOREIGN KEY(row_id) REFERENCES sales(row_id) ON DELETE SET NULL
+      );
+      INSERT INTO validation_issues_rebuilt SELECT * FROM validation_issues;
+      DROP TABLE validation_issues;
+      ALTER TABLE validation_issues_rebuilt RENAME TO validation_issues;
+      CREATE INDEX idx_validation_issues_upload
+      ON validation_issues(upload_id, status, severity);
+    `);
+  }
+
+  db.exec("DROP TABLE IF EXISTS departments");
+
+  db.prepare(`
+    INSERT OR IGNORE INTO users (
+      username, display_name, password_hash, role, department_name, status
+    )
+    VALUES ('황주은', '황주은', '0000', 'ADMIN', '총무팀', 'ACTIVE')
+  `).run();
+
+  if (tableExists(db, "sales_prices")) {
+    db.exec(`
+      UPDATE products
+      SET
+        unit_price = COALESCE((
+          SELECT price FROM sales_prices
+          WHERE product_code = products.product_code
+          ORDER BY start_date DESC, price_id DESC
+          LIMIT 1
+        ), unit_price),
+        currency = COALESCE((
+          SELECT currency FROM sales_prices
+          WHERE product_code = products.product_code
+          ORDER BY start_date DESC, price_id DESC
+          LIMIT 1
+        ), currency);
+      DROP TABLE sales_prices;
+    `);
+  }
+
+  if (tableExists(db, "sales_rows")) {
+    db.exec(`
+      INSERT OR IGNORE INTO sales (
+        row_id, upload_id, row_no, transaction_date,
+        raw_customer_name, raw_product_name, customer_code, product_code,
+        quantity, unit_price, sales_amount, validation_status,
+        review_status, owner_name, created_at
+      )
+      SELECT
+        row_id, upload_id, row_no, transaction_date,
+        raw_customer_name, raw_product_name, customer_code, product_code,
+        quantity, unit_price, sales_amount, validation_status,
+        review_status, owner_name, created_at
+      FROM sales_rows;
+      DROP TABLE sales_rows;
+    `);
+  }
+
+  if (tableExists(db, "recent_files")) {
+    db.exec(`
+      INSERT INTO workspace_snapshots (
+        file_name, file_path, payload_json, row_count, column_count, saved_at
+      )
+      SELECT file_name, file_path, '{}', row_count, column_count, opened_at
+      FROM recent_files
+      WHERE NOT EXISTS (
+        SELECT 1 FROM workspace_snapshots
+        WHERE workspace_snapshots.file_name = recent_files.file_name
+          AND workspace_snapshots.saved_at = recent_files.opened_at
+      );
+      DROP TABLE recent_files;
+    `);
+  }
+
+  if (tableExists(db, "validation_results")) {
+    db.exec(`
+      UPDATE workspace_snapshots
+      SET
+        issue_count = COALESCE((SELECT issue_count FROM validation_results WHERE snapshot_id = workspace_snapshots.id ORDER BY id DESC LIMIT 1), issue_count),
+        duplicate_count = COALESCE((SELECT duplicate_count FROM validation_results WHERE snapshot_id = workspace_snapshots.id ORDER BY id DESC LIMIT 1), duplicate_count),
+        review_count = COALESCE((SELECT review_count FROM validation_results WHERE snapshot_id = workspace_snapshots.id ORDER BY id DESC LIMIT 1), review_count);
+      DROP TABLE validation_results;
+    `);
+  }
+
+  if (tableExists(db, "report_jobs")) {
+    db.exec(`
+      INSERT OR IGNORE INTO reports (
+        report_id, template_id, upload_id, snapshot_id, report_name,
+        output_format, output_file_path, generated_at, status, created_at, updated_at
+      )
+      SELECT
+        job_id, template_id, upload_id, snapshot_id, report_name,
+        output_format, output_file_path, COALESCE(generated_at, created_at),
+        status, created_at, updated_at
+      FROM report_jobs;
+      DROP TABLE report_jobs;
+    `);
+  }
+
+  if (tableExists(db, "closing_reports")) {
+    db.exec(`
+      INSERT OR IGNORE INTO reports (
+        report_id, upload_id, report_name, report_type, closing_month,
+        total_quantity, total_sales_amount, output_file_path,
+        generated_at, status, created_at, updated_at
+      )
+      SELECT
+        report_id, upload_id, '마감 보고서', 'CLOSING', closing_month,
+        total_quantity, total_sales_amount, report_file_path,
+        generated_at, status, generated_at, generated_at
+      FROM closing_reports;
+      DROP TABLE closing_reports;
+    `);
+  }
+
+  db.exec(`
+    DROP TABLE IF EXISTS report_output_options;
+    DROP TABLE IF EXISTS report_files;
+    DROP TABLE IF EXISTS report_job_tags;
+    DROP TABLE IF EXISTS report_tags;
+  `);
+
+  if (tableExists(db, "app_events")) {
+    db.exec(`
+      INSERT INTO activity_logs (log_type, level, action, message, meta_json, created_at)
+      SELECT 'APP', level, 'APP_EVENT', message, meta_json, created_at FROM app_events;
+      DROP TABLE app_events;
+    `);
+  }
+
+  if (tableExists(db, "audit_logs")) {
+    db.exec(`
+      INSERT INTO activity_logs (
+        log_type, level, action, target_type, target_id,
+        message, old_value, new_value, created_at
+      )
+      SELECT
+        'AUDIT', 'INFO', field_name, table_name, record_key,
+        change_reason, old_value, new_value, changed_at
+      FROM audit_logs;
+      DROP TABLE audit_logs;
+    `);
+  }
+
+  if (tableExists(db, "login_logs")) {
+    db.exec(`
+      INSERT INTO activity_logs (
+        log_type, level, user_id, action, result, message, created_at
+      )
+      SELECT
+        'LOGIN',
+        CASE WHEN login_result = 'FAILED' THEN 'WARN' ELSE 'INFO' END,
+        user_id, 'LOGIN', login_result, COALESCE(message, username), logged_at
+      FROM login_logs;
+      DROP TABLE login_logs;
+    `);
+  }
+
+  if (tableExists(db, "backup_history")) {
+    db.exec(`
+      INSERT INTO activity_logs (
+        log_type, level, action, target_type, target_id, message, meta_json, created_at
+      )
+      SELECT
+        'BACKUP', 'INFO', 'BACKUP', target_type, target_key, backup_reason,
+        json_object(
+          'beforeSnapshotPath', before_snapshot_path,
+          'afterSnapshotPath', after_snapshot_path,
+          'retentionUntil', retention_until
+        ),
+        created_at
+      FROM backup_history;
+      DROP TABLE backup_history;
+    `);
+  }
+
+  if (tableExists(db, "report_job_logs")) {
+    db.exec(`
+      INSERT INTO activity_logs (
+        log_type, level, action, target_type, target_id, message, meta_json, created_at
+      )
+      SELECT
+        'REPORT', level, 'REPORT_JOB', 'REPORT_JOB', CAST(job_id AS TEXT),
+        message, meta_json, created_at
+      FROM report_job_logs;
+      DROP TABLE report_job_logs;
+    `);
+  }
+
+  if (tableExists(db, "send_packages") && tableExists(db, "send_package_items")) {
+    db.exec(`
+      INSERT INTO email_history (
+        email_id, package_id, package_name, upload_id, closing_month,
+        output_folder_path, customer_code, contact_id, customer_name,
+        recipient_email, recipient_phone, channel, subject, body,
+        attachment_pdf_path, attachment_xlsx_path, status,
+        sent_checked_at, memo, created_at
+      )
+      SELECT
+        i.item_id, p.package_id, p.package_name, p.upload_id, p.closing_month,
+        p.output_folder_path, i.customer_code, i.contact_id, i.customer_name,
+        i.recipient_email, i.recipient_phone, i.channel, i.subject, i.body,
+        i.attachment_pdf_path, i.attachment_xlsx_path, i.status,
+        i.sent_checked_at, i.memo, i.created_at
+      FROM send_package_items i
+      JOIN send_packages p ON p.package_id = i.package_id;
+      DROP TABLE send_package_items;
+      DROP TABLE send_packages;
+      DROP TABLE IF EXISTS send_exports;
+    `);
+  }
+
+  if (tableExists(db, "mapping_suggestions")) {
+    db.exec(`
+      INSERT INTO activity_logs (
+        log_type, level, action, target_type, target_id, message, meta_json, created_at
+      )
+      SELECT
+        'MAPPING', 'INFO', 'SUGGEST', target_type, CAST(suggestion_id AS TEXT),
+        raw_value,
+        json_object(
+          'suggestedCode', suggested_code,
+          'suggestedName', suggested_name,
+          'confidence', confidence,
+          'status', status
+        ),
+        created_at
+      FROM mapping_suggestions;
+      DROP TABLE mapping_suggestions;
+    `);
+  }
+
+  if (tableExists(db, "department_requests")) {
+    db.exec(`
+      INSERT INTO activity_logs (
+        log_type, level, action, target_type, target_id, message, meta_json, created_at
+      )
+      SELECT
+        'REQUEST', 'INFO', 'DEPARTMENT_REQUEST', 'DEPARTMENT', request_id, title,
+        json_object(
+          'department', department, 'due', due, 'owner', owner,
+          'priority', priority, 'status', status
+        ),
+        created_at
+      FROM department_requests;
+      DROP TABLE department_requests;
+    `);
+  }
+
+  if (tableExists(db, "closing_companies")) {
+    db.exec(`
+      INSERT OR IGNORE INTO customers (
+        customer_code, customer_name, status, memo, closing_json, created_at, updated_at
+      )
+      SELECT
+        closing_id, company, 'ACTIVE', memo,
+        json_object(
+          'id', closing_id, 'company', company, 'owner', owner,
+          'deadline', deadline, 'contactName', contact_name,
+          'contactDepartment', contact_department, 'contactTitle', contact_title,
+          'email', email, 'phone', phone, 'channel', channel,
+          'salesAmount', sales_amount, 'confirmedAmount', confirmed_amount,
+          'taxAmount', tax_amount, 'contactConfirmed', contact_confirmed,
+          'amountConfirmed', amount_confirmed, 'taxMatched', tax_matched,
+          'taxIssued', tax_issued, 'requestReady', request_ready,
+          'requestSent', request_sent, 'closingSheetSent', closing_sheet_sent,
+          'reason', reason, 'memo', memo, 'lastContactAt', last_contact_at,
+          'contactCount', contact_count, 'historyJson', history_json
+        ),
+        created_at, updated_at
+      FROM closing_companies;
+      DROP TABLE closing_companies;
+    `);
+  }
+
+  db.pragma("foreign_keys = ON");
 
   return db;
 }
@@ -789,7 +793,7 @@ function getLatestSalesData(database) {
         sales_amount AS salesAmount,
         validation_status AS validationStatus,
         owner_name AS ownerName
-      FROM sales_rows
+      FROM sales
       WHERE upload_id = @uploadId
       ORDER BY row_no ASC
     `,
@@ -828,7 +832,7 @@ function getLatestSalesData(database) {
         ],
         rows,
         savedAt: upload.uploadedAt,
-        source: "sales_rows",
+        source: "sales",
       },
     },
   };
@@ -902,7 +906,7 @@ function getFilteredSalesData(database, options = {}) {
 
   const total =
     database
-      .prepare(`SELECT COUNT(*) AS count FROM sales_rows WHERE ${where}`)
+      .prepare(`SELECT COUNT(*) AS count FROM sales WHERE ${where}`)
       .get(params)?.count ?? 0;
   console.log("[debug:data-query:sql] params", params);
   console.log("[debug:data-query:sql] where", where);
@@ -921,7 +925,7 @@ function getFilteredSalesData(database, options = {}) {
         sales_amount AS salesAmount,
         validation_status AS validationStatus,
         owner_name AS ownerName
-      FROM sales_rows
+      FROM sales
       WHERE ${where}
       ORDER BY row_no ASC
       LIMIT @limit OFFSET @offset
@@ -939,7 +943,7 @@ function getFilteredSalesData(database, options = {}) {
       row.validationStatus ?? "",
       row.ownerName ?? "",
     ]);
-  console.log("[debug:data-query:sql] rows sample", rows.slice(0, 3));
+  console.log("[debug:data-query:sql] rows preview", rows.slice(0, 3));
 
   return {
     ok: true,
@@ -989,7 +993,7 @@ function getDailySalesTrend(database, limit = 45) {
         substr(transaction_date, 1, 10) AS date,
         substr(transaction_date, 6, 5) AS day,
         COALESCE(SUM(sales_amount), 0) AS amount
-      FROM sales_rows
+      FROM sales
       WHERE upload_id = @uploadId
         AND transaction_date IS NOT NULL
         AND transaction_date <> ''
@@ -1020,268 +1024,6 @@ function getDailySalesTrend(database, limit = 45) {
     },
   };
 }
-
-const seedDepartmentRequests = [
-  {
-    id: "REQ-001",
-    department: "영업팀",
-    title: "6월 거래처 마감 금액 확인 요청",
-    due: "오늘 14:00",
-    owner: "김민서",
-    priority: "HIGH",
-    status: "확인 필요",
-  },
-  {
-    id: "REQ-002",
-    department: "물류팀",
-    title: "반품 처리 기준 자료 공유 요청",
-    due: "오늘 16:00",
-    owner: "박정우",
-    priority: "MEDIUM",
-    status: "진행 중",
-  },
-  {
-    id: "REQ-003",
-    department: "구매팀",
-    title: "세금계산서 공급가액 차이 재확인",
-    due: "내일 10:00",
-    owner: "이서연",
-    priority: "HIGH",
-    status: "대기",
-  },
-  {
-    id: "REQ-004",
-    department: "CS팀",
-    title: "거래처 담당자 연락처 변경 반영",
-    due: "06-13",
-    owner: "최현우",
-    priority: "LOW",
-    status: "접수",
-  },
-];
-
-const seedClosingCompanies = [
-  {
-    id: "CLOSING-001",
-    company: "한빛유통",
-    owner: "김민서",
-    deadline: "10일",
-    contactName: "오민지",
-    contactDepartment: "정산팀",
-    contactTitle: "담당자",
-    email: "settle@hanbit.example",
-    phone: "010-4210-1842",
-    channel: "EMAIL",
-    salesAmount: 28450000,
-    confirmedAmount: 28450000,
-    taxAmount: 28450000,
-    contactConfirmed: true,
-    amountConfirmed: true,
-    taxMatched: true,
-    taxIssued: true,
-    requestReady: true,
-    requestSent: true,
-    closingSheetSent: true,
-    reason: "미확정 없음",
-    memo: "5월 마감 확정 완료. 요청서 발송 완료.",
-    lastContactAt: "2026-06-08 11:00",
-    contactCount: 1,
-    history: [
-      "06-07 거래처 확인 완료",
-      "06-08 세금계산서 대조 완료",
-      "06-08 요청서 발송",
-    ],
-  },
-  {
-    id: "CLOSING-002",
-    company: "모블상사",
-    owner: "김민서",
-    deadline: "10일",
-    contactName: "강소영",
-    contactDepartment: "관리팀",
-    contactTitle: "대리",
-    email: "admin@moble.example",
-    phone: "010-3188-5502",
-    channel: "EMAIL",
-    salesAmount: 19720000,
-    confirmedAmount: 19650000,
-    taxAmount: 19720000,
-    contactConfirmed: false,
-    amountConfirmed: false,
-    taxMatched: false,
-    taxIssued: false,
-    requestReady: false,
-    requestSent: false,
-    closingSheetSent: true,
-    reason: "회신 대기",
-    memo: "거래처 담당자 금액 확인 회신 대기.",
-    lastContactAt: "2026-06-08 10:30",
-    contactCount: 2,
-    history: ["06-06 1차 확인 메일 발송", "06-08 전화 연결 실패"],
-  },
-  {
-    id: "CLOSING-003",
-    company: "그린물류",
-    owner: "박정우",
-    deadline: "25일",
-    contactName: "서가은",
-    contactDepartment: "정산팀",
-    contactTitle: "팀장",
-    email: "tax@greenlog.example",
-    phone: "010-9402-6620",
-    channel: "EMAIL",
-    salesAmount: 43180000,
-    confirmedAmount: 43180000,
-    taxAmount: 43010000,
-    contactConfirmed: true,
-    amountConfirmed: true,
-    taxMatched: false,
-    taxIssued: true,
-    requestReady: false,
-    requestSent: false,
-    closingSheetSent: true,
-    reason: "세금계산서 차이",
-    memo: "세금계산서 공급가액 170,000원 차이 확인 필요.",
-    lastContactAt: "2026-06-09 14:00",
-    contactCount: 1,
-    history: ["06-05 금액 확정", "06-09 세금계산서 차이 발견"],
-  },
-  {
-    id: "CLOSING-004",
-    company: "청담리테일",
-    owner: "이서연",
-    deadline: "25일",
-    contactName: "윤나래",
-    contactDepartment: "관리팀",
-    contactTitle: "과장",
-    email: "closing@cheongdam.example",
-    phone: "010-6104-0931",
-    channel: "KAKAO",
-    salesAmount: 12690000,
-    confirmedAmount: 12400000,
-    taxAmount: 12400000,
-    contactConfirmed: true,
-    amountConfirmed: false,
-    taxMatched: true,
-    taxIssued: false,
-    requestReady: false,
-    requestSent: false,
-    closingSheetSent: true,
-    reason: "금액 조율",
-    memo: "반품 2건 반영 여부 조율 중.",
-    lastContactAt: "2026-06-08 16:10",
-    contactCount: 3,
-    history: ["06-04 거래처 확인 완료", "06-08 반품 건 내부 검토 요청"],
-  },
-  {
-    id: "CLOSING-005",
-    company: "서울컴퍼니",
-    owner: "최현우",
-    deadline: "30일",
-    contactName: "문하린",
-    contactDepartment: "회계팀",
-    contactTitle: "차장",
-    email: "finance@seoulcp.example",
-    phone: "010-8890-7311",
-    channel: "EMAIL",
-    salesAmount: 35860000,
-    confirmedAmount: 35860000,
-    taxAmount: 35860000,
-    contactConfirmed: true,
-    amountConfirmed: true,
-    taxMatched: true,
-    taxIssued: false,
-    requestReady: true,
-    requestSent: false,
-    closingSheetSent: false,
-    reason: "미확정 없음",
-    memo: "발송 패키지 준비 완료. 발송 승인만 남음.",
-    lastContactAt: "-",
-    contactCount: 0,
-    history: ["06-08 금액 확정", "06-09 패키지 생성"],
-  },
-  {
-    id: "CLOSING-006",
-    company: "다원문구",
-    owner: "박정우",
-    deadline: "10일",
-    contactName: "이지현",
-    contactDepartment: "구매팀",
-    contactTitle: "대리",
-    email: "purchase@dawon.example",
-    phone: "010-2048-2701",
-    channel: "EMAIL",
-    salesAmount: 9870000,
-    confirmedAmount: 9870000,
-    taxAmount: 10010000,
-    contactConfirmed: false,
-    amountConfirmed: true,
-    taxMatched: false,
-    taxIssued: true,
-    requestReady: false,
-    requestSent: false,
-    closingSheetSent: true,
-    reason: "세금계산서 차이",
-    memo: "담당자 확인 전이며 세금계산서 금액 차이.",
-    lastContactAt: "2026-06-09 09:20",
-    contactCount: 1,
-    history: ["06-07 세금계산서 업로드", "06-09 연락 필요 표시"],
-  },
-  {
-    id: "CLOSING-007",
-    company: "바른테크",
-    owner: "이서연",
-    deadline: "30일",
-    contactName: "최도윤",
-    contactDepartment: "정산팀",
-    contactTitle: "담당자",
-    email: "settlement@baruntech.example",
-    phone: "010-5211-4299",
-    channel: "EMAIL",
-    salesAmount: 22140000,
-    confirmedAmount: 22140000,
-    taxAmount: 22140000,
-    contactConfirmed: true,
-    amountConfirmed: true,
-    taxMatched: true,
-    taxIssued: true,
-    requestReady: true,
-    requestSent: true,
-    closingSheetSent: true,
-    reason: "미확정 없음",
-    memo: "마감 완료.",
-    lastContactAt: "2026-06-06 12:00",
-    contactCount: 1,
-    history: ["06-06 최종 확정", "06-06 발송 완료"],
-  },
-  {
-    id: "CLOSING-008",
-    company: "코리아비즈",
-    owner: "최현우",
-    deadline: "25일",
-    contactName: "손우진",
-    contactDepartment: "회계팀",
-    contactTitle: "대리",
-    email: "account@koreabiz.example",
-    phone: "010-3900-1187",
-    channel: "KAKAO",
-    salesAmount: 48750000,
-    confirmedAmount: 48200000,
-    taxAmount: 48200000,
-    contactConfirmed: true,
-    amountConfirmed: false,
-    taxMatched: true,
-    taxIssued: false,
-    requestReady: false,
-    requestSent: false,
-    closingSheetSent: true,
-    reason: "내부 검토",
-    memo: "대량 거래 할인 반영 여부 내부 승인 필요.",
-    lastContactAt: "2026-06-09 15:30",
-    contactCount: 2,
-    history: ["06-08 거래처 확인 완료", "06-09 내부 승인 요청"],
-  },
-];
 
 function toBooleanNumber(value) {
   return value ? 1 : 0;
@@ -1327,237 +1069,74 @@ function normalizeClosingCompany(row) {
   };
 }
 
-function ensureOperationalSeedData(database) {
-  const insertRequest = database.prepare(`
-    INSERT OR IGNORE INTO department_requests (
-      request_id, department, title, due, owner, priority, status
-    )
-    VALUES (@id, @department, @title, @due, @owner, @priority, @status)
-  `);
-  const insertClosing = database.prepare(`
-    INSERT OR IGNORE INTO closing_companies (
-      closing_id,
-      company,
-      owner,
-      deadline,
-      contact_name,
-      contact_department,
-      contact_title,
-      email,
-      phone,
-      channel,
-      sales_amount,
-      confirmed_amount,
-      tax_amount,
-      contact_confirmed,
-      amount_confirmed,
-      tax_matched,
-      tax_issued,
-      request_ready,
-      request_sent,
-      closing_sheet_sent,
-      reason,
-      memo,
-      last_contact_at,
-      contact_count,
-      history_json
-    )
-    VALUES (
-      @id,
-      @company,
-      @owner,
-      @deadline,
-      @contactName,
-      @contactDepartment,
-      @contactTitle,
-      @email,
-      @phone,
-      @channel,
-      @salesAmount,
-      @confirmedAmount,
-      @taxAmount,
-      @contactConfirmed,
-      @amountConfirmed,
-      @taxMatched,
-      @taxIssued,
-      @requestReady,
-      @requestSent,
-      @closingSheetSent,
-      @reason,
-      @memo,
-      @lastContactAt,
-      @contactCount,
-      @historyJson
-    )
-  `);
-
-  database.transaction(() => {
-    seedDepartmentRequests.forEach((request) => insertRequest.run(request));
-    seedClosingCompanies.forEach((row) =>
-      insertClosing.run({
-        ...row,
-        contactConfirmed: toBooleanNumber(row.contactConfirmed),
-        amountConfirmed: toBooleanNumber(row.amountConfirmed),
-        taxMatched: toBooleanNumber(row.taxMatched),
-        taxIssued: toBooleanNumber(row.taxIssued),
-        requestReady: toBooleanNumber(row.requestReady),
-        requestSent: toBooleanNumber(row.requestSent),
-        closingSheetSent: toBooleanNumber(row.closingSheetSent),
-        historyJson: JSON.stringify(row.history ?? []),
-      }),
-    );
-  })();
-}
-
 function getDepartmentRequests(database) {
-  ensureOperationalSeedData(database);
   return database
     .prepare(
       `
     SELECT
-      request_id AS id,
-      department,
-      title,
-      due,
-      owner,
-      priority,
-      status,
-      created_at AS createdAt,
-      updated_at AS updatedAt
-    FROM department_requests
-    ORDER BY
-      CASE priority WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
-      request_id ASC
-  `,
-    )
-    .all();
-}
-
-function getClosingCompanies(database) {
-  ensureOperationalSeedData(database);
-  return database
-    .prepare(
-      `
-    SELECT
-      closing_id AS closingId,
-      company,
-      owner,
-      deadline,
-      contact_name AS contactName,
-      contact_department AS contactDepartment,
-      contact_title AS contactTitle,
-      email,
-      phone,
-      channel,
-      sales_amount AS salesAmount,
-      confirmed_amount AS confirmedAmount,
-      tax_amount AS taxAmount,
-      contact_confirmed AS contactConfirmed,
-      amount_confirmed AS amountConfirmed,
-      tax_matched AS taxMatched,
-      tax_issued AS taxIssued,
-      request_ready AS requestReady,
-      request_sent AS requestSent,
-      closing_sheet_sent AS closingSheetSent,
-      reason,
-      memo,
-      last_contact_at AS lastContactAt,
-      contact_count AS contactCount,
-      history_json AS historyJson,
-      updated_at AS updatedAt
-    FROM closing_companies
-    ORDER BY closing_id ASC
+      target_id AS id,
+      message AS title,
+      meta_json AS metaJson,
+      created_at AS createdAt
+    FROM activity_logs
+    WHERE log_type = 'REQUEST'
+    ORDER BY log_id DESC
   `,
     )
     .all()
-    .map(normalizeClosingCompany);
+    .map((row) => {
+      const meta = JSON.parse(row.metaJson || "{}");
+      return {
+        id: row.id,
+        title: row.title,
+        department: meta.department ?? "",
+        due: meta.due ?? "",
+        owner: meta.owner ?? "",
+        priority: meta.priority ?? "LOW",
+        status: meta.status ?? "접수",
+        createdAt: row.createdAt,
+        updatedAt: row.createdAt,
+      };
+    });
+}
+
+function getClosingCompanies(database) {
+  return database
+    .prepare(
+      `
+    SELECT
+      customer_code AS closingId,
+      customer_name AS company,
+      closing_json AS closingJson,
+      updated_at AS updatedAt
+    FROM customers
+    WHERE closing_json IS NOT NULL
+    ORDER BY customer_code ASC
+  `,
+    )
+    .all()
+    .map((row) => {
+      const data = JSON.parse(row.closingJson || "{}");
+      return normalizeClosingCompany({
+        ...data,
+        closingId: row.closingId,
+        company: row.company,
+        historyJson: data.historyJson ?? JSON.stringify(data.history ?? []),
+        updatedAt: row.updatedAt,
+      });
+    });
 }
 
 function saveClosingCompanies(database, rows = []) {
-  ensureOperationalSeedData(database);
-
   const upsert = database.prepare(`
-    INSERT INTO closing_companies (
-      closing_id,
-      company,
-      owner,
-      deadline,
-      contact_name,
-      contact_department,
-      contact_title,
-      email,
-      phone,
-      channel,
-      sales_amount,
-      confirmed_amount,
-      tax_amount,
-      contact_confirmed,
-      amount_confirmed,
-      tax_matched,
-      tax_issued,
-      request_ready,
-      request_sent,
-      closing_sheet_sent,
-      reason,
-      memo,
-      last_contact_at,
-      contact_count,
-      history_json,
-      updated_at
+    INSERT INTO customers (
+      customer_code, customer_name, status, memo, closing_json, updated_at
     )
-    VALUES (
-      @id,
-      @company,
-      @owner,
-      @deadline,
-      @contactName,
-      @contactDepartment,
-      @contactTitle,
-      @email,
-      @phone,
-      @channel,
-      @salesAmount,
-      @confirmedAmount,
-      @taxAmount,
-      @contactConfirmed,
-      @amountConfirmed,
-      @taxMatched,
-      @taxIssued,
-      @requestReady,
-      @requestSent,
-      @closingSheetSent,
-      @reason,
-      @memo,
-      @lastContactAt,
-      @contactCount,
-      @historyJson,
-      CURRENT_TIMESTAMP
-    )
-    ON CONFLICT(closing_id) DO UPDATE SET
-      company = excluded.company,
-      owner = excluded.owner,
-      deadline = excluded.deadline,
-      contact_name = excluded.contact_name,
-      contact_department = excluded.contact_department,
-      contact_title = excluded.contact_title,
-      email = excluded.email,
-      phone = excluded.phone,
-      channel = excluded.channel,
-      sales_amount = excluded.sales_amount,
-      confirmed_amount = excluded.confirmed_amount,
-      tax_amount = excluded.tax_amount,
-      contact_confirmed = excluded.contact_confirmed,
-      amount_confirmed = excluded.amount_confirmed,
-      tax_matched = excluded.tax_matched,
-      tax_issued = excluded.tax_issued,
-      request_ready = excluded.request_ready,
-      request_sent = excluded.request_sent,
-      closing_sheet_sent = excluded.closing_sheet_sent,
-      reason = excluded.reason,
+    VALUES (@id, @company, 'ACTIVE', @memo, @closingJson, CURRENT_TIMESTAMP)
+    ON CONFLICT(customer_code) DO UPDATE SET
+      customer_name = excluded.customer_name,
       memo = excluded.memo,
-      last_contact_at = excluded.last_contact_at,
-      contact_count = excluded.contact_count,
-      history_json = excluded.history_json,
+      closing_json = excluded.closing_json,
       updated_at = CURRENT_TIMESTAMP
   `);
 
@@ -1566,540 +1145,24 @@ function saveClosingCompanies(database, rows = []) {
       upsert.run({
         id: row.id,
         company: row.company ?? "",
-        owner: row.owner ?? "",
-        deadline: row.deadline ?? "",
-        contactName: row.contactName ?? "",
-        contactDepartment: row.contactDepartment ?? "",
-        contactTitle: row.contactTitle ?? "",
-        email: row.email ?? "",
-        phone: row.phone ?? "",
-        channel: row.channel ?? "EMAIL",
-        salesAmount: Number(row.salesAmount) || 0,
-        confirmedAmount: Number(row.confirmedAmount) || 0,
-        taxAmount: Number(row.taxAmount) || 0,
-        contactConfirmed: toBooleanNumber(row.contactConfirmed),
-        amountConfirmed: toBooleanNumber(row.amountConfirmed),
-        taxMatched: toBooleanNumber(row.taxMatched),
-        taxIssued: toBooleanNumber(row.taxIssued),
-        requestReady: toBooleanNumber(row.requestReady),
-        requestSent: toBooleanNumber(row.requestSent),
-        closingSheetSent: toBooleanNumber(row.closingSheetSent),
-        reason: row.reason ?? "",
         memo: row.memo ?? "",
-        lastContactAt: row.lastContactAt ?? "",
-        contactCount: Number(row.contactCount) || 0,
-        historyJson: JSON.stringify(row.history ?? []),
+        closingJson: JSON.stringify({
+          ...row,
+          contactConfirmed: toBooleanNumber(row.contactConfirmed),
+          amountConfirmed: toBooleanNumber(row.amountConfirmed),
+          taxMatched: toBooleanNumber(row.taxMatched),
+          taxIssued: toBooleanNumber(row.taxIssued),
+          requestReady: toBooleanNumber(row.requestReady),
+          requestSent: toBooleanNumber(row.requestSent),
+          closingSheetSent: toBooleanNumber(row.closingSheetSent),
+          historyJson: JSON.stringify(row.history ?? []),
+        }),
       });
     });
   });
 
   transaction();
   return getClosingCompanies(database);
-}
-
-const seedDepartments = [
-  { departmentCode: "GENERAL_AFFAIRS", departmentName: "총무팀" },
-  { departmentCode: "SALES", departmentName: "영업팀" },
-  { departmentCode: "LOGISTICS", departmentName: "물류팀" },
-];
-
-const seedCustomers = [
-  {
-    customerCode: "CUST-001",
-    customerName: "한빛유통",
-    businessNumber: "101-81-00001",
-    taxStatus: "ACTIVE",
-    memo: "월마감 검수 대상",
-  },
-  {
-    customerCode: "CUST-002",
-    customerName: "세종오피스",
-    businessNumber: "102-82-00002",
-    taxStatus: "ACTIVE",
-    memo: "사무용품 정기 거래처",
-  },
-  {
-    customerCode: "CUST-003",
-    customerName: "모블상사",
-    businessNumber: "103-83-00003",
-    taxStatus: "ACTIVE",
-    memo: "제품명 별칭 확인 필요",
-  },
-  {
-    customerCode: "CUST-004",
-    customerName: "대원시스템",
-    businessNumber: "104-84-00004",
-    taxStatus: "ACTIVE",
-    memo: "단가 기준 변경 이력 관리",
-  },
-  {
-    customerCode: "CUST-005",
-    customerName: "청담리테일",
-    businessNumber: "105-85-00005",
-    taxStatus: "ACTIVE",
-    memo: "신규 거래처",
-  },
-];
-
-const seedCustomerAliases = [
-  {
-    customerCode: "CUST-001",
-    aliasName: "한빛 유통",
-    source: "SEED",
-    confidence: 0.98,
-  },
-  {
-    customerCode: "CUST-001",
-    aliasName: "(주)한빛유통",
-    source: "SEED",
-    confidence: 0.96,
-  },
-  {
-    customerCode: "CUST-002",
-    aliasName: "세종 오피스",
-    source: "SEED",
-    confidence: 0.97,
-  },
-  {
-    customerCode: "CUST-003",
-    aliasName: "모블상사 주식회사",
-    source: "SEED",
-    confidence: 0.94,
-  },
-  {
-    customerCode: "CUST-004",
-    aliasName: "대원 시스템",
-    source: "SEED",
-    confidence: 0.95,
-  },
-];
-
-const seedProducts = [
-  {
-    productCode: "PAPER-A4-001",
-    productName: "A4 복사용지",
-    unit: "BOX",
-    memo: "박스 단위",
-  },
-  {
-    productCode: "TONER-BLK-2108",
-    productName: "흑백 토너 2108",
-    unit: "EA",
-    memo: "프린터 소모품",
-  },
-  {
-    productCode: "USB-HUB-04",
-    productName: "4포트 USB 허브",
-    unit: "EA",
-    memo: "전산 비품",
-  },
-  {
-    productCode: "CABLE-MEET-01",
-    productName: "회의실 HDMI 케이블",
-    unit: "EA",
-    memo: "회의실 소모품",
-  },
-  {
-    productCode: "LABEL-STK-02",
-    productName: "라벨 스티커",
-    unit: "PACK",
-    memo: "물류 라벨",
-  },
-];
-
-const seedProductAliases = [
-  {
-    productCode: "PAPER-A4-001",
-    aliasName: "A4 용지",
-    source: "SEED",
-    confidence: 0.98,
-  },
-  {
-    productCode: "PAPER-A4-001",
-    aliasName: "복사용지 A4",
-    source: "SEED",
-    confidence: 0.97,
-  },
-  {
-    productCode: "TONER-BLK-2108",
-    aliasName: "토너 2108",
-    source: "SEED",
-    confidence: 0.96,
-  },
-  {
-    productCode: "USB-HUB-04",
-    aliasName: "USB 허브 4P",
-    source: "SEED",
-    confidence: 0.95,
-  },
-  {
-    productCode: "CABLE-MEET-01",
-    aliasName: "HDMI 케이블",
-    source: "SEED",
-    confidence: 0.93,
-  },
-];
-
-const seedPrices = [
-  {
-    priceId: 90001,
-    customerCode: "CUST-001",
-    productCode: "PAPER-A4-001",
-    price: 24500,
-    startDate: "2026-01-01",
-    changeReason: "기본 샘플 단가",
-  },
-  {
-    priceId: 90002,
-    customerCode: "CUST-001",
-    productCode: "TONER-BLK-2108",
-    price: 78000,
-    startDate: "2026-01-01",
-    changeReason: "기본 샘플 단가",
-  },
-  {
-    priceId: 90003,
-    customerCode: "CUST-002",
-    productCode: "USB-HUB-04",
-    price: 18900,
-    startDate: "2026-01-01",
-    changeReason: "기본 샘플 단가",
-  },
-  {
-    priceId: 90004,
-    customerCode: "CUST-003",
-    productCode: "CABLE-MEET-01",
-    price: 9200,
-    startDate: "2026-01-01",
-    changeReason: "기본 샘플 단가",
-  },
-  {
-    priceId: 90005,
-    customerCode: "CUST-004",
-    productCode: "LABEL-STK-02",
-    price: 13200,
-    startDate: "2026-01-01",
-    changeReason: "기본 샘플 단가",
-  },
-];
-
-const supplementalSeedCustomers = [
-  {
-    customerCode: "CUST-006",
-    customerName: "그린물류",
-    businessNumber: "106-86-43180",
-    taxStatus: "ACTIVE",
-    memo: "물류 라벨 정산 거래처",
-  },
-  {
-    customerCode: "CUST-007",
-    customerName: "다원문구",
-    businessNumber: "107-87-09870",
-    taxStatus: "ACTIVE",
-    memo: "사무소모품 월마감 거래처",
-  },
-  {
-    customerCode: "CUST-008",
-    customerName: "브릿지오피스",
-    businessNumber: "108-88-51042",
-    taxStatus: "ACTIVE",
-    memo: "분기 단가 검토 대상",
-  },
-  {
-    customerCode: "CUST-009",
-    customerName: "라온테크",
-    businessNumber: "109-89-77310",
-    taxStatus: "ACTIVE",
-    memo: "전산 비품 거래처",
-  },
-  {
-    customerCode: "CUST-010",
-    customerName: "서린패키지",
-    businessNumber: "110-80-66421",
-    taxStatus: "ACTIVE",
-    memo: "포장재 정기 거래처",
-  },
-  {
-    customerCode: "CUST-011",
-    customerName: "누리프린트",
-    businessNumber: "111-81-42012",
-    taxStatus: "ACTIVE",
-    memo: "프린터 소모품 거래처",
-  },
-  {
-    customerCode: "CUST-012",
-    customerName: "오름비즈",
-    businessNumber: "112-82-53098",
-    taxStatus: "ACTIVE",
-    memo: "신규 코드 매핑 대상",
-  },
-  {
-    customerCode: "CUST-013",
-    customerName: "에이원솔루션",
-    businessNumber: "113-83-74520",
-    taxStatus: "ACTIVE",
-    memo: "대량 구매 거래처",
-  },
-  {
-    customerCode: "CUST-014",
-    customerName: "피움상사",
-    businessNumber: "114-84-22617",
-    taxStatus: "ACTIVE",
-    memo: "마감 회신 확인 필요",
-  },
-  {
-    customerCode: "CUST-015",
-    customerName: "케이엘유통",
-    businessNumber: "115-85-90441",
-    taxStatus: "ACTIVE",
-    memo: "고액 거래 검토 대상",
-  },
-  {
-    customerCode: "CUST-016",
-    customerName: "더봄리테일",
-    businessNumber: "116-86-21076",
-    taxStatus: "ACTIVE",
-    memo: "월말 세금계산서 확인",
-  },
-  {
-    customerCode: "CUST-017",
-    customerName: "제이앤파트너스",
-    businessNumber: "117-87-68103",
-    taxStatus: "ACTIVE",
-    memo: "담당자 복수 등록 대상",
-  },
-];
-
-const supplementalSeedProducts = [
-  {
-    productCode: "PEN-GEL-05",
-    productName: "젤펜 0.5mm",
-    unit: "BOX",
-    memo: "필기구 박스 단가",
-  },
-  {
-    productCode: "FILE-LVR-03",
-    productName: "레버 파일",
-    unit: "BOX",
-    memo: "문서 보관용",
-  },
-  {
-    productCode: "TAPE-OPP-48",
-    productName: "OPP 박스테이프",
-    unit: "ROLL",
-    memo: "포장 소모품",
-  },
-  {
-    productCode: "BATT-AA-20",
-    productName: "AA 건전지 20입",
-    unit: "PACK",
-    memo: "비품 소모품",
-  },
-  {
-    productCode: "CHAIR-MESH-01",
-    productName: "메쉬 사무용 의자",
-    unit: "EA",
-    memo: "사무가구",
-  },
-  {
-    productCode: "DESK-MAT-01",
-    productName: "데스크 매트",
-    unit: "EA",
-    memo: "책상 보호 매트",
-  },
-  {
-    productCode: "BOX-KRAFT-05",
-    productName: "크라프트 택배박스 5호",
-    unit: "BUNDLE",
-    memo: "물류 포장재",
-  },
-  {
-    productCode: "INK-COLOR-330",
-    productName: "컬러 잉크 330",
-    unit: "EA",
-    memo: "프린터 소모품",
-  },
-  {
-    productCode: "MONITOR-ARM-02",
-    productName: "듀얼 모니터암",
-    unit: "EA",
-    memo: "전산 비품",
-  },
-  {
-    productCode: "SANITIZER-500",
-    productName: "손소독제 500ml",
-    unit: "BOX",
-    memo: "공용 비품",
-  },
-];
-
-const supplementalSeedPrices = supplementalSeedCustomers.flatMap(
-  (customer, customerIndex) =>
-    supplementalSeedProducts.slice(0, 5).map((product, productIndex) => ({
-      priceId: 91000 + customerIndex * 10 + productIndex,
-      customerCode: customer.customerCode,
-      productCode: product.productCode,
-      price:
-        [12600, 18900, 4200, 8500, 129000][productIndex] + customerIndex * 300,
-      startDate: "2026-01-01",
-      changeReason: "코드 매핑 화면 검토용 기준 단가",
-    })),
-);
-
-const seedContacts = [
-  {
-    contactId: 90001,
-    customerCode: "CUST-001",
-    departmentName: "정산팀",
-    recipientName: "한빛 정산담당",
-    recipientEmail: "settle@hanbit.example",
-    preferredChannel: "EMAIL",
-    memo: "샘플 연락처",
-  },
-  {
-    contactId: 90002,
-    customerCode: "CUST-002",
-    departmentName: "영업지원",
-    recipientName: "세종 영업지원",
-    recipientEmail: "sales@sejong.example",
-    preferredChannel: "EMAIL",
-    memo: "샘플 연락처",
-  },
-  {
-    contactId: 90003,
-    customerCode: "CUST-003",
-    departmentName: "관리팀",
-    recipientName: "모블 관리담당",
-    recipientEmail: "admin@moble.example",
-    preferredChannel: "KAKAO",
-    memo: "카카오 공유 대상",
-  },
-  {
-    contactId: 90004,
-    customerCode: "CUST-004",
-    departmentName: "총무팀",
-    recipientName: "대원 총무담당",
-    recipientEmail: "admin@daewon.example",
-    preferredChannel: "EMAIL",
-    memo: "샘플 연락처",
-  },
-];
-
-const supplementalSeedContacts = supplementalSeedCustomers.map(
-  (customer, index) => ({
-    contactId: 91001 + index,
-    customerCode: customer.customerCode,
-    departmentName:
-      index % 3 === 0 ? "정산팀" : index % 3 === 1 ? "구매팀" : "관리팀",
-    recipientName: [
-      "김도윤",
-      "이하린",
-      "박서준",
-      "최유나",
-      "정민재",
-      "오지안",
-      "윤태오",
-      "강소율",
-      "문하준",
-      "신예린",
-      "한지우",
-      "서도현",
-    ][index],
-    recipientEmail: `closing${String(index + 1).padStart(2, "0")}@${customer.customerCode.toLowerCase().replace("-", "")}.example`,
-    preferredChannel: index % 4 === 0 ? "KAKAO" : "EMAIL",
-    memo: "담당자 관리 페이지 검토용 연락처",
-  }),
-);
-
-const seedSuggestions = [
-  {
-    suggestionId: 90001,
-    targetType: "CUSTOMER",
-    rawValue: "한빛 유통",
-    suggestedCode: "CUST-001",
-    suggestedName: "한빛유통",
-    confidence: 0.98,
-  },
-  {
-    suggestionId: 90002,
-    targetType: "PRODUCT",
-    rawValue: "USB 허브 4P",
-    suggestedCode: "USB-HUB-04",
-    suggestedName: "4포트 USB 허브",
-    confidence: 0.95,
-  },
-  {
-    suggestionId: 90003,
-    targetType: "PRODUCT",
-    rawValue: "A4 용지",
-    suggestedCode: "PAPER-A4-001",
-    suggestedName: "A4 복사용지",
-    confidence: 0.98,
-  },
-];
-
-const sampleOwners = ["김민서", "박지훈", "이서연", "최현우", "정다은", "오수진"];
-
-function formatSampleDate(index) {
-  const date = new Date(2026, 4, 18);
-  date.setDate(date.getDate() - (index % 45));
-  return date.toISOString().slice(0, 10);
-}
-
-function getSampleIssue(index) {
-  if (index % 97 === 0) return "거래처 누락";
-  if (index % 89 === 0) return "품목 코드 누락";
-  if (index % 53 === 0) return "금액 불일치";
-  if (index % 47 === 0) return "단가 기준 불일치";
-  if (index % 41 === 0) return "고액 거래 확인";
-  if (index % 37 === 0) return "대량 거래 확인";
-  if (index % 29 === 0) return "중복 의심";
-  return "정상";
-}
-
-function buildSeedSalesRows(count = 1200) {
-  const customers = [...seedCustomers, ...supplementalSeedCustomers];
-  const products = [...seedProducts, ...supplementalSeedProducts];
-  const pricesByProductCode = new Map(
-    [...seedPrices, ...supplementalSeedPrices].map((price) => [price.productCode, price.price]),
-  );
-  const rows = Array.from({ length: count }, (_, index) => {
-    const customer = customers[index % customers.length];
-    const product = products[index % products.length];
-    const issue = getSampleIssue(index);
-    const basePrice = pricesByProductCode.get(product.productCode) ?? 10000;
-    const quantity = issue === "대량 거래 확인" ? 150 + (index % 25) : ((index * 7) % 95) + 1;
-    const unitPrice = issue === "단가 기준 불일치" ? basePrice + 1200 : basePrice;
-    const salesAmount = issue === "금액 불일치" ? quantity * unitPrice + 5000 : quantity * unitPrice;
-
-    return {
-      rowNo: index + 1,
-      transactionDate: formatSampleDate(index),
-      rawCustomerName: issue === "거래처 누락" ? "" : customer.customerName,
-      rawProductName: product.productName,
-      customerCode: issue === "거래처 누락" ? null : customer.customerCode,
-      productCode: issue === "품목 코드 누락" ? null : product.productCode,
-      quantity,
-      unitPrice,
-      salesAmount,
-      validationStatus: issue,
-      reviewStatus: issue === "정상" ? "DONE" : "WAITING",
-      ownerName: sampleOwners[index % sampleOwners.length],
-    };
-  });
-
-  for (let index = 24; index < rows.length; index += 57) {
-    const sourceIndex = Math.max(index - 3, 0);
-    rows[index] = {
-      ...rows[sourceIndex],
-      rowNo: index + 1,
-      validationStatus: "중복 의심",
-      reviewStatus: "WAITING",
-      ownerName: sampleOwners[index % sampleOwners.length],
-    };
-  }
-
-  return rows;
 }
 
 const defaultMessageTemplates = [
@@ -2198,7 +1261,7 @@ function getMessageTemplates(database) {
 }
 
 function getSendPackages(database) {
-  const packages = database
+  const rows = database
     .prepare(
       `
     SELECT
@@ -2206,19 +1269,7 @@ function getSendPackages(database) {
       package_name AS packageName,
       closing_month AS closingMonth,
       output_folder_path AS outputFolderPath,
-      status,
-      created_at AS createdAt
-    FROM send_packages
-    ORDER BY package_id DESC
-    LIMIT 20
-  `,
-    )
-    .all();
-
-  const getItems = database.prepare(`
-    SELECT
-      item_id AS itemId,
-      package_id AS packageId,
+      email_id AS itemId,
       customer_code AS customerCode,
       customer_name AS customerName,
       recipient_email AS recipientEmail,
@@ -2231,13 +1282,30 @@ function getSendPackages(database) {
       status,
       memo,
       created_at AS createdAt
-    FROM send_package_items
-    WHERE package_id = @packageId
-    ORDER BY item_id
-  `);
+    FROM email_history
+    ORDER BY package_id DESC, email_id ASC
+  `,
+    )
+    .all();
 
-  return packages.map((sendPackage) => {
-    const items = getItems.all({ packageId: sendPackage.packageId });
+  const grouped = new Map();
+  rows.forEach((row) => {
+    if (!grouped.has(row.packageId)) {
+      grouped.set(row.packageId, {
+        packageId: row.packageId,
+        packageName: row.packageName,
+        closingMonth: row.closingMonth,
+        outputFolderPath: row.outputFolderPath,
+        status: row.status,
+        createdAt: row.createdAt,
+        items: [],
+      });
+    }
+    grouped.get(row.packageId).items.push(row);
+  });
+
+  return [...grouped.values()].map((sendPackage) => {
+    const items = sendPackage.items;
     const readyCount = items.filter((item) => item.status === "READY").length;
     const missingEmailCount = items.filter(
       (item) => item.channel === "EMAIL" && !item.recipientEmail,
@@ -2272,8 +1340,9 @@ function prepareSendPackageAttachments(database, packageId) {
       package_name AS packageName,
       closing_month AS closingMonth,
       output_folder_path AS outputFolderPath
-    FROM send_packages
+    FROM email_history
     WHERE package_id = @packageId
+    LIMIT 1
   `,
     )
     .get({ packageId });
@@ -2285,16 +1354,16 @@ function prepareSendPackageAttachments(database, packageId) {
   const items = database
     .prepare(
       `
-    SELECT item_id AS itemId, customer_code AS customerCode
-    FROM send_package_items
+    SELECT email_id AS itemId, customer_code AS customerCode
+    FROM email_history
     WHERE package_id = @packageId
-    ORDER BY item_id
+    ORDER BY email_id
   `,
     )
     .all({ packageId });
 
   const updateItem = database.prepare(`
-    UPDATE send_package_items
+    UPDATE email_history
     SET
       attachment_pdf_path = @attachmentPdfPath,
       attachment_xlsx_path = @attachmentXlsxPath,
@@ -2302,10 +1371,10 @@ function prepareSendPackageAttachments(database, packageId) {
         WHEN status IN ('READY', 'CREATED') THEN 'READY'
         ELSE status
       END
-    WHERE item_id = @itemId
+    WHERE email_id = @itemId
   `);
   const insertEvent = database.prepare(`
-    INSERT INTO app_events (level, message, meta_json)
+    INSERT INTO activity_logs (level, message, meta_json)
     VALUES ('INFO', @message, @metaJson)
   `);
 
@@ -2349,7 +1418,7 @@ function updateSendPackageItemStatus(database, payload) {
   }
 
   const updateItem = database.prepare(`
-    UPDATE send_package_items
+    UPDATE email_history
     SET
       status = @status,
       sent_checked_at = CASE
@@ -2357,10 +1426,10 @@ function updateSendPackageItemStatus(database, payload) {
         ELSE sent_checked_at
       END,
       memo = @memo
-    WHERE item_id = @itemId
+    WHERE email_id = @itemId
   `);
   const insertEvent = database.prepare(`
-    INSERT INTO app_events (level, message, meta_json)
+    INSERT INTO activity_logs (level, message, meta_json)
     VALUES ('INFO', @message, @metaJson)
   `);
 
@@ -2385,99 +1454,6 @@ function updateSendPackageItemStatus(database, payload) {
   return getSendPackages(database);
 }
 
-function createSampleSendPackage(database) {
-  seedMasterData(database);
-  const templates = getMessageTemplates(database);
-  const template = templates[0];
-  const contacts = getMasterData(database).contacts.slice(0, 4);
-  const closingMonth = getClosingMonth();
-  const packageName = `REQ-${closingMonth.replace("-", "")}-SAMPLE`;
-  const outputFolderPath = `exports/request/${closingMonth.replace("-", "")}`;
-
-  const insertPackage = database.prepare(`
-    INSERT INTO send_packages (package_name, closing_month, output_folder_path, status)
-    VALUES (@packageName, @closingMonth, @outputFolderPath, 'CREATED')
-  `);
-  const insertItem = database.prepare(`
-    INSERT INTO send_package_items (
-      package_id,
-      customer_code,
-      contact_id,
-      customer_name,
-      recipient_email,
-      recipient_phone,
-      channel,
-      subject,
-      body,
-      attachment_pdf_path,
-      attachment_xlsx_path,
-      status,
-      memo
-    )
-    VALUES (
-      @packageId,
-      @customerCode,
-      @contactId,
-      @customerName,
-      @recipientEmail,
-      @recipientPhone,
-      @channel,
-      @subject,
-      @body,
-      @attachmentPdfPath,
-      @attachmentXlsxPath,
-      'READY',
-      @memo
-    )
-  `);
-  const insertEvent = database.prepare(`
-    INSERT INTO app_events (level, message, meta_json)
-    VALUES ('INFO', @message, @metaJson)
-  `);
-
-  const applyTemplate = (text, contact) =>
-    String(text ?? "")
-      .replaceAll("{{closing_month}}", closingMonth)
-      .replaceAll(
-        "{{customer_name}}",
-        contact.customerName ?? contact.customerCode ?? "거래처",
-      );
-
-  const transaction = database.transaction(() => {
-    const packageResult = insertPackage.run({
-      packageName,
-      closingMonth,
-      outputFolderPath,
-    });
-    const packageId = packageResult.lastInsertRowid;
-
-    contacts.forEach((contact) => {
-      insertItem.run({
-        packageId,
-        customerCode: contact.customerCode,
-        contactId: contact.contactId,
-        customerName: contact.customerName,
-        recipientEmail: contact.recipientEmail,
-        recipientPhone: contact.recipientPhone,
-        channel: contact.preferredChannel ?? "EMAIL",
-        subject: applyTemplate(template.subjectTemplate, contact),
-        body: applyTemplate(template.bodyTemplate, contact),
-        attachmentPdfPath: `${outputFolderPath}/${contact.customerCode}.pdf`,
-        attachmentXlsxPath: `${outputFolderPath}/${contact.customerCode}.xlsx`,
-        memo: "샘플 발송 패키지 항목",
-      });
-    });
-
-    insertEvent.run({
-      message: "샘플 발송 패키지를 준비했습니다.",
-      metaJson: toJson({ packageId, itemCount: contacts.length }),
-    });
-  });
-
-  transaction();
-  return getSendPackages(database);
-}
-
 function getMasterData(database) {
   return {
     customers: database
@@ -2489,17 +1465,7 @@ function getMasterData(database) {
     `,
       )
       .all(),
-    customerAliases: database
-      .prepare(
-        `
-      SELECT customer_aliases.alias_id AS aliasId, customer_aliases.customer_code AS customerCode, customers.customer_name AS customerName, customer_aliases.alias_name AS aliasName, customer_aliases.source, customer_aliases.confidence, customer_aliases.status
-      FROM customer_aliases
-      LEFT JOIN customers ON customers.customer_code = customer_aliases.customer_code
-      ORDER BY customer_aliases.alias_id DESC
-      LIMIT 50
-    `,
-      )
-      .all(),
+    customerAliases: [],
     products: database
       .prepare(
         `
@@ -2509,39 +1475,19 @@ function getMasterData(database) {
     `,
       )
       .all(),
-    productAliases: database
-      .prepare(
-        `
-      SELECT product_aliases.alias_id AS aliasId, product_aliases.product_code AS productCode, products.product_name AS productName, product_aliases.alias_name AS aliasName, product_aliases.source, product_aliases.confidence, product_aliases.status
-      FROM product_aliases
-      LEFT JOIN products ON products.product_code = product_aliases.product_code
-      ORDER BY product_aliases.alias_id DESC
-      LIMIT 50
-    `,
-      )
-      .all(),
+    productAliases: [],
     prices: database
       .prepare(
         `
-      SELECT sales_prices.price_id AS priceId, sales_prices.customer_code AS customerCode, customers.customer_name AS customerName, sales_prices.product_code AS productCode, products.product_name AS productName, sales_prices.price, sales_prices.currency, sales_prices.start_date AS startDate, sales_prices.status, sales_prices.change_reason AS changeReason
-      FROM sales_prices
-      LEFT JOIN customers ON customers.customer_code = sales_prices.customer_code
-      LEFT JOIN products ON products.product_code = sales_prices.product_code
-      ORDER BY sales_prices.price_id DESC
+      SELECT product_code AS productCode, product_name AS productName,
+             unit_price AS price, currency, status
+      FROM products
+      ORDER BY product_name
       LIMIT 50
     `,
       )
       .all(),
-    suggestions: database
-      .prepare(
-        `
-      SELECT suggestion_id AS suggestionId, target_type AS targetType, raw_value AS rawValue, suggested_code AS suggestedCode, suggested_name AS suggestedName, confidence, status
-      FROM mapping_suggestions
-      ORDER BY suggestion_id DESC
-      LIMIT 50
-    `,
-      )
-      .all(),
+    suggestions: [],
     contacts: database
       .prepare(
         `
@@ -2604,7 +1550,7 @@ function importContacts(database, contacts) {
     WHERE contact_id = @contactId
   `);
   const insertEvent = database.prepare(`
-    INSERT INTO app_events (level, message, meta_json)
+    INSERT INTO activity_logs (level, message, meta_json)
     VALUES ('INFO', @message, @metaJson)
   `);
 
@@ -2654,199 +1600,14 @@ function importContacts(database, contacts) {
   return transaction();
 }
 
-function seedMasterData(database) {
-  const insertDepartment = database.prepare(`
-    INSERT OR IGNORE INTO departments (department_code, department_name, status)
-    VALUES (@departmentCode, @departmentName, 'ACTIVE')
-  `);
-  const insertCustomer = database.prepare(`
-    INSERT OR IGNORE INTO customers (customer_code, customer_name, business_number, tax_status, memo)
-    VALUES (@customerCode, @customerName, @businessNumber, @taxStatus, @memo)
-  `);
-  const insertCustomerAlias = database.prepare(`
-    INSERT OR IGNORE INTO customer_aliases (customer_code, alias_name, source, confidence)
-    VALUES (@customerCode, @aliasName, @source, @confidence)
-  `);
-  const insertProduct = database.prepare(`
-    INSERT OR IGNORE INTO products (product_code, product_name, unit, memo)
-    VALUES (@productCode, @productName, @unit, @memo)
-  `);
-  const insertProductAlias = database.prepare(`
-    INSERT OR IGNORE INTO product_aliases (product_code, alias_name, source, confidence)
-    VALUES (@productCode, @aliasName, @source, @confidence)
-  `);
-  const insertPrice = database.prepare(`
-    INSERT OR IGNORE INTO sales_prices (price_id, customer_code, product_code, price, currency, start_date, version, status, change_reason, approved_department_code)
-    VALUES (@priceId, @customerCode, @productCode, @price, 'KRW', @startDate, 1, 'ACTIVE', @changeReason, 'GENERAL_AFFAIRS')
-  `);
-  const insertContact = database.prepare(`
-    INSERT OR IGNORE INTO contacts (contact_id, customer_code, department_name, recipient_name, recipient_email, preferred_channel, memo)
-    VALUES (@contactId, @customerCode, @departmentName, @recipientName, @recipientEmail, @preferredChannel, @memo)
-  `);
-  const insertSuggestion = database.prepare(`
-    INSERT OR IGNORE INTO mapping_suggestions (suggestion_id, target_type, raw_value, suggested_code, suggested_name, confidence, status, approved_department_code)
-    VALUES (@suggestionId, @targetType, @rawValue, @suggestedCode, @suggestedName, @confidence, 'PENDING', 'GENERAL_AFFAIRS')
-  `);
-  const insertEvent = database.prepare(`
-    INSERT INTO app_events (level, message, meta_json)
-    VALUES ('INFO', @message, @metaJson)
-  `);
-
-  const transaction = database.transaction(() => {
-    seedDepartments.forEach((item) => insertDepartment.run(item));
-    [...seedCustomers, ...supplementalSeedCustomers].forEach((item) =>
-      insertCustomer.run(item),
-    );
-    seedCustomerAliases.forEach((item) => insertCustomerAlias.run(item));
-    [...seedProducts, ...supplementalSeedProducts].forEach((item) =>
-      insertProduct.run(item),
-    );
-    seedProductAliases.forEach((item) => insertProductAlias.run(item));
-    [...seedPrices, ...supplementalSeedPrices].forEach((item) =>
-      insertPrice.run(item),
-    );
-    [...seedContacts, ...supplementalSeedContacts].forEach((item) =>
-      insertContact.run(item),
-    );
-    seedSuggestions.forEach((item) => insertSuggestion.run(item));
-    insertEvent.run({
-      message: "기준 데이터 샘플을 SQLite에 준비했습니다.",
-      metaJson: toJson({
-        customers: seedCustomers.length + supplementalSeedCustomers.length,
-        products: seedProducts.length + supplementalSeedProducts.length,
-        prices: seedPrices.length + supplementalSeedPrices.length,
-      }),
-    });
-  });
-
-  transaction();
-  return getMasterData(database);
-}
-
 function ensureCoreBusinessData(database) {
   const countTable = (tableName) => database.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get().count;
-  const insertEvent = database.prepare(`
-    INSERT INTO app_events (level, message, meta_json)
-    VALUES ('INFO', @message, @metaJson)
-  `);
-
-  seedMasterData(database);
-
-  const transaction = database.transaction(() => {
-    if (countTable("users") === 0) {
-      database.prepare(`
-        INSERT INTO users (username, display_name, password_hash, role, department_code, status)
-        VALUES ('황주은', '황주은', '0000', 'ADMIN', 'GENERAL_AFFAIRS', 'ACTIVE')
-      `).run();
-    }
-
-    if (countTable("sales_uploads") > 0 && countTable("sales_rows") > 0) {
-      return;
-    }
-
-    const savedAt = new Date().toISOString();
-    const salesRows = buildSeedSalesRows(1200);
-    const columns = ["거래일", "거래처", "품목 코드", "품목명", "수량", "단가", "금액", "검증", "담당자"];
-    const payload = {
-      fileName: "sample_sales_1200.xlsx",
-      columns,
-      rows: salesRows.map((row) => [
-        row.transactionDate,
-        row.rawCustomerName,
-        row.productCode ?? "",
-        row.rawProductName,
-        formatNumber(row.quantity),
-        formatNumber(row.unitPrice),
-        formatNumber(row.salesAmount),
-        row.validationStatus,
-        row.ownerName,
-      ]),
-      savedAt,
-      source: "seed",
-    };
-    const snapshot = database.prepare(`
-      INSERT INTO workspace_snapshots (file_name, payload_json, saved_at)
-      VALUES (@fileName, @payloadJson, @savedAt)
-    `).run({
-      fileName: payload.fileName,
-      payloadJson: toJson(payload),
-      savedAt,
-    });
-    const upload = database.prepare(`
-      INSERT INTO sales_uploads (snapshot_id, file_name, closing_month, uploaded_department_code, uploaded_at, status, memo)
-      VALUES (@snapshotId, @fileName, @closingMonth, 'GENERAL_AFFAIRS', @uploadedAt, 'SEEDED', @memo)
-    `).run({
-      snapshotId: snapshot.lastInsertRowid,
-      fileName: payload.fileName,
-      closingMonth: "2026-05",
-      uploadedAt: savedAt,
-      memo: "초기 원본 매출 데이터",
-    });
-    const insertSalesRow = database.prepare(`
-      INSERT INTO sales_rows (
-        upload_id,
-        row_no,
-        transaction_date,
-        raw_customer_name,
-        raw_product_name,
-        customer_code,
-        product_code,
-        quantity,
-        unit_price,
-        sales_amount,
-        validation_status,
-        review_status,
-        owner_name
-      )
-      VALUES (
-        @uploadId,
-        @rowNo,
-        @transactionDate,
-        @rawCustomerName,
-        @rawProductName,
-        @customerCode,
-        @productCode,
-        @quantity,
-        @unitPrice,
-        @salesAmount,
-        @validationStatus,
-        @reviewStatus,
-        @ownerName
-      )
-    `);
-
-    salesRows.forEach((row) => insertSalesRow.run({
-      ...row,
-      uploadId: upload.lastInsertRowid,
-    }));
-    database.prepare(`
-      INSERT INTO recent_files (file_name, row_count, column_count, opened_at)
-      VALUES (@fileName, @rowCount, @columnCount, @openedAt)
-    `).run({
-      fileName: payload.fileName,
-      rowCount: salesRows.length,
-      columnCount: columns.length,
-      openedAt: savedAt,
-    });
-    insertEvent.run({
-      message: "핵심 업무 테이블 초기 데이터를 준비했습니다.",
-      metaJson: toJson({
-        users: countTable("users"),
-        customers: countTable("customers"),
-        products: countTable("products"),
-        salesUploads: countTable("sales_uploads"),
-        salesRows: countTable("sales_rows"),
-      }),
-    });
-  });
-
-  transaction();
   return {
     users: countTable("users"),
     customers: countTable("customers"),
     products: countTable("products"),
     salesUploads: countTable("sales_uploads"),
-    salesRows: countTable("sales_rows"),
+    salesRows: countTable("sales"),
   };
 }
 
@@ -2873,7 +1634,7 @@ function registerDatabaseIpc(ipcMain, app) {
   ipcMain.handle("db:health", () => {
     const database = getDatabase(app);
     const result = database
-      .prepare("SELECT COUNT(*) AS count FROM app_events")
+      .prepare("SELECT COUNT(*) AS count FROM activity_logs")
       .get();
     return {
       ok: true,
@@ -2885,21 +1646,19 @@ function registerDatabaseIpc(ipcMain, app) {
   ipcMain.handle("db:summary", () => {
     const database = getDatabase(app);
     const tables = [
-      "customers",
       "products",
-      "sales_prices",
+      "customers",
+      "users",
       "sales_uploads",
-      "sales_rows",
+      "sales",
       "validation_issues",
       "workspace_snapshots",
-      "recent_files",
-      "send_packages",
-      "send_package_items",
-      "message_templates",
       "contacts",
-      "department_requests",
-      "closing_companies",
-      "app_events",
+      "message_templates",
+      "email_history",
+      "reports",
+      "report_templates",
+      "activity_logs",
       "notifications",
     ];
 
@@ -2916,8 +1675,8 @@ function registerDatabaseIpc(ipcMain, app) {
       .prepare(
         `
         SELECT level, message, created_at AS createdAt
-        FROM app_events
-        ORDER BY id DESC
+        FROM activity_logs
+        ORDER BY log_id DESC
         LIMIT 5
       `,
       )
@@ -2936,7 +1695,7 @@ function registerDatabaseIpc(ipcMain, app) {
     const info = database
       .prepare(
         `
-      INSERT INTO app_events (level, message, meta_json)
+      INSERT INTO activity_logs (level, message, meta_json)
       VALUES (@level, @message, @metaJson)
     `,
       )
@@ -2954,9 +1713,9 @@ function registerDatabaseIpc(ipcMain, app) {
     return database
       .prepare(
         `
-      SELECT id, level, message, meta_json AS metaJson, created_at AS createdAt
-      FROM app_events
-      ORDER BY id DESC
+      SELECT log_id AS id, level, message, meta_json AS metaJson, created_at AS createdAt
+      FROM activity_logs
+      ORDER BY log_id DESC
       LIMIT 50
     `,
       )
@@ -3100,9 +1859,11 @@ function registerDatabaseIpc(ipcMain, app) {
     return database
       .prepare(
         `
-      SELECT id, file_name AS fileName, file_path AS filePath, row_count AS rowCount, column_count AS columnCount, opened_at AS openedAt
-      FROM recent_files
-      ORDER BY opened_at DESC, id DESC
+      SELECT id, file_name AS fileName, file_path AS filePath,
+             row_count AS rowCount, column_count AS columnCount,
+             saved_at AS openedAt
+      FROM workspace_snapshots
+      ORDER BY saved_at DESC, id DESC
       LIMIT 20
     `,
       )
@@ -3114,14 +1875,6 @@ function registerDatabaseIpc(ipcMain, app) {
     return {
       ok: true,
       ...getMasterData(database),
-    };
-  });
-
-  ipcMain.handle("master-data:seed", () => {
-    const database = getDatabase(app);
-    return {
-      ok: true,
-      ...seedMasterData(database),
     };
   });
 
@@ -3148,14 +1901,6 @@ function registerDatabaseIpc(ipcMain, app) {
     return {
       ok: true,
       packages: getSendPackages(database),
-    };
-  });
-
-  ipcMain.handle("send-packages:create-sample", () => {
-    const database = getDatabase(app);
-    return {
-      ok: true,
-      packages: createSampleSendPackage(database),
     };
   });
 
@@ -3210,7 +1955,7 @@ function registerDatabaseIpc(ipcMain, app) {
     console.log("[debug:data-query:main] database open", Boolean(database));
     const result = getFilteredSalesData(database, options);
     console.log("[debug:data-query:main] total", result?.data?.total);
-    console.log("[debug:data-query:main] rows sample", result?.data?.rows?.slice(0, 3));
+    console.log("[debug:data-query:main] rows preview", result?.data?.rows?.slice(0, 3));
     return result;
   });
 
@@ -3222,15 +1967,13 @@ function registerDatabaseIpc(ipcMain, app) {
   ipcMain.handle("data:save", (_, data) => {
     const database = getDatabase(app);
     const insertSnapshot = database.prepare(`
-      INSERT INTO workspace_snapshots (file_name, payload_json, saved_at)
-      VALUES (@fileName, @payloadJson, @savedAt)
-    `);
-    const insertRecentFile = database.prepare(`
-      INSERT INTO recent_files (file_name, row_count, column_count, opened_at)
-      VALUES (@fileName, @rowCount, @columnCount, @openedAt)
+      INSERT INTO workspace_snapshots (
+        file_name, payload_json, row_count, column_count, saved_at
+      )
+      VALUES (@fileName, @payloadJson, @rowCount, @columnCount, @savedAt)
     `);
     const insertEvent = database.prepare(`
-      INSERT INTO app_events (level, message, meta_json)
+      INSERT INTO activity_logs (level, message, meta_json)
       VALUES (@level, @message, @metaJson)
     `);
     const insertUpload = database.prepare(`
@@ -3238,7 +1981,7 @@ function registerDatabaseIpc(ipcMain, app) {
       VALUES (@snapshotId, @fileName, @closingMonth, @departmentCode, @uploadedAt, @status)
     `);
     const insertRow = database.prepare(`
-      INSERT INTO sales_rows (
+      INSERT INTO sales (
         upload_id,
         row_no,
         transaction_date,
@@ -3289,9 +2032,12 @@ function registerDatabaseIpc(ipcMain, app) {
         @status
       )
     `);
-    const insertValidationSummary = database.prepare(`
-      INSERT INTO validation_results (snapshot_id, issue_count, duplicate_count, review_count)
-      VALUES (@snapshotId, @issueCount, @duplicateCount, @reviewCount)
+    const updateValidationSummary = database.prepare(`
+      UPDATE workspace_snapshots
+      SET issue_count = @issueCount,
+          duplicate_count = @duplicateCount,
+          review_count = @reviewCount
+      WHERE id = @snapshotId
     `);
 
     const transaction = database.transaction(() => {
@@ -3299,14 +2045,9 @@ function registerDatabaseIpc(ipcMain, app) {
       const snapshot = insertSnapshot.run({
         fileName: data?.fileName ?? "untitled.xlsx",
         payloadJson: toJson(data),
-        savedAt,
-      });
-
-      insertRecentFile.run({
-        fileName: data?.fileName ?? "untitled.xlsx",
         rowCount: data?.rows?.length ?? 0,
         columnCount: data?.columns?.length ?? 0,
-        openedAt: savedAt,
+        savedAt,
       });
 
       const upload = insertUpload.run({
@@ -3380,7 +2121,7 @@ function registerDatabaseIpc(ipcMain, app) {
         });
       });
 
-      insertValidationSummary.run({
+      updateValidationSummary.run({
         snapshotId: snapshot.lastInsertRowid,
         issueCount,
         duplicateCount,

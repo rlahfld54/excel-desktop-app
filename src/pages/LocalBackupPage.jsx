@@ -12,29 +12,6 @@ const fallbackSettings = {
   autoBackupTime: '23:50',
 };
 
-const sampleBackups = [
-  {
-    id: 'sample_auto_yesterday',
-    message: '자동 백업 - 어제 23:50',
-    type: 'auto',
-    createdBy: '시스템',
-    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    retentionUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    sizeBytes: 68400000,
-    folderPath: fallbackSettings.backupPath,
-  },
-  {
-    id: 'sample_manual_final',
-    message: '5월 마감 전 최종본',
-    type: 'manual',
-    createdBy: '사용자',
-    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-    retentionUntil: new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString(),
-    sizeBytes: 72100000,
-    folderPath: fallbackSettings.backupPath,
-  },
-];
-
 function formatDate(value) {
   if (!value) return '-';
   return new Intl.DateTimeFormat('ko-KR', {
@@ -116,19 +93,19 @@ function BackupRow({ backup, selected, onPreview, onRestore }) {
 
 export default function LocalBackupPage() {
   const [settings, setSettings] = useState(fallbackSettings);
-  const [backups, setBackups] = useState(sampleBackups);
-  const [selectedBackup, setSelectedBackup] = useState(sampleBackups[0]);
+  const [backups, setBackups] = useState([]);
+  const [selectedBackup, setSelectedBackup] = useState(null);
   const [message, setMessage] = useState('');
   const [params, setParams] = useState({ query: '' });
-  const [statusText, setStatusText] = useState('브라우저 미리보기 데이터입니다.');
+  const [statusText, setStatusText] = useState('백업 목록을 확인해 주세요.');
   const [isBusy, setIsBusy] = useState(false);
 
   const electronReady = Boolean(window.api?.listBackups);
 
   const loadBackups = async () => {
     if (!window.api?.listBackups) {
-      setBackups(sampleBackups);
-      setSelectedBackup(sampleBackups[0]);
+      setBackups([]);
+      setSelectedBackup(null);
       setStatusText('Electron 실행 시 실제 백업 파일과 연결됩니다.');
       return;
     }

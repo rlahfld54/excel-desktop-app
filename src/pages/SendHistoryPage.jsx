@@ -2,33 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 
-const fallbackItems = [
-  {
-    itemId: 1,
-    packageName: 'REQ-202605-SAMPLE',
-    closingMonth: '2026-05',
-    customerName: '한빛유통',
-    channel: 'EMAIL',
-    recipientEmail: 'settle@hanbit.example',
-    status: 'READY',
-    createdAt: '-',
-    sentCheckedAt: '-',
-    subject: '[확인 요청] 2026-05 매출 자료 검수 협조 요청드립니다',
-  },
-  {
-    itemId: 2,
-    packageName: 'REQ-202605-SAMPLE',
-    closingMonth: '2026-05',
-    customerName: '모블상사',
-    channel: 'KAKAO',
-    recipientEmail: 'admin@moble.example',
-    status: 'READY',
-    createdAt: '-',
-    sentCheckedAt: '-',
-    subject: '[확인 요청] 2026-05 매출 자료 검수 협조 요청드립니다',
-  },
-];
-
 const statusActions = [
   { status: 'SENT', label: '발송 완료' },
   { status: 'REPLIED', label: '회신 확인' },
@@ -86,13 +59,13 @@ function isInDateRange(value, startDate, endDate) {
 }
 
 export default function SendHistoryPage() {
-  const [items, setItems] = useState(fallbackItems);
-  const [selectedId, setSelectedId] = useState(fallbackItems[0].itemId);
+  const [items, setItems] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
   const [params, setParams] = useState({
-    startDate: '2026-05-01',
-    endDate: '2026-05-31',
+    startDate: '',
+    endDate: '',
   });
-  const [loadState, setLoadState] = useState('브라우저 미리보기');
+  const [loadState, setLoadState] = useState('등록된 발송 이력이 없습니다.');
   const [memo, setMemo] = useState('');
   const [updateState, setUpdateState] = useState('');
 
@@ -122,16 +95,19 @@ export default function SendHistoryPage() {
 
   const setNextItems = (packages) => {
     const nextItems = flattenPackageItems(packages ?? []);
-    const normalized = nextItems.length ? nextItems : fallbackItems;
-    setItems(normalized);
-    setSelectedId((currentId) => normalized.some((item) => item.itemId === currentId) ? currentId : normalized[0].itemId);
+    setItems(nextItems);
+    setSelectedId((currentId) => (
+      nextItems.some((item) => item.itemId === currentId)
+        ? currentId
+        : nextItems[0]?.itemId ?? null
+    ));
   };
 
   const loadHistory = async () => {
     if (!window.api?.getSendPackages) {
-      setItems(fallbackItems);
-      setSelectedId(fallbackItems[0].itemId);
-      setLoadState('브라우저 미리보기');
+      setItems([]);
+      setSelectedId(null);
+      setLoadState('Electron 실행 시 실제 발송 이력과 연결됩니다.');
       return;
     }
 
@@ -140,8 +116,8 @@ export default function SendHistoryPage() {
       setNextItems(result.packages ?? []);
       setLoadState(result.packages?.length ? 'SQLite 연결됨' : 'SQLite 연결됨 / 이력 없음');
     } catch (error) {
-      setItems(fallbackItems);
-      setSelectedId(fallbackItems[0].itemId);
+      setItems([]);
+      setSelectedId(null);
       setLoadState(`SQLite 확인 필요: ${error.message}`);
     }
   };
@@ -157,7 +133,7 @@ export default function SendHistoryPage() {
       setItems((currentItems) => currentItems.map((item) => (
         item.itemId === selectedItem.itemId ? { ...item, status, memo } : item
       )));
-      setUpdateState('브라우저 미리보기에서 상태만 변경했습니다.');
+      setUpdateState('브라우저에서는 상태를 저장할 수 없습니다.');
       return;
     }
 

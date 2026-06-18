@@ -1,10 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
-import { buildMasterDataFromRows, createSampleSalesRows } from '../data/sampleSalesData';
 import { addNotification } from '../utils/appNotifications';
 
 const masterStorageKey = 'excel-workspace:masterData';
+const emptyMasterData = {
+  customers: [],
+  products: [],
+  productAliases: [],
+  prices: [],
+  suggestions: [],
+  contacts: [],
+};
 
 function formatPercent(value) {
   return `${Math.round(Number(value ?? 0) * 100)}%`;
@@ -76,33 +83,35 @@ function DataTable({ title, columns, rows, emptyText }) {
 }
 
 function getInitialMasterData() {
-  if (window.api?.getMasterData) {
-    return buildMasterDataFromRows(createSampleSalesRows(1200));
-  }
+  if (window.api?.getMasterData) return emptyMasterData;
 
   try {
     const saved = JSON.parse(localStorage.getItem(masterStorageKey));
-    if (saved?.customers?.length) return saved;
+    const hasBundledSampleCodes = saved?.products?.some((product) => (
+      ['PAPER-A4-001', 'TONER-BLK-2108', 'USB-HUB-04'].includes(product.productCode)
+    ));
+    if (!hasBundledSampleCodes && saved && typeof saved === 'object') {
+      return { ...emptyMasterData, ...saved };
+    }
   } catch {
     // ignore malformed local data
   }
-  return buildMasterDataFromRows(createSampleSalesRows(1200));
+  return emptyMasterData;
 }
 
 export default function CodeMappingPage() {
   const [masterData, setMasterData] = useState(getInitialMasterData);
-  const [loadState, setLoadState] = useState(window.api?.getMasterData ? 'SQLite 기준 데이터를 조회하는 중입니다.' : '1,200건 샘플 데이터에서 거래처/제품/단가 기준을 생성했습니다.');
-  const [isSeeding, setIsSeeding] = useState(false);
+  const [loadState, setLoadState] = useState(window.api?.getMasterData ? 'SQLite 기준 데이터를 조회하는 중입니다.' : '등록된 기준 데이터가 없습니다.');
   const [activeView, setActiveView] = useState('customers');
 
   const metrics = useMemo(() => {
-    const aliasCount = masterData.customerAliases.length + masterData.productAliases.length;
+    const aliasCount = masterData.productAliases.length;
     const pendingCount = masterData.suggestions.filter((item) => item.status === 'PENDING').length;
     const activePriceCount = masterData.prices.filter((item) => item.status === 'ACTIVE').length;
     const reviewPriceCount = masterData.prices.filter((item) => item.status === 'REVIEW').length;
 
     return [
-      { label: '거래처 기준', value: `${masterData.customers.length.toLocaleString('ko-KR')}건`, detail: `별칭 ${masterData.customerAliases.length.toLocaleString('ko-KR')}건` },
+      { label: '거래처 기준', value: `${masterData.customers.length.toLocaleString('ko-KR')}건`, detail: '거래처코드·거래처명 기준' },
       { label: '제품 기준', value: `${masterData.products.length.toLocaleString('ko-KR')}건`, detail: `별칭 ${masterData.productAliases.length.toLocaleString('ko-KR')}건` },
       { label: '단가 기준', value: `${activePriceCount.toLocaleString('ko-KR')}건`, detail: `검토 단가 ${reviewPriceCount.toLocaleString('ko-KR')}건` },
       { label: '매핑 후보', value: `${pendingCount.toLocaleString('ko-KR')}건`, detail: `전체 별칭 ${aliasCount.toLocaleString('ko-KR')}건` },
@@ -122,7 +131,6 @@ export default function CodeMappingPage() {
         const data = await window.api.getMasterData();
         const nextData = {
           customers: data?.customers ?? [],
-          customerAliases: data?.customerAliases ?? [],
           products: data?.products ?? [],
           productAliases: data?.productAliases ?? [],
           prices: data?.prices ?? [],
@@ -141,7 +149,7 @@ export default function CodeMappingPage() {
         });
         return;
       } catch (error) {
-        setLoadState(`SQLite 조회 실패, 샘플 기준 사용: ${error.message}`);
+        setLoadState(`SQLite 조회 실패: ${error.message}`);
         addNotification({
           title: 'SQLite 조회 실패',
           message: error.message,
@@ -154,10 +162,10 @@ export default function CodeMappingPage() {
 
     const data = getInitialMasterData();
     setMasterData(data);
-    setLoadState('브라우저 저장소 또는 샘플 데이터에서 기준 데이터를 불러왔습니다.');
+    setLoadState('브라우저 저장소에서 기준 데이터를 불러왔습니다.');
     addNotification({
       title: '기준 데이터 조회 완료',
-      message: '브라우저 저장소 또는 샘플 데이터에서 기준 데이터를 불러왔습니다.',
+      message: '브라우저 저장소에서 기준 데이터를 불러왔습니다.',
       level: 'SUCCESS',
       target: '코드 매핑',
       href: '/validate/code-mapping',
@@ -168,52 +176,6 @@ export default function CodeMappingPage() {
     if (!window.api?.getMasterData) return;
     loadMasterData();
   }, []);
-
-  const handleSeed = async () => {
-    setIsSeeding(true);
-    const nextData = buildMasterDataFromRows(createSampleSalesRows(1200));
-    localStorage.setItem(masterStorageKey, JSON.stringify(nextData));
-
-    if (window.api?.seedMasterData) {
-      try {
-        await window.api.seedMasterData();
-        setMasterData(nextData);
-        await loadMasterData();
-        setLoadState('부족한 기준 데이터를 SQLite에 추가하고 다시 조회했습니다.');
-        addNotification({
-          title: '기준 데이터 저장 완료',
-          message: '부족한 거래처/제품/단가 기준 데이터를 SQLite에 추가했습니다.',
-          level: 'SUCCESS',
-          target: '코드 매핑',
-          href: '/validate/code-mapping',
-        });
-      } catch (error) {
-        setMasterData(nextData);
-        setLoadState(`브라우저 저장은 완료, SQLite 시드는 실패: ${error.message}`);
-        addNotification({
-          title: '기준 데이터 일부 저장',
-          message: `브라우저 저장은 완료, SQLite 시드는 실패했습니다: ${error.message}`,
-          level: 'WARN',
-          target: '코드 매핑',
-          href: '/validate/code-mapping',
-        });
-      } finally {
-        setIsSeeding(false);
-      }
-      return;
-    }
-
-    setMasterData(nextData);
-    setLoadState('브라우저 개발 모드라 localStorage에 기준 데이터를 저장했습니다. Electron 연결 후 SQLite 저장으로 이어집니다.');
-    addNotification({
-      title: '기준 데이터 저장 완료',
-      message: '브라우저 저장소에 기준 데이터를 저장했습니다.',
-      level: 'SUCCESS',
-      target: '코드 매핑',
-      href: '/validate/code-mapping',
-    });
-    setIsSeeding(false);
-  };
 
   const tableViews = useMemo(() => [
     {
@@ -262,21 +224,6 @@ export default function CodeMappingPage() {
       ],
     },
     {
-      id: 'customerAliases',
-      title: '거래처 별칭',
-      count: masterData.customerAliases.length,
-      detail: '원본 거래처명을 표준 거래처 코드로 매핑합니다.',
-      rows: masterData.customerAliases,
-      emptyText: '등록된 거래처 별칭이 없습니다.',
-      columns: [
-        { label: '원본명', key: 'aliasName' },
-        { label: '표준 거래처', key: 'customerName' },
-        { label: '코드', key: 'customerCode' },
-        { label: '신뢰도', render: (row) => formatPercent(row.confidence) },
-        { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
-      ],
-    },
-    {
       id: 'productAliases',
       title: '제품 별칭',
       count: masterData.productAliases.length,
@@ -310,7 +257,7 @@ export default function CodeMappingPage() {
   const activeTable = tableViews.find((view) => view.id === activeView) ?? tableViews[0];
 
   return (
-    <PageShell title="코드 매핑" description="1,200건 거래 데이터를 기초로 거래처명, 제품명, 단가 기준을 만들고 매핑 후보를 확인합니다.">
+    <PageShell title="코드 매핑" description="등록된 거래처명, 제품명, 단가 기준과 매핑 후보를 확인합니다.">
       <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
           <MetricCard key={metric.label} {...metric} />
@@ -325,9 +272,6 @@ export default function CodeMappingPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <button className="btn btn-secondary" type="button" onClick={loadMasterData}>조회</button>
-            <button className="btn btn-primary" type="button" onClick={handleSeed} disabled={isSeeding}>
-              {isSeeding ? '추가 중...' : '부족 데이터 추가'}
-            </button>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">

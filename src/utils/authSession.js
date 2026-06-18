@@ -208,11 +208,7 @@ export function createLog(level, action, target, userId = adminUserId) {
 }
 
 export function getLogs() {
-  return readJson(logsStorageKey, [
-    createLog('INFO', '앱 실행', 'Dashboard'),
-    createLog('INFO', '샘플 데이터 로드', '1,200건'),
-    createLog('WARN', '중복 후보 감지', '중복 검사'),
-  ]);
+  return readJson(logsStorageKey, []);
 }
 
 export function saveLogs(logs) {

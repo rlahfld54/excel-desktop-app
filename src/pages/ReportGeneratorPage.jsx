@@ -89,7 +89,7 @@ export default function ReportGeneratorPage() {
 
   const summary = useMemo(() => [
     { label: '총 매출액', value: toCurrency(metrics.totalSales), detail: '월간 거래 기준' },
-    { label: '거래 건수', value: `${metrics.transactionCount.toLocaleString('ko-KR')}건`, detail: '샘플 데이터' },
+    { label: '거래 건수', value: `${metrics.transactionCount.toLocaleString('ko-KR')}건`, detail: '현재 작업 데이터' },
     { label: '평균 거래액', value: toCurrency(metrics.averageAmount), detail: '건별 평균' },
     { label: '오류율', value: `${(metrics.issueRate * 100).toFixed(1)}%`, detail: `${metrics.issueCount.toLocaleString('ko-KR')}건 확인` },
   ], [metrics]);

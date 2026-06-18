@@ -3,25 +3,23 @@ import React, { useEffect, useMemo, useState } from 'react';
 import PageShell from './PageShell';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
 import {
-  createSampleSalesRows,
   findDuplicateGroups,
   parseNumber,
-  sampleColumns,
-  sampleCustomers,
-  sampleProducts,
 } from '../data/sampleSalesData';
 import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 
-const sampleRows = createSampleSalesRows(1200);
+const defaultColumns = ['거래일', '거래처', '품목 코드', '품목명', '수량', '단가', '금액', '검증', '담당자'];
+const referenceCustomers = [];
+const referenceProducts = [];
 const automationRowsStorageKey = 'excel-workspace:automationRows';
 
 function readSavedAutomationRows() {
   try {
     const saved = JSON.parse(localStorage.getItem(automationRowsStorageKey));
     if (Array.isArray(saved?.rows) && saved.rows.length > 0) return saved.rows;
-    return Array.isArray(saved) && saved.length > 0 ? saved : sampleRows;
+    return Array.isArray(saved) && saved.length > 0 ? saved : [];
   } catch {
-    return sampleRows;
+    return [];
   }
 }
 
@@ -64,7 +62,7 @@ async function saveAutomationRowsToDatabase(rows, results = {}, fileName = 'auto
   try {
     return await window.api.saveData({
       fileName,
-      columns: sampleColumns,
+      columns: defaultColumns,
       rows,
       validationIssues,
       savedAt: new Date().toISOString(),
@@ -100,8 +98,8 @@ async function loadLatestAutomationData() {
 
   return {
     ok: true,
-    mode: 'sample',
-    rows: sampleRows,
+    mode: 'empty',
+    rows: [],
     appliedCount: 0,
     savedAt: null,
   };
@@ -124,11 +122,11 @@ function toCurrency(value) {
 }
 
 function getProductByCode(code) {
-  return sampleProducts.find((product) => product.code === code);
+  return referenceProducts.find((product) => product.code === code);
 }
 
 function getCustomerByName(name) {
-  return sampleCustomers.find((customer) => customer.name === name || customer.aliases.includes(name));
+  return referenceCustomers.find((customer) => customer.name === name || customer.aliases.includes(name));
 }
 
 function runEmptyValueCheck(rows) {
@@ -243,7 +241,7 @@ function runProductMappingCheck(rows) {
     const code = row[2];
     const name = row[3];
     if (!code) {
-      const candidate = sampleProducts.find((product) => product.name === name || product.aliases.includes(name));
+      const candidate = referenceProducts.find((product) => product.name === name || product.aliases.includes(name));
       return [{
         rowNumber: rowIndex + 1,
         type: '품목코드 누락',
@@ -361,7 +359,7 @@ function applyAutomationFixes(rows, selectedIds, settings, currentUser) {
   if (selectedIds.includes('product-mapping')) {
     nextRows.forEach((row) => {
       const productByCode = getProductByCode(row[2]);
-      const productByName = sampleProducts.find((product) => product.name === row[3] || product.aliases.includes(row[3]));
+      const productByName = referenceProducts.find((product) => product.name === row[3] || product.aliases.includes(row[3]));
 
       if (!row[2] && productByName) {
         row[2] = productByName.code;
@@ -496,7 +494,7 @@ export default function AutomationPage() {
   const appliedCount = useWorkspaceDataStore((state) => state.appliedCount);
   const loadLatest = useWorkspaceDataStore((state) => state.loadLatest);
   const saveRows = useWorkspaceDataStore((state) => state.saveRows);
-  const resetSample = useWorkspaceDataStore((state) => state.resetSample);
+  const resetWorkspace = useWorkspaceDataStore((state) => state.resetWorkspace);
   const [settings, setSettings] = useState(defaultSettings);
   const [selectedIds, setSelectedIds] = useState(automationDefinitions.map((item) => item.id));
   const [results, setResults] = useState({});
@@ -561,7 +559,7 @@ export default function AutomationPage() {
     const nextResults = Object.fromEntries(selectedDefinitions.map((definition) => [definition.id, definition.run(applied.rows, settings)]));
     const databaseResult = await saveRows({
       rows: applied.rows,
-      columns: sampleColumns,
+      columns: defaultColumns,
       fileName: 'automation-applied-sales-rows.xlsx',
       results: nextResults,
     });
@@ -576,15 +574,15 @@ export default function AutomationPage() {
   };
 
   const resetAutomationData = async () => {
-    const latest = await resetSample();
+    const latest = resetWorkspace();
     setResults({});
     setLastRun(null);
     await refreshFromLatestData(() => (
       latest?.sourceMode === 'sqlite'
         ? '원본 데이터로 되돌리고 SQLite 최신 데이터로 다시 불러왔습니다.'
-        : '자동화 샘플 데이터를 원래 상태로 되돌렸습니다.'
+        : '작업 데이터를 비웠습니다.'
     ));
-    addActivityLog('INFO', '자동화 데이터 초기화', '샘플 데이터 원복');
+    addActivityLog('INFO', '자동화 데이터 초기화', '작업 데이터 비움');
   };
 
   const toggleSelected = (id) => {
@@ -627,7 +625,7 @@ export default function AutomationPage() {
       <div className="mb-4 grid gap-4 md:grid-cols-4">
         {[
           ['실행 항목', `${summary.executed.toLocaleString('ko-KR')}개`, lastRun ? `최근 실행 ${lastRun}` : '아직 실행 전'],
-          ['처리 행 수', `${summary.processed.toLocaleString('ko-KR')}행`, '1,200건 샘플 기준'],
+          ['처리 행 수', `${summary.processed.toLocaleString('ko-KR')}행`, '현재 작업 데이터 기준'],
           ['확인 필요', `${summary.issues.toLocaleString('ko-KR')}건`, '마감 전 검토 대상'],
           ['보정 후보', `${summary.fixed.toLocaleString('ko-KR')}건`, '자동 보정 가능 후보'],
         ].map(([label, value, detail]) => (

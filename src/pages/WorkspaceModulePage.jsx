@@ -420,15 +420,12 @@ const defaultConfig = {
   description: '공통 업무 목록과 액션을 처리합니다.',
   actions: ['처리', '항목 추가', 'CSV 내보내기'],
   stats: [
-    ['전체', '4건', '샘플 데이터'],
+    ['전체', '0건', '등록된 데이터 없음'],
     ['처리', '0건', '대기 중'],
     ['상태', '정상', 'React UI'],
   ],
   columns: sharedColumns,
-  rows: [
-    ['샘플 항목', 'sample.xlsx', '김민서', '대기', '방금 전'],
-    ['검토 항목', 'review.csv', '박지훈', '확인 필요', '오늘'],
-  ],
+  rows: [],
   sideTitle: '작업 옵션',
   sideItems: ['전체 보기', '확인 필요', '완료 항목'],
 };

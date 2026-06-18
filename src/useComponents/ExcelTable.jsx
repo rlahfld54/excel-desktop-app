@@ -30,7 +30,7 @@ function compareCell(a, b) {
 function ExcelTable({
   columns = [],
   rows = [],
-  fileName = 'sample_sales_1200.csv',
+  fileName = 'workspace-data.csv',
   isLoading = false,
   onExport,
   onValidate,

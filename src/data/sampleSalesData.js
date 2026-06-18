@@ -103,7 +103,7 @@ export function parseNumber(value) {
   return Number(String(value ?? '').replaceAll(',', ''));
 }
 
-export function buildMasterDataFromRows(rows = createSampleSalesRows()) {
+export function buildMasterDataFromRows(rows = []) {
   const customerMap = new Map();
   const productMap = new Map();
   const priceMap = new Map();
@@ -175,18 +175,6 @@ export function buildMasterDataFromRows(rows = createSampleSalesRows()) {
     }
   });
 
-  const customerAliases = sampleCustomers.flatMap((customer, customerIndex) =>
-    customer.aliases.map((aliasName, aliasIndex) => ({
-      aliasId: customerIndex * 10 + aliasIndex + 1,
-      customerCode: customer.code,
-      customerName: customer.name,
-      aliasName,
-      source: 'SAMPLE_1200',
-      confidence: aliasIndex === 0 ? 0.96 : 0.9,
-      status: 'ACTIVE',
-    }))
-  );
-
   const productAliases = sampleProducts.flatMap((product, productIndex) =>
     product.aliases.map((aliasName, aliasIndex) => ({
       aliasId: productIndex * 10 + aliasIndex + 1,
@@ -202,7 +190,6 @@ export function buildMasterDataFromRows(rows = createSampleSalesRows()) {
   return {
     ok: true,
     customers: Array.from(customerMap.values()),
-    customerAliases,
     products: Array.from(productMap.values()),
     productAliases,
     prices: Array.from(priceMap.values()),
@@ -220,7 +207,7 @@ export function buildMasterDataFromRows(rows = createSampleSalesRows()) {
   };
 }
 
-export function findDuplicateGroups(rows = createSampleSalesRows()) {
+export function findDuplicateGroups(rows = []) {
   const groups = new Map();
 
   rows.forEach((row, index) => {

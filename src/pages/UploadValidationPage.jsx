@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
 import PageShell from './PageShell';
-import { buildMasterDataFromRows, createSampleSalesRows, sampleColumns } from '../data/sampleSalesData';
 import { excelUploadTemplates } from '../data/excelUploadTemplates';
 import { addActivityLog } from '../utils/authSession';
 import { parseSpreadsheetFile } from '../utils/fileParsers';
@@ -19,6 +18,15 @@ import {
 } from '../utils/spreadsheetExport';
 
 const masterStorageKey = 'excel-workspace:masterData';
+const defaultColumns = ['거래일', '거래처', '품목 코드', '품목명', '수량', '단가', '금액', '검증', '담당자'];
+const emptyMasterData = {
+  customers: [],
+  products: [],
+  productAliases: [],
+  prices: [],
+  suggestions: [],
+  contacts: [],
+};
 
 function IssueList({ title, types, counts, tone, onSelectType }) {
   return (
@@ -97,36 +105,37 @@ function similarity(a, b) {
 }
 
 function readLocalMasterData() {
-  if (window.api?.getMasterData) {
-    return buildMasterDataFromRows(createSampleSalesRows(1200));
-  }
+  if (window.api?.getMasterData) return emptyMasterData;
 
   try {
     const saved = JSON.parse(localStorage.getItem(masterStorageKey));
-    if (saved?.customers?.length || saved?.products?.length) return saved;
+    const hasBundledSampleCodes = saved?.products?.some((product) => (
+      ['PAPER-A4-001', 'TONER-BLK-2108', 'USB-HUB-04'].includes(product.productCode)
+    ));
+    if (!hasBundledSampleCodes && saved && typeof saved === 'object') {
+      return { ...emptyMasterData, ...saved };
+    }
   } catch {
     // Ignore malformed local master data.
   }
-  return buildMasterDataFromRows(createSampleSalesRows(1200));
+  return emptyMasterData;
 }
 
 function getLatestRowsFallback() {
-  if (window.api?.getLatestData) {
-    return { columns: sampleColumns, rows: createSampleSalesRows(1200) };
-  }
+  if (window.api?.getLatestData) return { columns: defaultColumns, rows: [] };
 
   try {
     const saved = JSON.parse(localStorage.getItem('excel-workspace:workspaceData'));
-    if (Array.isArray(saved?.rows)) {
+    if (saved?.fileName !== 'sample_sales_1200.xlsx' && Array.isArray(saved?.rows)) {
       return {
-        columns: Array.isArray(saved.columns) ? saved.columns : sampleColumns,
+        columns: Array.isArray(saved.columns) ? saved.columns : defaultColumns,
         rows: saved.rows,
       };
     }
   } catch {
     // Ignore malformed local workspace data.
   }
-  return { columns: sampleColumns, rows: createSampleSalesRows(1200) };
+  return { columns: defaultColumns, rows: [] };
 }
 
 function findRecentColumnIndex(columns, names) {
@@ -140,7 +149,7 @@ function getRecentValue(row, indexes, key) {
 }
 
 function findRecentRowCandidate(row, indexes, recentData) {
-  const recentColumns = recentData.columns ?? sampleColumns;
+  const recentColumns = recentData.columns ?? defaultColumns;
   const recentIndexes = {
     customerName: findRecentColumnIndex(recentColumns, ['거래처', '거래처명']),
     productCode: findRecentColumnIndex(recentColumns, ['품목 코드', '품목코드']),
@@ -205,14 +214,10 @@ function findCustomerCandidate(row, indexes, referenceData, productCandidate) {
   const customerName = getCell(row, indexes.customerName);
   const productCode = getCell(row, indexes.productCode) || productCandidate?.product?.productCode;
   const unitPrice = toNumber(getCell(row, indexes.unitPrice));
-  const aliases = referenceData.customerAliases ?? [];
   const prices = referenceData.prices ?? [];
 
   return (referenceData.customers ?? []).reduce((best, customer) => {
-    const aliasScore = aliases
-      .filter((alias) => alias.customerCode === customer.customerCode)
-      .reduce((max, alias) => Math.max(max, similarity(customerName, alias.aliasName) * 0.96), 0);
-    const nameScore = Math.max(similarity(customerName, customer.customerName), aliasScore);
+    const nameScore = similarity(customerName, customer.customerName);
     const priceScore = prices.some((price) => (
       price.customerCode === customer.customerCode
       && (!productCode || price.productCode === productCode)
@@ -251,17 +256,6 @@ function findExactCustomer({ customerCode, customerName, referenceData }) {
     return {
       customerCode: getCustomerCode(customer),
       customerName: getCustomerName(customer),
-    };
-  }
-
-  const alias = (referenceData.customerAliases ?? []).find((item) => (
-    normalizedName && normalizeText(item.aliasName) === normalizedName
-  ));
-  if (alias) {
-    const aliasCustomer = (referenceData.customers ?? []).find((item) => getCustomerCode(item) === alias.customerCode);
-    return {
-      customerCode: alias.customerCode,
-      customerName: getCustomerName(aliasCustomer) || customerName,
     };
   }
 
@@ -596,7 +590,7 @@ export default function UploadValidationPage() {
           const payload = result?.data?.payload;
           if (Array.isArray(payload?.rows)) {
             nextRecentData = {
-              columns: Array.isArray(payload.columns) ? payload.columns : sampleColumns,
+              columns: Array.isArray(payload.columns) ? payload.columns : defaultColumns,
               rows: payload.rows,
             };
           }

@@ -2,49 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 
-const fallbackPackages = [
-  {
-    packageId: 1,
-    packageName: 'REQ-202605-SAMPLE',
-    closingMonth: '2026-05',
-    outputFolderPath: 'exports/request/202605',
-    status: 'CREATED',
-    itemCount: 2,
-    readyCount: 2,
-    missingEmailCount: 0,
-    missingAttachmentCount: 0,
-    createdAt: '-',
-    items: [
-      {
-        itemId: 1,
-        customerCode: 'CUST-001',
-        customerName: '한빛유통',
-        recipientEmail: 'settle@hanbit.example',
-        channel: 'EMAIL',
-        subject: '[확인 요청] 2026-05 매출 자료 검수 협조 요청드립니다',
-        body: '첨부드린 매출 자료 확인 부탁드립니다.',
-        attachmentPdfPath: 'exports/request/202605/CUST-001.pdf',
-        attachmentXlsxPath: 'exports/request/202605/CUST-001.xlsx',
-        attachmentStatus: 'READY',
-        status: 'READY',
-      },
-      {
-        itemId: 2,
-        customerCode: 'CUST-003',
-        customerName: '모블상사',
-        recipientEmail: 'admin@moble.example',
-        channel: 'KAKAO',
-        subject: '[확인 요청] 2026-05 매출 자료 검수 협조 요청드립니다',
-        body: '첨부드린 매출 자료 확인 부탁드립니다.',
-        attachmentPdfPath: 'exports/request/202605/CUST-003.pdf',
-        attachmentXlsxPath: 'exports/request/202605/CUST-003.xlsx',
-        attachmentStatus: 'READY',
-        status: 'READY',
-      },
-    ],
-  },
-];
-
 function statusClass(status) {
   if (['READY', 'CREATED', 'COMPLETED'].includes(status)) {
     return 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300';
@@ -143,16 +100,15 @@ function ChecklistItem({ label, detail, status }) {
 }
 
 export default function SendPackagesPage() {
-  const [packages, setPackages] = useState(fallbackPackages);
-  const [selectedPackageId, setSelectedPackageId] = useState(fallbackPackages[0].packageId);
-  const [selectedItemId, setSelectedItemId] = useState(fallbackPackages[0].items[0].itemId);
+  const [packages, setPackages] = useState([]);
+  const [selectedPackageId, setSelectedPackageId] = useState(null);
+  const [selectedItemId, setSelectedItemId] = useState(null);
   const [params, setParams] = useState({
-    startDate: '2026-05-01',
-    endDate: '2026-05-31',
+    startDate: '',
+    endDate: '',
   });
-  const [loadState, setLoadState] = useState('브라우저 미리보기');
+  const [loadState, setLoadState] = useState('등록된 발송 패키지가 없습니다.');
   const [exportState, setExportState] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);
 
   const filteredPackages = useMemo(() => (
@@ -183,16 +139,16 @@ export default function SendPackagesPage() {
   }, [filteredPackages]);
 
   const setNextPackages = (nextPackages) => {
-    const normalized = nextPackages.length ? nextPackages : fallbackPackages;
+    const normalized = Array.isArray(nextPackages) ? nextPackages : [];
     setPackages(normalized);
-    setSelectedPackageId(normalized[0].packageId);
-    setSelectedItemId(normalized[0].items[0]?.itemId);
+    setSelectedPackageId(normalized[0]?.packageId ?? null);
+    setSelectedItemId(normalized[0]?.items?.[0]?.itemId ?? null);
   };
 
   const loadPackages = async () => {
     if (!window.api?.getSendPackages) {
-      setNextPackages(fallbackPackages);
-      setLoadState('브라우저 미리보기');
+      setNextPackages([]);
+      setLoadState('Electron 실행 시 실제 발송 패키지와 연결됩니다.');
       return;
     }
 
@@ -201,7 +157,7 @@ export default function SendPackagesPage() {
       setNextPackages(result.packages ?? []);
       setLoadState(result.packages?.length ? 'SQLite 연결됨' : 'SQLite 연결됨 / 패키지 없음');
     } catch (error) {
-      setNextPackages(fallbackPackages);
+      setNextPackages([]);
       setLoadState(`SQLite 확인 필요: ${error.message}`);
     }
   };
@@ -209,25 +165,6 @@ export default function SendPackagesPage() {
   useEffect(() => {
     loadPackages();
   }, []);
-
-  const handleCreateSample = async () => {
-    if (!window.api?.createSampleSendPackage) {
-      setLoadState('Electron 실행 후 샘플 패키지 생성 가능');
-      return;
-    }
-
-    setIsCreating(true);
-    setLoadState('샘플 패키지 생성 중');
-    try {
-      const result = await window.api.createSampleSendPackage();
-      setNextPackages(result.packages ?? []);
-      setLoadState('샘플 패키지 생성 완료');
-    } catch (error) {
-      setLoadState(`샘플 생성 실패: ${error.message}`);
-    } finally {
-      setIsCreating(false);
-    }
-  };
 
   const handlePrepareAttachments = async () => {
     if (!selectedPackage) return;
@@ -293,9 +230,6 @@ export default function SendPackagesPage() {
             </button>
             <button className="btn btn-secondary" type="button" onClick={handlePrepareAttachments} disabled={isPreparing}>
               {isPreparing ? '준비 중' : '첨부 경로 준비'}
-            </button>
-            <button className="btn btn-primary" type="button" onClick={handleCreateSample} disabled={isCreating}>
-              {isCreating ? '생성 중' : '샘플 패키지 생성'}
             </button>
           </div>
         </div>
