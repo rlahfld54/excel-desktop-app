@@ -40,9 +40,9 @@ export default function DataTablePage() {
     endDate: '2026-05-31',
     status: '전체',
     query: '',
-    page: 1,
     pageSize: 50,
   });
+  const [page, setPage] = useState(1);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [serverTotal, setServerTotal] = useState(rows.length);
 
@@ -80,31 +80,26 @@ export default function DataTablePage() {
   const totalPages = Math.max(Math.ceil(totalRows / params.pageSize), 1);
   const visibleRows = isSqlQueryMode
     ? sqlRows
-    : filteredRows.slice((params.page - 1) * params.pageSize, params.page * params.pageSize);
+    : filteredRows.slice((page - 1) * params.pageSize, page * params.pageSize);
 
   const updateParams = (nextValues) => {
     setParams((current) => ({
       ...current,
       ...nextValues,
-      page: nextValues.page ?? 1,
     }));
+    setPage(1);
   };
 
-  const handleSearch = async (nextPage = 1) => {
-    console.log(params);
+  const fetchPage = async (targetPage) => {
+    const nextPage = Math.min(Math.max(targetPage, 1), totalPages);
     const searchParams = {
       ...params,
       page: nextPage,
     };
-    setParams(searchParams);
 
     if (window.api?.querySalesData) {
       try {
         const result = await window.api.querySalesData(searchParams);
-        console.log('[debug:data-query:renderer] params', searchParams);
-        console.log('[debug:data-query:renderer] result', result);
-        console.log('[debug:data-query:renderer] rows', result?.data?.rows);
-        console.log('[debug:data-query:renderer] total', result?.data?.total);
         const data = result?.data;
         if (result?.ok && Array.isArray(data?.rows)) {
           stageWorkspace({
@@ -115,6 +110,7 @@ export default function DataTablePage() {
             rowActions: {},
           });
           setServerTotal(Number(data.total) || 0);
+          setPage(Number(data.page) || nextPage);
           setSelectedIndex(0);
           return;
         }
@@ -123,8 +119,12 @@ export default function DataTablePage() {
       }
     }
 
+    setPage(nextPage);
   };
 
+  const handleSearch = () => fetchPage(1);
+  const handlePrevPage = () => fetchPage(page - 1);
+  const handleNextPage = () => fetchPage(page + 1);
 
   const runValidation = (targetColumns = columns, targetRows = rows, nextFileName = fileName) => {
     const result = validateBeforeInsert(targetColumns, targetRows);
@@ -185,7 +185,7 @@ export default function DataTablePage() {
             />
           </label>
           <div className="flex items-end">
-            <button className="btn btn-primary w-full whitespace-nowrap" type="button" onClick={() => handleSearch(1)}>
+            <button className="btn btn-primary w-full whitespace-nowrap" type="button" onClick={handleSearch}>
               조회
             </button>
           </div>
@@ -202,9 +202,9 @@ export default function DataTablePage() {
           </div>
           {totalRows > params.pageSize && (
             <div className="flex items-center gap-2">
-              <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page <= 1} onClick={() => handleSearch(params.page - 1)}>이전</button>
-              <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">{params.page} / {totalPages}</span>
-              <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page >= totalPages} onClick={() => handleSearch(params.page + 1)}>다음</button>
+              <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={page <= 1} onClick={handlePrevPage}>이전</button>
+              <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">{page} / {totalPages}</span>
+              <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={page >= totalPages} onClick={handleNextPage}>다음</button>
             </div>
           )}
         </header>
