@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 
+import { Modal } from '../components/common';
 import PageShell from './PageShell';
-import { excelUploadTemplates } from '../data/excelUploadTemplates';
+import { excelUploadTemplates, uploadValidationTestData } from '../data/excelUploadTemplates';
 import { addActivityLog } from '../utils/authSession';
 import { parseSpreadsheetFile } from '../utils/fileParsers';
 import {
@@ -64,14 +65,6 @@ function TemplateMiniCard({ template, onDownload }) {
           <div className="mt-2 flex flex-wrap gap-1.5">
             {template.requiredColumns.map((column) => (
               <span key={column} className="rounded bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-700 dark:bg-teal-500/10 dark:text-teal-300">{column}</span>
-            ))}
-          </div>
-        </div>
-        <div>
-          <p className="text-xs font-bold text-gray-500 dark:text-gray-400">선택 컬럼</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {template.optionalColumns.map((column) => (
-              <span key={column} className="rounded bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600 dark:bg-gray-700 dark:text-gray-300">{column}</span>
             ))}
           </div>
         </div>
@@ -406,21 +399,22 @@ function IssueEditModal({
   ].filter(([key]) => validation.indexes[key] >= 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/55 px-4 py-6">
-      <section className="flex max-h-full w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-700/60 dark:bg-gray-900">
-        <header className="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-700/60 xl:flex-row xl:items-center xl:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Temporary review</p>
-            <h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">{issueType}</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{rows.length.toLocaleString('ko-KR')}개 행을 검토 중입니다. 수정 내용은 임시 검토본에만 반영됩니다.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+    <Modal
+      open
+      eyebrow="Temporary review"
+      title={issueType}
+      description={`${rows.length.toLocaleString('ko-KR')}개 행을 검토 중입니다. 수정 내용은 임시 검토본에만 반영됩니다.`}
+      size="4xl"
+      onClose={onClose}
+      showCloseButton={false}
+      bodyClassName="min-h-0 flex-1 overflow-auto p-5"
+      headerActions={(
+        <>
             <button className="btn btn-secondary" type="button" onClick={() => onDownload(issueType)}>이 항목 엑셀 다운로드</button>
             <button className="btn btn-primary" type="button" onClick={onClose}>검토 완료</button>
-          </div>
-        </header>
-
-        <div className="min-h-0 flex-1 overflow-auto p-5">
+        </>
+      )}
+    >
           <table className="min-w-[1120px] w-full border-separate border-spacing-0 text-sm">
             <thead className="sticky top-0 z-10">
               <tr>
@@ -470,9 +464,7 @@ function IssueEditModal({
               )}
             </tbody>
           </table>
-        </div>
-      </section>
-    </div>
+    </Modal>
   );
 }
 
@@ -564,6 +556,7 @@ export default function UploadValidationPage() {
   const [templateStatus, setTemplateStatus] = useState('필요한 표준 양식 2개만 제공합니다.');
   const [referenceData, setReferenceData] = useState(() => readLocalMasterData());
   const [recentData, setRecentData] = useState(() => getLatestRowsFallback());
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -690,6 +683,58 @@ export default function UploadValidationPage() {
     }
   };
 
+  const handleSave = async () => {
+    if (!draft || isSaving) return;
+
+    const nextValidation = validateBeforeInsert(draft.columns, draft.rows, { referenceData });
+    const stamped = applyValidationStatus(draft.columns, draft.rows, nextValidation);
+    const validationIssues = Object.fromEntries(
+      Object.entries(nextValidation.issuesByRow).map(([rowIndex, issues]) => [
+        rowIndex,
+        issues.map((issue) => `${issue.type}: ${issue.message}`),
+      ])
+    );
+
+    setValidation(nextValidation);
+    setDraft((current) => ({ ...current, ...stamped, validationIssues }));
+
+    if (nextValidation.blockerCount > 0) {
+      setStatusText(`반려 ${nextValidation.blockerCount.toLocaleString('ko-KR')}건이 남아 있습니다. 수정 후 다시 저장해주세요.`);
+      return;
+    }
+
+    if (!window.api?.saveData) {
+      setStatusText('매출 테이블 저장은 Electron 데스크톱 앱에서 사용할 수 있습니다.');
+      return;
+    }
+
+    setIsSaving(true);
+    setStatusText(`${draft.fileName} 데이터를 매출 테이블에 저장하는 중입니다.`);
+
+    try {
+      const result = await window.api.saveData({
+        fileName: draft.fileName,
+        columns: stamped.columns,
+        rows: stamped.rows,
+        rowActions: {},
+        validationIssues,
+        savedAt: new Date().toISOString(),
+      });
+
+      if (!result?.ok) throw new Error(result?.message || 'SQLite 저장에 실패했습니다.');
+
+      addActivityLog('INFO', '업로드 검증 데이터 저장', `${draft.fileName} / ${stamped.rows.length}건`);
+      setStatusText(
+        `${stamped.rows.length.toLocaleString('ko-KR')}건을 매출 테이블에 저장했습니다.`
+        + (nextValidation.reviewCount > 0 ? ` 담당자 재확인 ${nextValidation.reviewCount.toLocaleString('ko-KR')}건도 함께 기록했습니다.` : '')
+      );
+    } catch (error) {
+      setStatusText(`매출 테이블 저장 실패: ${error.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleCellChange = (rowIndex, columnIndex, value) => {
     if (!draft) return;
     setDraft((current) => ({
@@ -804,6 +849,9 @@ export default function UploadValidationPage() {
               <input className="sr-only" type="file" accept=".csv,.xlsx" onChange={handleFileUpload} />
             </label>
             <button className="btn btn-secondary" type="button" onClick={() => handleDownloadIssues()} disabled={!draft}>검증 결과 엑셀 다운로드</button>
+            <button className="btn btn-secondary" type="button" onClick={handleSave} disabled={!draft || isSaving}>
+              {isSaving ? '저장 중...' : '저장'}
+            </button>
           </div>
         </div>
       </section>
@@ -820,7 +868,9 @@ export default function UploadValidationPage() {
             <h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">표준 엑셀 양식</h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{templateStatus}</p>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={handleTemplateDownloadAll}>두 양식 한 번에 다운로드</button>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn btn-secondary" type="button" onClick={handleTemplateDownloadAll}>두 양식 한 번에 다운로드</button>
+          </div>
         </div>
         <div className="mt-4 grid gap-3 xl:grid-cols-2">
           {excelUploadTemplates.map((template) => (

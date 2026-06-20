@@ -1,17 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+import { FormField } from '../components/common';
 import PageShell from './PageShell';
 import { addActivityLog, getCurrentUser, updateUser } from '../utils/authSession';
 import { getBusinessCard } from '../utils/businessCard';
-
-function Field({ label, children }) {
-  return (
-    <label className="block">
-      <span className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</span>
-      <div className="mt-1">{children}</div>
-    </label>
-  );
-}
 
 function makeForm(user) {
   return {
@@ -186,27 +178,27 @@ export default function UserPreferencesPage() {
         <section className="col-span-12 rounded-lg border border-gray-200 bg-white p-5 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8">
           <h2 className="font-semibold text-gray-900 dark:text-gray-100">기본 정보</h2>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <Field label="아이디">
+            <FormField label="아이디" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full bg-gray-50 dark:bg-gray-900/30" value={currentUser.id} disabled />
-            </Field>
-            <Field label="이름">
+            </FormField>
+            <FormField label="이름" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" value={form.name} onChange={(event) => handleChange('name', event.target.value)} />
-            </Field>
-            <Field label="비밀번호">
+            </FormField>
+            <FormField label="비밀번호" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full font-mono" value={form.password} onChange={(event) => handleChange('password', event.target.value)} />
-            </Field>
-            <Field label="부서">
+            </FormField>
+            <FormField label="부서" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" value={form.department} onChange={(event) => handleChange('department', event.target.value)} />
-            </Field>
-            <Field label="직책">
+            </FormField>
+            <FormField label="직책" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" value={form.title} onChange={(event) => handleChange('title', event.target.value)} />
-            </Field>
-            <Field label="이메일">
+            </FormField>
+            <FormField label="이메일" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" type="email" value={form.email} onChange={(event) => handleChange('email', event.target.value)} />
-            </Field>
-            <Field label="전화번호">
+            </FormField>
+            <FormField label="전화번호" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" value={form.phone} onChange={(event) => handleChange('phone', event.target.value)} />
-            </Field>
+            </FormField>
           </div>
         </section>
 
@@ -239,21 +231,21 @@ export default function UserPreferencesPage() {
           </button>
         </div>
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <Field label="발송자 이름">
+          <FormField label="발송자 이름" labelClassName="uppercase text-gray-400 dark:text-gray-500">
             <input className="form-input w-full" value={mailSettings.gmailSenderName} onChange={(event) => handleMailSettingChange('gmailSenderName', event.target.value)} />
-          </Field>
-          <Field label="Gmail 주소">
+          </FormField>
+          <FormField label="Gmail 주소" labelClassName="uppercase text-gray-400 dark:text-gray-500">
             <input className="form-input w-full" type="email" value={mailSettings.gmailAddress} onChange={(event) => handleMailSettingChange('gmailAddress', event.target.value)} />
-          </Field>
-          <Field label="앱 비밀번호">
+          </FormField>
+          <FormField label="앱 비밀번호" labelClassName="uppercase text-gray-400 dark:text-gray-500">
             <input className="form-input w-full" type="password" value={mailSettings.gmailAppPassword} onChange={(event) => handleMailSettingChange('gmailAppPassword', event.target.value)} autoComplete="new-password" />
-          </Field>
-          <Field label="테스트 수신 이메일">
+          </FormField>
+          <FormField label="테스트 수신 이메일" labelClassName="uppercase text-gray-400 dark:text-gray-500">
             <input className="form-input w-full" type="email" value={mailSettings.gmailTestEmail} onChange={(event) => handleMailSettingChange('gmailTestEmail', event.target.value)} />
-          </Field>
-          <Field label="회신 받을 이메일">
+          </FormField>
+          <FormField label="회신 받을 이메일" labelClassName="uppercase text-gray-400 dark:text-gray-500">
             <input className="form-input w-full" type="email" value={mailSettings.gmailReplyToEmail} onChange={(event) => handleMailSettingChange('gmailReplyToEmail', event.target.value)} />
-          </Field>
+          </FormField>
         </div>
       </section>
 

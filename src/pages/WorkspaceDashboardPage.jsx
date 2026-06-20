@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+import { Modal } from '../components/common';
 import Sidebar from '../partials/Sidebar';
 import Header from '../partials/Header';
 import Breadcrumbs from '../useComponents/Breadcrumbs';
@@ -97,21 +98,28 @@ function UploadPreflightModal({
   const dateCount = dateIndexes.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/50 px-4 py-6">
-      <section className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-700/60 dark:bg-gray-900">
-        <header className="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-700/60 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Upload preflight</p>
-            <h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">업로드 전 검증</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{analysis.fileName} · {analysis.rows.length.toLocaleString('ko-KR')}행 · {analysis.columns.length.toLocaleString('ko-KR')}개 컬럼</p>
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs font-semibold">
-            <span className="rounded bg-accent-50 px-2 py-1 text-accent-700 dark:bg-accent-500/10 dark:text-accent-200">반영 컬럼 {includedCount.toLocaleString('ko-KR')}</span>
-            <span className="rounded bg-sky-50 px-2 py-1 text-sky-700 dark:bg-sky-500/10 dark:text-sky-200">날짜 정리 {dateCount.toLocaleString('ko-KR')}</span>
-          </div>
-        </header>
-
-        <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+    <Modal
+      open
+      eyebrow="Upload preflight"
+      title="업로드 전 검증"
+      description={`${analysis.fileName} · ${analysis.rows.length.toLocaleString('ko-KR')}행 · ${analysis.columns.length.toLocaleString('ko-KR')}개 컬럼`}
+      size="3xl"
+      onClose={onCancel}
+      showCloseButton={false}
+      bodyClassName="grid min-h-0 flex-1 gap-4 overflow-auto p-5 lg:grid-cols-[minmax(0,1fr)_280px]"
+      headerActions={(
+        <div className="flex flex-wrap gap-2 text-xs font-semibold">
+          <span className="rounded bg-accent-50 px-2 py-1 text-accent-700 dark:bg-accent-500/10 dark:text-accent-200">반영 컬럼 {includedCount.toLocaleString('ko-KR')}</span>
+          <span className="rounded bg-sky-50 px-2 py-1 text-sky-700 dark:bg-sky-500/10 dark:text-sky-200">날짜 정리 {dateCount.toLocaleString('ko-KR')}</span>
+        </div>
+      )}
+      footer={(
+        <>
+          <button className="btn btn-secondary" type="button" onClick={onCancel}>취소</button>
+          <button className="btn btn-primary" type="button" onClick={onApply} disabled={includedIndexes.length === 0}>검증 내용 적용 후 업로드</button>
+        </>
+      )}
+    >
           <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700/60">
             <div className="max-h-[520px] overflow-auto">
               <table className="min-w-[860px] w-full border-separate border-spacing-0 text-sm">
@@ -173,14 +181,7 @@ function UploadPreflightModal({
               <p className="mt-2">날짜 정리는 `2026.6.2`, `20260602`, `2026/06/02` 형식을 `YYYY-MM-DD`로 맞춥니다.</p>
             </div>
           </aside>
-        </div>
-
-        <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-gray-200 px-5 py-4 dark:border-gray-700/60">
-          <button className="btn btn-secondary" type="button" onClick={onCancel}>취소</button>
-          <button className="btn btn-primary" type="button" onClick={onApply} disabled={includedIndexes.length === 0}>검증 내용 적용 후 업로드</button>
-        </footer>
-      </section>
-    </div>
+    </Modal>
   );
 }
 

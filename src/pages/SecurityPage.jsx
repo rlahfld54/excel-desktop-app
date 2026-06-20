@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { FormField } from '../components/common';
 import PageShell from './PageShell';
 import {
   addActivityLog,
@@ -25,15 +26,6 @@ function StatCard({ label, value, detail, tone = 'accent' }) {
       <p className="mt-1 truncate text-xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
       <p className={`mt-2 inline-flex rounded px-2 py-1 text-xs font-bold ${toneClass}`}>{detail}</p>
     </section>
-  );
-}
-
-function Field({ label, children }) {
-  return (
-    <label className="block">
-      <span className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</span>
-      <div className="mt-1">{children}</div>
-    </label>
   );
 }
 
@@ -138,16 +130,16 @@ export default function SecurityPage() {
           </div>
 
           <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handlePasswordChange}>
-            <Field label="현재 비밀번호">
+            <FormField label="현재 비밀번호" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full font-mono" type="password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))} autoComplete="current-password" />
-            </Field>
+            </FormField>
             <div className="hidden md:block" />
-            <Field label="새 비밀번호">
+            <FormField label="새 비밀번호" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full font-mono" type="password" value={passwordForm.nextPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, nextPassword: event.target.value }))} autoComplete="new-password" />
-            </Field>
-            <Field label="새 비밀번호 확인">
+            </FormField>
+            <FormField label="새 비밀번호 확인" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full font-mono" type="password" value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))} autoComplete="new-password" />
-            </Field>
+            </FormField>
             <div className="md:col-span-2">
               <button className="btn btn-primary" type="submit">비밀번호 저장</button>
             </div>

@@ -682,7 +682,11 @@ function styleTemplateWorksheet(worksheet, accent = 'FF0F766E') {
 
 function addTemplateSheet(workbook, template) {
   const accent = 'FF0F766E';
-  const columns = [...template.requiredColumns, ...template.optionalColumns];
+  const requiredColumns = Array.isArray(template.requiredColumns) ? template.requiredColumns : [];
+  const optionalColumns = Array.isArray(template.optionalColumns) ? template.optionalColumns : [];
+  const sampleRows = Array.isArray(template.sampleRows) ? template.sampleRows : [];
+  const rules = Array.isArray(template.rules) ? template.rules : [];
+  const columns = [...requiredColumns, ...optionalColumns];
   const worksheet = workbook.addWorksheet(template.title.slice(0, 30));
 
   worksheet.columns = columns.map((column) => ({
@@ -694,10 +698,10 @@ function addTemplateSheet(workbook, template) {
   worksheet.mergeCells(1, 1, 1, columns.length);
   worksheet.spliceRows(2, 0, [template.description]);
   worksheet.mergeCells(2, 1, 2, columns.length);
-  worksheet.addRows(template.sampleRows);
+  worksheet.addRows(sampleRows);
   styleTemplateWorksheet(worksheet, accent);
 
-  template.requiredColumns.forEach((_, index) => {
+  requiredColumns.forEach((_, index) => {
     worksheet.getCell(3, index + 1).fill = {
       type: 'pattern',
       pattern: 'solid',
@@ -713,9 +717,9 @@ function addTemplateSheet(workbook, template) {
   guide.addRows([
     ['양식명', template.title],
     ['사용 메뉴', template.targetMenu],
-    ['필수 컬럼', template.requiredColumns.join(', ')],
-    ['선택 컬럼', template.optionalColumns.join(', ')],
-    ...template.rules.map((rule, index) => [`규칙 ${index + 1}`, rule]),
+    ['필수 컬럼', requiredColumns.join(', ')],
+    ['선택 컬럼', optionalColumns.join(', ')],
+    ...rules.map((rule, index) => [`규칙 ${index + 1}`, rule]),
   ]);
   guide.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
   guide.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: accent } };

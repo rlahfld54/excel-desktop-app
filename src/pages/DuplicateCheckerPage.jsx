@@ -1,20 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+import { StatusBadge } from '../components/common';
 import PageShell from './PageShell';
 import { findDuplicateGroups } from '../data/sampleSalesData';
 import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
-
-function badgeClass(value) {
-  if (['병합 완료', '예외 등록'].includes(value)) {
-    return 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300';
-  }
-
-  if (['검토', '대기'].includes(value)) {
-    return 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300';
-  }
-
-  return 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300';
-}
 
 function MetricCard({ label, value, detail }) {
   return (
@@ -120,7 +109,7 @@ export default function DuplicateCheckerPage() {
                     <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 dark:border-gray-700/60 dark:text-gray-200">{group.amount}</td>
                     <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 dark:border-gray-700/60 dark:text-gray-200">{group.confidence}</td>
                     <td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60">
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(group.status)}`}>{group.status}</span>
+                      <StatusBadge status={group.status} />
                     </td>
                   </tr>
                 ))}

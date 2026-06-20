@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
+import { getUsers } from '../utils/authSession';
 import {
   applyValidationStatus,
   validateBeforeInsert,
@@ -27,6 +28,10 @@ function getStatusIndex(columns) {
 
 function getDateIndex(columns) {
   return columns.findIndex((column) => ['거래일', '일자', '날짜', '마감일'].includes(column));
+}
+
+function getColumnIndex(columns, aliases) {
+  return columns.findIndex((column) => aliases.includes(column));
 }
 
 function formatDateInputValue(date) {
@@ -56,12 +61,18 @@ export default function DataTablePage() {
   const [params, setParams] = useState(() => ({
     ...getCurrentMonthRange(),
     status: '전체',
-    query: '',
+    customer: '',
+    product: '',
+    owner: '전체',
     pageSize: 50,
   }));
   const [page, setPage] = useState(1);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [serverTotal, setServerTotal] = useState(rows.length);
+  const [sortConfig, setSortConfig] = useState({
+    column: '거래일',
+    direction: 'desc',
+  });
 
   useEffect(() => () => {
     setRows([]);
@@ -69,33 +80,77 @@ export default function DataTablePage() {
 
   const statusIndex = getStatusIndex(columns);
   const dateIndex = getDateIndex(columns);
+  const customerIndex = getColumnIndex(columns, ['거래처', '거래처명', '고객명']);
+  const productCodeIndex = getColumnIndex(columns, ['품목 코드', '품목코드', '상품코드', '제품코드']);
+  const productNameIndex = getColumnIndex(columns, ['품목명', '상품명', '제품명']);
+  const ownerIndex = getColumnIndex(columns, ['담당자', '담당자명', '소유자']);
+  const [serverOwnerOptions, setServerOwnerOptions] = useState(() => getUsers().map((user) => user.name).filter(Boolean));
 
   const filteredRows = useMemo(() => {
-    const normalizedQuery = params.query.trim().toLowerCase();
+    const customerQuery = params.customer.trim().toLowerCase();
+    const productQuery = params.product.trim().toLowerCase();
 
     return rows.map((row, rowIndex) => ({ row, rowIndex })).filter(({ row }) => {
-      const rowDate = dateIndex >= 0 ? String(row[dateIndex] ?? '').slice(0, 10) : '';
-      const matchesDate = dateIndex < 0
-        || ((!params.startDate || rowDate >= params.startDate) && (!params.endDate || rowDate <= params.endDate));
-      const matchesQuery = normalizedQuery === ''
-        || row.some((cell) => String(cell ?? '').toLowerCase().includes(normalizedQuery));
-      const rowStatus = statusIndex >= 0 ? row[statusIndex] : '';
-      const matchesStatus = params.status === '전체' || rowStatus === params.status;
-      return matchesDate && matchesQuery && matchesStatus;
-    });
-  }, [dateIndex, params.endDate, params.query, params.startDate, params.status, rows, statusIndex]);
+        const rowDate = dateIndex >= 0 ? String(row[dateIndex] ?? '').slice(0, 10) : '';
+        const matchesDate = dateIndex < 0
+          || ((!params.startDate || rowDate >= params.startDate) && (!params.endDate || rowDate <= params.endDate));
+        const customerValue = customerIndex >= 0 ? String(row[customerIndex] ?? '').toLowerCase() : '';
+        const productValue = [productCodeIndex, productNameIndex]
+          .filter((index) => index >= 0)
+          .map((index) => String(row[index] ?? '').toLowerCase())
+          .join(' ');
+        const ownerValue = ownerIndex >= 0 ? String(row[ownerIndex] ?? '') : '';
+        const matchesCustomer = customerQuery === '' || customerValue.includes(customerQuery);
+        const matchesProduct = productQuery === '' || productValue.includes(productQuery);
+        const matchesOwner = params.owner === '전체' || ownerValue === params.owner;
+        const rowStatus = statusIndex >= 0 ? row[statusIndex] : '';
+        const matchesStatus = params.status === '전체' || rowStatus === params.status;
+        return matchesDate && matchesCustomer && matchesProduct && matchesOwner && matchesStatus;
+      });
+  }, [customerIndex, dateIndex, ownerIndex, params.customer, params.endDate, params.owner, params.product, params.startDate, params.status, productCodeIndex, productNameIndex, rows, statusIndex]);
 
   const statusOptions = useMemo(() => {
     const detected = statusIndex >= 0 ? rows.map((row) => row[statusIndex]).filter(Boolean) : [];
     return ['전체', ...Array.from(new Set([...detected, '정상', '확인 필요', '반려', '승인 완료']))];
   }, [rows, statusIndex]);
+  const ownerOptions = useMemo(() => {
+    const detected = ownerIndex >= 0 ? rows.map((row) => row[ownerIndex]).filter(Boolean) : [];
+    return ['전체', ...Array.from(new Set([...serverOwnerOptions, ...detected]))];
+  }, [ownerIndex, rows, serverOwnerOptions]);
   const isSqlQueryMode = Boolean(window.api?.querySalesData);
   const sqlRows = useMemo(() => rows.map((row, rowIndex) => ({ row, rowIndex })), [rows]);
+  const sortedRows = useMemo(() => {
+    const sourceRows = isSqlQueryMode ? sqlRows : filteredRows;
+    const sortIndex = columns.indexOf(sortConfig.column);
+    if (sortIndex < 0) return sourceRows;
+
+    const direction = sortConfig.direction === 'asc' ? 1 : -1;
+
+    return [...sourceRows].sort((a, b) => {
+      const primaryCompare = String(a.row[sortIndex] ?? '').localeCompare(
+        String(b.row[sortIndex] ?? ''),
+        'ko-KR',
+        { numeric: true },
+      );
+      if (primaryCompare !== 0) return primaryCompare * direction;
+
+      if (sortConfig.column === '거래일' && customerIndex >= 0) {
+        const customerCompare = String(a.row[customerIndex] ?? '').localeCompare(
+          String(b.row[customerIndex] ?? ''),
+          'ko-KR',
+          { numeric: true },
+        );
+        if (customerCompare !== 0) return customerCompare * direction;
+      }
+
+      return (a.rowIndex - b.rowIndex) * direction;
+    });
+  }, [columns, customerIndex, filteredRows, isSqlQueryMode, sortConfig, sqlRows]);
   const totalRows = isSqlQueryMode ? serverTotal : filteredRows.length;
   const totalPages = Math.max(Math.ceil(totalRows / params.pageSize), 1);
   const visibleRows = isSqlQueryMode
-    ? sqlRows
-    : filteredRows.slice((page - 1) * params.pageSize, page * params.pageSize);
+    ? sortedRows
+    : sortedRows.slice((page - 1) * params.pageSize, page * params.pageSize);
 
   const updateParams = (nextValues) => {
     setParams((current) => ({
@@ -125,6 +180,7 @@ export default function DataTablePage() {
             rowActions: {},
           });
           setServerTotal(Number(data.total) || 0);
+          setServerOwnerOptions(Array.isArray(data.ownerOptions) ? data.ownerOptions : []);
           setPage(Number(data.page) || nextPage);
           setSelectedIndex(0);
           return;
@@ -140,6 +196,13 @@ export default function DataTablePage() {
   const handleSearch = () => fetchPage(1);
   const handlePrevPage = () => fetchPage(page - 1);
   const handleNextPage = () => fetchPage(page + 1);
+  const handleSort = (column) => {
+    setSortConfig((current) => ({
+      column,
+      direction: current.column === column && current.direction === 'desc' ? 'asc' : 'desc',
+    }));
+    setPage(1);
+  };
 
   const runValidation = (targetColumns = columns, targetRows = rows, nextFileName = fileName) => {
     const result = validateBeforeInsert(targetColumns, targetRows);
@@ -164,7 +227,7 @@ export default function DataTablePage() {
     <PageShell title="원본 데이터 조회" description="업로드한 원본 데이터를 조회하고, 반려 항목이 없는 데이터만 SQL에 저장합니다.">
       <div className="flex h-[calc(100vh-14rem)] flex-col">
       <section className="mb-3 shrink-0 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="grid gap-3 xl:grid-cols-[136px_136px_150px_minmax(240px,1fr)_auto] xl:items-end">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[136px_136px_minmax(170px,1fr)_minmax(170px,1fr)_150px_auto] xl:items-end">
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">시작일</span>
             <input
@@ -184,20 +247,30 @@ export default function DataTablePage() {
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">상태</span>
-            <select className="form-select w-full" value={params.status} onChange={(event) => updateParams({ status: event.target.value })}>
-              {statusOptions.map((status) => <option key={status}>{status}</option>)}
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">검색</span>
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">거래처</span>
             <input
               className="form-input w-full"
-              placeholder="거래처, 품목, 담당자 검색"
+              placeholder="거래처명 검색"
               type="search"
-              value={params.query}
-              onChange={(event) => updateParams({ query: event.target.value })}
+              value={params.customer}
+              onChange={(event) => updateParams({ customer: event.target.value })}
             />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">품목</span>
+            <input
+              className="form-input w-full"
+              placeholder="품목 코드 또는 품목명"
+              type="search"
+              value={params.product}
+              onChange={(event) => updateParams({ product: event.target.value })}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">담당자</span>
+            <select className="form-select w-full" value={params.owner} onChange={(event) => updateParams({ owner: event.target.value })}>
+              {ownerOptions.map((owner) => <option key={owner} value={owner}>{owner}</option>)}
+            </select>
           </label>
           <div className="flex items-end">
             <button className="btn btn-primary w-full whitespace-nowrap" type="button" onClick={handleSearch}>
@@ -229,9 +302,24 @@ export default function DataTablePage() {
             <thead className="sticky top-0 z-10">
               <tr>
                 <th className="w-14 border-b border-r border-gray-200 bg-gray-50 px-2 py-2 text-center text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-400">#</th>
-                {columns.map((column) => (
-                  <th key={column} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-400">{column}</th>
-                ))}
+                {columns.map((column) => {
+                  const isSorted = sortConfig.column === column;
+                  return (
+                    <th key={column} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-400">
+                      <button
+                        className={`flex w-full items-center justify-between gap-2 text-left hover:text-accent-700 dark:hover:text-accent-300 ${isSorted ? 'text-accent-700 dark:text-accent-300' : ''}`}
+                        type="button"
+                        onClick={() => handleSort(column)}
+                        title={`${column} 정렬`}
+                      >
+                        <span>{column}</span>
+                        <span className="text-[10px]" aria-hidden="true">
+                          {isSorted ? (sortConfig.direction === 'desc' ? '▼' : '▲') : '↕'}
+                        </span>
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>

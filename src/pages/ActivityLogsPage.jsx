@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+import { StatusBadge } from '../components/common';
 import PageShell from './PageShell';
 import {
   addActivityLog,
@@ -13,22 +14,6 @@ import {
   saveSession,
   saveUsers,
 } from '../utils/authSession';
-
-function badgeClass(value) {
-  if (['INFO', 'ACTIVE', 'ADMIN'].includes(value)) {
-    return 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300';
-  }
-
-  if (['WARN', 'MANAGER'].includes(value)) {
-    return 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300';
-  }
-
-  if (['ERROR', 'INACTIVE'].includes(value)) {
-    return 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300';
-  }
-
-  return 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300';
-}
 
 export default function ActivityLogsPage() {
   const currentUser = getCurrentUser();
@@ -166,7 +151,7 @@ export default function ActivityLogsPage() {
                 {filteredLogs.map((log) => (
                   <tr key={log.id} className="group">
                     <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 dark:border-gray-700/60 dark:text-gray-200">{log.createdAt}</td>
-                    <td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60"><span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(log.level)}`}>{log.level}</span></td>
+                    <td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60"><StatusBadge status={log.level} /></td>
                     <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 dark:border-gray-700/60 dark:text-gray-200">{log.userId}</td>
                     <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 dark:border-gray-700/60 dark:text-gray-200">{log.action}</td>
                     <td className="border-b border-r border-gray-200 px-3 py-2 text-gray-700 dark:border-gray-700/60 dark:text-gray-200">{log.target}</td>

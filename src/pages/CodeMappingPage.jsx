@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 
+import { StatusBadge } from '../components/common';
 import PageShell from './PageShell';
 import { addNotification } from '../utils/appNotifications';
 
@@ -19,18 +20,6 @@ function formatPercent(value) {
 
 function formatPrice(value) {
   return Number(value ?? 0).toLocaleString('ko-KR');
-}
-
-function badgeClass(status) {
-  if (status === 'ACTIVE' || status === 'APPROVED') {
-    return 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300';
-  }
-
-  if (status === 'PENDING' || status === 'REVIEW') {
-    return 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300';
-  }
-
-  return 'bg-accent-50 text-accent-700 dark:bg-accent-500/10 dark:text-accent-300';
 }
 
 function MetricCard({ label, value, detail }) {
@@ -180,7 +169,7 @@ export default function CodeMappingPage() {
         { label: '거래처코드', key: 'customerCode' },
         { label: '사업자번호', key: 'businessNumber' },
         { label: '세금계산서', key: 'taxStatus' },
-        { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
+        { label: '상태', render: (row) => <StatusBadge status={row.status} /> },
       ],
     },
     {
@@ -195,7 +184,7 @@ export default function CodeMappingPage() {
         { label: '제품코드', key: 'productCode' },
         { label: '단위', key: 'unit' },
         { label: '메모', key: 'memo' },
-        { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
+        { label: '상태', render: (row) => <StatusBadge status={row.status} /> },
       ],
     },
     {
@@ -210,7 +199,7 @@ export default function CodeMappingPage() {
         { label: '제품', key: 'productName' },
         { label: '단가', render: (row) => `${formatPrice(row.price)} ${row.currency}` },
         { label: '시작일', key: 'startDate' },
-        { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
+        { label: '상태', render: (row) => <StatusBadge status={row.status} /> },
       ],
     },
     {
@@ -225,7 +214,7 @@ export default function CodeMappingPage() {
         { label: '표준 제품', key: 'productName' },
         { label: '코드', key: 'productCode' },
         { label: '신뢰도', render: (row) => formatPercent(row.confidence) },
-        { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
+        { label: '상태', render: (row) => <StatusBadge status={row.status} /> },
       ],
     },
     {
@@ -240,7 +229,7 @@ export default function CodeMappingPage() {
         { label: '원본값', key: 'rawValue' },
         { label: '추천 코드', key: 'suggestedCode' },
         { label: '신뢰도', render: (row) => formatPercent(row.confidence) },
-        { label: '상태', render: (row) => <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(row.status)}`}>{row.status}</span> },
+        { label: '상태', render: (row) => <StatusBadge status={row.status} /> },
       ],
     },
   ], [masterData]);

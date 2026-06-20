@@ -1,6 +1,6 @@
 ﻿import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import Transition from '../utils/Transition';
+import { Transition } from './common';
 import { addActivityLog, authChangedEvent, clearSession, getCurrentUser, saveSession } from '../utils/authSession';
 
 import UserAvatar from '../images/user-avatar-32.png';

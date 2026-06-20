@@ -1,16 +1,8 @@
 import React, { useMemo, useState } from 'react';
 
+import { FormField } from '../components/common';
 import PageShell from './PageShell';
 import { addActivityLog, getCurrentUser, updateUser } from '../utils/authSession';
-
-function Field({ label, children }) {
-  return (
-    <label className="block">
-      <span className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</span>
-      <div className="mt-1">{children}</div>
-    </label>
-  );
-}
 
 function makeForm(user) {
   return {
@@ -81,36 +73,36 @@ export default function AdminPreferencesPage() {
         <section className="col-span-12 rounded-lg border border-gray-200 bg-white p-5 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8">
           <h2 className="font-semibold text-gray-900 dark:text-gray-100">관리자 계정 정보</h2>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <Field label="아이디">
+            <FormField label="아이디" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full bg-gray-50 dark:bg-gray-900/30" value={currentUser.id} disabled />
-            </Field>
-            <Field label="권한">
+            </FormField>
+            <FormField label="권한" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full bg-gray-50 dark:bg-gray-900/30" value={currentUser.role} disabled />
-            </Field>
-            <Field label="이름">
+            </FormField>
+            <FormField label="이름" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" value={form.name} onChange={(event) => handleChange('name', event.target.value)} />
-            </Field>
-            <Field label="비밀번호">
+            </FormField>
+            <FormField label="비밀번호" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full font-mono" value={form.password} onChange={(event) => handleChange('password', event.target.value)} />
-            </Field>
-            <Field label="부서">
+            </FormField>
+            <FormField label="부서" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" value={form.department} onChange={(event) => handleChange('department', event.target.value)} />
-            </Field>
-            <Field label="직책">
+            </FormField>
+            <FormField label="직책" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" value={form.title} onChange={(event) => handleChange('title', event.target.value)} />
-            </Field>
-            <Field label="이메일">
+            </FormField>
+            <FormField label="이메일" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" type="email" value={form.email} onChange={(event) => handleChange('email', event.target.value)} />
-            </Field>
-            <Field label="연락처">
+            </FormField>
+            <FormField label="연락처" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" value={form.phone} onChange={(event) => handleChange('phone', event.target.value)} />
-            </Field>
-            <Field label="계정 상태">
+            </FormField>
+            <FormField label="계정 상태" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <select className="form-select w-full" value={form.status} onChange={(event) => handleChange('status', event.target.value)}>
                 <option value="ACTIVE">ACTIVE</option>
                 <option value="INACTIVE">INACTIVE</option>
               </select>
-            </Field>
+            </FormField>
           </div>
         </section>
 

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Modal, StatusBadge } from '../components/common';
 import PageShell from './PageShell';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
 import { addNotification } from '../utils/appNotifications';
@@ -108,22 +109,6 @@ function persistClosingRows(rows, options) {
   }
 }
 
-function StatusPill({ children, tone = 'gray' }) {
-  const tones = {
-    green: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
-    red: 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300',
-    amber: 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
-    blue: 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300',
-    gray: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-  };
-
-  return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${tones[tone]}`}>
-      {children}
-    </span>
-  );
-}
-
 function ProgressBar({ value }) {
   const tone = value >= 100 ? 'bg-emerald-600' : value >= 67 ? 'bg-sky-600' : value >= 34 ? 'bg-amber-500' : 'bg-rose-500';
 
@@ -149,7 +134,7 @@ function StageOverview({ rows }) {
           <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">마감 단계 현황</h2>
           <p className="text-xs text-gray-500 dark:text-gray-400">단계별 남은 업체 수와 금액을 먼저 확인합니다.</p>
         </div>
-        <StatusPill tone="blue">전체 {total}개</StatusPill>
+        <StatusBadge tone="blue">전체 {total}개</StatusBadge>
       </div>
       <div className="grid gap-2 md:grid-cols-3">
         {stageKeys.map(([label, key]) => {
@@ -183,19 +168,13 @@ function StageOverview({ rows }) {
 
 function SummaryModal({ noSendRows, onClose, onSelectRow, ownerSummary, riskTop, rows, summary }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="closing-summary-title">
-      <div className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl dark:bg-gray-800">
-        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-700/60">
-          <div>
-            <h2 id="closing-summary-title" className="text-lg font-bold text-gray-900 dark:text-gray-100">마감 요약</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">전체 진척도와 확인이 필요한 업체를 한 번에 봅니다.</p>
-          </div>
-          <button className="btn btn-secondary shrink-0" type="button" onClick={onClose}>
-            닫기
-          </button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+    <Modal
+      open
+      title="마감 요약"
+      description="전체 진척도와 확인이 필요한 업체를 한 번에 봅니다."
+      size="4xl"
+      onClose={onClose}
+    >
           <StageOverview rows={rows} />
 
           <div className="mb-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
@@ -211,7 +190,7 @@ function SummaryModal({ noSendRows, onClose, onSelectRow, ownerSummary, riskTop,
                     <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
                   </div>
-                  <StatusPill tone={tone}>{label}</StatusPill>
+                  <StatusBadge tone={tone}>{label}</StatusBadge>
                 </div>
                 {label === '전체 진척도' && <div className="mt-2"><ProgressBar value={summary.progress} /></div>}
               </section>
@@ -266,9 +245,7 @@ function SummaryModal({ noSendRows, onClose, onSelectRow, ownerSummary, riskTop,
               </div>
             </section>
           </div>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -593,7 +570,7 @@ export default function ClosingWorkspacePage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <StatusPill tone={row.status === '완료' ? 'green' : row.status === '처리 지연' ? 'red' : row.status === '마감 진행 중' ? 'blue' : 'gray'}>{row.status}</StatusPill>
+                      <StatusBadge tone={row.status === '완료' ? 'green' : row.status === '처리 지연' ? 'red' : row.status === '마감 진행 중' ? 'blue' : 'gray'}>{row.status}</StatusBadge>
                       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">성공 발송 {row.contactCount}회</p>
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -647,9 +624,9 @@ export default function ClosingWorkspacePage() {
               <h2 className="mt-1 truncate text-xl font-bold text-gray-900 dark:text-gray-100">{selectedRow.company}</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{selectedRow.owner} · 마감 {selectedRow.deadline}</p>
             </div>
-            <StatusPill tone={selectedRow.riskScore >= 55 && selectedRow.progress < 100 ? 'red' : 'green'}>
+            <StatusBadge tone={selectedRow.riskScore >= 55 && selectedRow.progress < 100 ? 'red' : 'green'}>
               위험 {selectedRow.riskScore}
-            </StatusPill>
+            </StatusBadge>
           </div>
 
           <div className="mt-3 rounded-lg border border-gray-100 p-3 dark:border-gray-700/60">

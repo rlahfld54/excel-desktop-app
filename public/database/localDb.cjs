@@ -792,10 +792,14 @@ function toJson(value) {
   return JSON.stringify(value ?? null);
 }
 
-function getColumnIndex(columns, name) {
-  return Array.isArray(columns)
-    ? columns.findIndex((column) => column === name)
-    : -1;
+function getColumnIndex(columns, names) {
+  if (!Array.isArray(columns)) return -1;
+  const aliases = (Array.isArray(names) ? names : [names])
+    .map((name) => String(name ?? "").replace(/\s+/g, "").toLowerCase());
+
+  return columns.findIndex((column) =>
+    aliases.includes(String(column ?? "").replace(/\s+/g, "").toLowerCase())
+  );
 }
 
 function getCell(row, index) {
@@ -927,6 +931,7 @@ function getFilteredSalesData(database, options = {}) {
           "담당자",
         ],
         rows: [],
+        ownerOptions: [],
         total: 0,
         page: 1,
         pageSize: Number(options.pageSize) || 50,
@@ -942,9 +947,13 @@ function getFilteredSalesData(database, options = {}) {
     startDate: String(options.startDate ?? ""),
     endDate: String(options.endDate ?? ""),
     status: String(options.status ?? "전체"),
-    query: `%${String(options.query ?? "")
+    customer: `%${String(options.customer ?? "")
       .trim()
       .toLowerCase()}%`,
+    product: `%${String(options.product ?? "")
+      .trim()
+      .toLowerCase()}%`,
+    owner: String(options.owner ?? "전체"),
     limit: pageSize,
     offset,
   };
@@ -954,13 +963,16 @@ function getFilteredSalesData(database, options = {}) {
     "(@endDate = '' OR transaction_date <= @endDate)",
     "(@status = '전체' OR validation_status = @status)",
     `(
-      @query = '%%'
-      OR lower(COALESCE(raw_customer_name, '')) LIKE @query
-      OR lower(COALESCE(raw_product_name, '')) LIKE @query
-      OR lower(COALESCE(customer_code, '')) LIKE @query
-      OR lower(COALESCE(product_code, '')) LIKE @query
-      OR lower(COALESCE(owner_name, '')) LIKE @query
+      @customer = '%%'
+      OR lower(COALESCE(raw_customer_name, '')) LIKE @customer
+      OR lower(COALESCE(customer_code, '')) LIKE @customer
     )`,
+    `(
+      @product = '%%'
+      OR lower(COALESCE(raw_product_name, '')) LIKE @product
+      OR lower(COALESCE(product_code, '')) LIKE @product
+    )`,
+    "(@owner = '전체' OR COALESCE(owner_name, '') = @owner)",
   ].join(" AND ");
 
   const total =
@@ -999,6 +1011,16 @@ function getFilteredSalesData(database, options = {}) {
       row.validationStatus ?? "",
       row.ownerName ?? "",
     ]);
+  const ownerOptions = database
+    .prepare(
+      `SELECT DISTINCT owner_name AS ownerName
+       FROM sales
+       WHERE upload_id = @uploadId
+         AND TRIM(COALESCE(owner_name, '')) <> ''
+       ORDER BY owner_name ASC`,
+    )
+    .all({ uploadId: upload.uploadId })
+    .map((row) => row.ownerName);
 
   return {
     ok: true,
@@ -1018,6 +1040,7 @@ function getFilteredSalesData(database, options = {}) {
         "담당자",
       ],
       rows,
+      ownerOptions,
       total,
       page,
       pageSize,
@@ -2745,14 +2768,16 @@ function registerDatabaseIpc(ipcMain, app) {
 
       const columns = data?.columns ?? [];
       const indexes = {
-        customerName: getColumnIndex(columns, "거래처"),
+        date: getColumnIndex(columns, ["거래일", "일자", "날짜"]),
+        customerName: getColumnIndex(columns, ["거래처", "거래처명", "고객명"]),
         productName: getColumnIndex(columns, "품목명"),
-        customerCode: getColumnIndex(columns, "거래처 코드"),
-        productCode: getColumnIndex(columns, "품목 코드"),
+        customerCode: getColumnIndex(columns, ["거래처 코드", "거래처코드", "고객코드"]),
+        productCode: getColumnIndex(columns, ["품목 코드", "품목코드", "상품코드", "제품코드"]),
         quantity: getColumnIndex(columns, "수량"),
         unitPrice: getColumnIndex(columns, "단가"),
         amount: getColumnIndex(columns, "금액"),
-        status: getColumnIndex(columns, "검증"),
+        status: getColumnIndex(columns, ["검증", "상태", "결과"]),
+        owner: getColumnIndex(columns, ["담당자", "담당자명"]),
       };
       let issueCount = 0;
       let duplicateCount = 0;
@@ -2764,7 +2789,7 @@ function registerDatabaseIpc(ipcMain, app) {
         const rowResult = insertRow.run({
           uploadId: upload.lastInsertRowid,
           rowNo: rowIndex + 1,
-          transactionDate: getCell(row, 0),
+          transactionDate: getCellOr(row, indexes.date, 0),
           rawCustomerName: getCellOr(row, indexes.customerName, 1),
           rawProductName: getCellOr(row, indexes.productName, 3),
           customerCode: getCell(row, indexes.customerCode),
@@ -2775,7 +2800,7 @@ function registerDatabaseIpc(ipcMain, app) {
           validationStatus:
             status === "PENDING" ? (getCell(row, 7) ?? status) : status,
           reviewStatus,
-          ownerName: getCell(row, 8),
+          ownerName: getCellOr(row, indexes.owner, 8),
         });
 
         const issues = data?.validationIssues?.[rowIndex] ?? [];

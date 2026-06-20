@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 
+import { FormField, StatusBadge } from '../components/common';
 import PageShell from './PageShell';
 
 
@@ -91,35 +92,6 @@ function normalizeContact(contact) {
 }
 
 
-function statusClass(status) {
-  if (status === 'ACTIVE') return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
-  if (status === 'HOLD') return 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
-  return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
-}
-
-function channelClass(channel) {
-  if (channel === 'EMAIL') return 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300';
-  if (channel === 'KAKAO') return 'bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300';
-  return 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300';
-}
-
-function ContactPill({ children, className }) {
-  return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${className}`}>
-      {children}
-    </span>
-  );
-}
-
-function Field({ label, children }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">{label}</span>
-      {children}
-    </label>
-  );
-}
-
 
 
   
@@ -132,7 +104,7 @@ function ContactForm({ draft = emptyDraft, mode, onChange, onSubmit, onCancel })
     <form className="space-y-4" onSubmit={onSubmit}>
       <div className="grid gap-3 sm:grid-cols-2">
         {fields.map((field) => (
-          <Field key={field.key} label={field.label}>
+          <FormField key={field.key} label={field.label} required={field.required}>
             <input
               className="form-input w-full"
               type={field.type ?? 'text'}
@@ -141,10 +113,10 @@ function ContactForm({ draft = emptyDraft, mode, onChange, onSubmit, onCancel })
               placeholder={field.placeholder}
               onChange={(e) => update(field.key, e.target.value)}
             />
-          </Field>
+          </FormField>
         ))}
 
-        <Field label="선호 채널">
+        <FormField label="선호 채널">
           <select
             className="form-select w-full"
             value={draft.preferredChannel ?? 'EMAIL'}
@@ -156,9 +128,9 @@ function ContactForm({ draft = emptyDraft, mode, onChange, onSubmit, onCancel })
               </option>
             ))}
           </select>
-        </Field>
+        </FormField>
 
-        <Field label="상태">
+        <FormField label="상태">
           <select
             className="form-select w-full"
             value={draft.status ?? 'ACTIVE'}
@@ -170,17 +142,17 @@ function ContactForm({ draft = emptyDraft, mode, onChange, onSubmit, onCancel })
               </option>
             ))}
           </select>
-        </Field>
+        </FormField>
       </div>
 
-      <Field label="메모">
+      <FormField label="메모">
         <textarea
           className="form-textarea min-h-24 w-full"
           value={draft.memo ?? ''}
           onChange={(e) => update('memo', e.target.value)}
           placeholder="마감일, 연락 시 주의사항, 담당자 특이사항"
         />
-      </Field>
+      </FormField>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button className="btn btn-secondary" type="button" onClick={onCancel}>
@@ -365,7 +337,7 @@ export default function ContactListPage() {
     <PageShell title="거래처 담당자 관리" description="거래처별 담당자를 등록하고, 연락처와 발송 채널을 바로 수정하거나 삭제합니다.">
       <section className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(150px,1fr))_130px_130px_auto] xl:items-end">
-          <Field label="거래처">
+          <FormField label="거래처">
             <input
               className="form-input w-full"
               value={params.customer}
@@ -373,8 +345,8 @@ export default function ContactListPage() {
               placeholder="거래처명 또는 코드"
               type="search"
             />
-          </Field>
-          <Field label="담당자">
+          </FormField>
+          <FormField label="담당자">
             <input
               className="form-input w-full"
               value={params.contact}
@@ -382,8 +354,8 @@ export default function ContactListPage() {
               placeholder="담당자명"
               type="search"
             />
-          </Field>
-          <Field label="이메일">
+          </FormField>
+          <FormField label="이메일">
             <input
               className="form-input w-full"
               value={params.email}
@@ -391,8 +363,8 @@ export default function ContactListPage() {
               placeholder="이메일"
               type="search"
             />
-          </Field>
-          <Field label="전화번호">
+          </FormField>
+          <FormField label="전화번호">
             <input
               className="form-input w-full"
               value={params.phone}
@@ -400,19 +372,19 @@ export default function ContactListPage() {
               placeholder="전화번호"
               type="search"
             />
-          </Field>
-          <Field label="채널">
+          </FormField>
+          <FormField label="채널">
             <select className="form-select w-full" value={params.channel} onChange={(event) => updateParams({ channel: event.target.value })}>
               <option value="ALL">전체</option>
               {Object.entries(channelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
-          </Field>
-          <Field label="상태">
+          </FormField>
+          <FormField label="상태">
             <select className="form-select w-full" value={params.status} onChange={(event) => updateParams({ status: event.target.value })}>
               <option value="ALL">전체</option>
               {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
-          </Field>
+          </FormField>
           <div className="flex gap-2">
             <button className="btn btn-primary whitespace-nowrap" type="button" onClick={() => handleSearch(1)} disabled={isSearching}>
               {isSearching ? '조회 중...' : '조회'}
@@ -475,10 +447,10 @@ export default function ContactListPage() {
                         <p className="mt-1 text-xs text-gray-500">{contact.recipientPhone || '전화번호 없음'}</p>
                       </td>
                       <td className="px-4 py-3">
-                        <ContactPill className={channelClass(contact.preferredChannel)}>{channelLabels[contact.preferredChannel] ?? contact.preferredChannel}</ContactPill>
+                        <StatusBadge status={contact.preferredChannel}>{channelLabels[contact.preferredChannel] ?? contact.preferredChannel}</StatusBadge>
                       </td>
                       <td className="px-4 py-3">
-                        <ContactPill className={statusClass(contact.status)}>{statusLabels[contact.status] ?? contact.status}</ContactPill>
+                        <StatusBadge status={contact.status} tone={contact.status === 'INACTIVE' ? 'gray' : undefined}>{statusLabels[contact.status] ?? contact.status}</StatusBadge>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
@@ -505,9 +477,9 @@ export default function ContactListPage() {
               <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{formMode === 'edit' ? '수정 모드' : '등록 모드'}</p>
               <h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">{formMode === 'edit' ? '담당자 정보 수정' : '거래처 담당자 등록'}</h2>
             </div>
-            <ContactPill className={formMode === 'edit' ? 'bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300' : 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300'}>
+            <StatusBadge tone={formMode === 'edit' ? 'teal' : 'blue'}>
               {formMode === 'edit' ? '수정' : '신규'}
-            </ContactPill>
+            </StatusBadge>
           </div>
 
           <ContactForm

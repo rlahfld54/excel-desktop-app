@@ -60,10 +60,34 @@ function splitHeaderAndRows(rawRows) {
     return { columns: [], rows: [] };
   }
 
-  const columns = rawRows[0].map((column, index) => column || `Column ${index + 1}`);
-  const rows = rawRows.slice(1).map((row) =>
+  const knownHeaders = new Set([
+    '거래일',
+    '일자',
+    '날짜',
+    '거래처',
+    '거래처명',
+    '거래처코드',
+    '품목명',
+    '품목코드',
+    '수량',
+    '단가',
+    '금액',
+    '담당자',
+    '부서',
+    '비고',
+    '검증',
+    '상태',
+    '결과',
+  ]);
+  const headerRowIndex = rawRows.findIndex((row) => (
+    row.filter((cell) => knownHeaders.has(String(cell ?? '').trim())).length >= 3
+  ));
+  const resolvedHeaderIndex = headerRowIndex >= 0 ? headerRowIndex : 0;
+  const headerRow = rawRows[resolvedHeaderIndex];
+  const columns = headerRow.map((column, index) => column || `Column ${index + 1}`);
+  const rows = rawRows.slice(resolvedHeaderIndex + 1).map((row) =>
     columns.map((_, index) => row[index] ?? '')
-  );
+  ).filter((row) => row.some((cell) => String(cell ?? '').trim() !== ''));
 
   return { columns, rows };
 }

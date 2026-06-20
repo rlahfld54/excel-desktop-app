@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import Transition from '../utils/Transition';
+import { Transition } from './common';
 import { authChangedEvent, getCurrentUser } from '../utils/authSession';
 import {
   createTodo,
