@@ -6,6 +6,7 @@ import {
   createAdminSession,
   createLog,
   getLogs,
+  getCurrentUser,
   getSession,
   getUsers,
   saveLogs,
@@ -30,6 +31,8 @@ function badgeClass(value) {
 }
 
 export default function ActivityLogsPage() {
+  const currentUser = getCurrentUser();
+  const isAdmin = currentUser.id === '황주은' && currentUser.role === 'ADMIN';
   const [users, setUsers] = useState(() => getUsers());
   const [session, setSession] = useState(() => getSession());
   const [logs, setLogs] = useState(() => getLogs());
@@ -37,25 +40,29 @@ export default function ActivityLogsPage() {
   const [selectedUserId, setSelectedUserId] = useState(session.userId);
 
   useEffect(() => {
-    setUsers(saveUsers(users));
+    if (isAdmin) setUsers(saveUsers(users));
   }, []);
 
   useEffect(() => {
     saveLogs(logs);
   }, [logs]);
 
+  const visibleLogs = useMemo(
+    () => isAdmin ? logs : logs.filter((log) => log.userId === currentUser.id),
+    [currentUser.id, isAdmin, logs],
+  );
   const filteredLogs = useMemo(() => (
-    filter === '전체' ? logs : logs.filter((log) => log.level === filter)
-  ), [filter, logs]);
+    filter === '전체' ? visibleLogs : visibleLogs.filter((log) => log.level === filter)
+  ), [filter, visibleLogs]);
 
   const selectedUser = users.find((user) => user.id === selectedUserId) ?? users[0];
 
   const metrics = useMemo(() => [
     { label: '현재 로그인', value: session.userId, detail: session.autoLogin ? '자동 로그인 유지' : '수동 로그인' },
-    { label: '사용자', value: `${users.length.toLocaleString('ko-KR')}명`, detail: '개발 단계 비밀번호 0000' },
-    { label: '활동 로그', value: `${logs.length.toLocaleString('ko-KR')}건`, detail: '브라우저 저장소에 유지' },
+    { label: isAdmin ? '사용자' : '계정', value: isAdmin ? `${users.length.toLocaleString('ko-KR')}명` : currentUser.name, detail: isAdmin ? '전체 계정 관리' : '현재 로그인 계정' },
+    { label: '활동 로그', value: `${visibleLogs.length.toLocaleString('ko-KR')}건`, detail: isAdmin ? '전체 사용자 기록' : '내 기록만 표시' },
     { label: '관리 권한', value: session.role, detail: '관리자 기준 화면' },
-  ], [logs.length, session, users.length]);
+  ], [currentUser.name, isAdmin, session, users.length, visibleLogs.length]);
 
   const appendLog = (level, action, target) => {
     const nextLogs = [createLog(level, action, target, session.userId), ...logs].slice(0, 200);
@@ -112,19 +119,19 @@ export default function ActivityLogsPage() {
   };
 
   return (
-    <PageShell title="활동 로그" description="관리자 자동 로그인, 사용자 계정, 활동 로그를 한 화면에서 관리합니다.">
+    <PageShell title="활동 로그" description={isAdmin ? '전체 사용자 활동과 계정을 관리합니다.' : '현재 로그인한 내 활동 기록만 확인합니다.'}>
       <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Admin session</p>
-            <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{session.userId} 관리자 로그인 유지 중</p>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">사용자 테이블은 바로 수정 가능하고, 변경 내용은 헤더와 마이페이지에 반영됩니다.</p>
+            <p className="mt-1 truncate text-lg font-semibold text-gray-900 dark:text-gray-100">{session.userId} 로그인 기록</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{isAdmin ? '전체 사용자 로그와 계정을 관리합니다.' : '다른 사용자의 기록은 표시되지 않습니다.'}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          {isAdmin && <div className="flex flex-wrap items-center gap-2">
             <button className="btn btn-secondary" type="button" onClick={addCheckLog}>점검 로그</button>
             <button className="btn btn-secondary" type="button" onClick={addUser}>사용자 추가</button>
             <button className="btn btn-primary" type="button" onClick={resetAutoLogin}>황주은 자동 로그인</button>
-          </div>
+          </div>}
         </div>
       </section>
 
@@ -139,7 +146,7 @@ export default function ActivityLogsPage() {
       </div>
 
       <div className="grid grid-cols-12 gap-5">
-        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-7">
+        <section className={`col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 ${isAdmin ? 'xl:col-span-7' : ''}`}>
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">활동 로그</h2>
             <select className="form-select h-9" value={filter} onChange={(event) => setFilter(event.target.value)}>
@@ -170,7 +177,7 @@ export default function ActivityLogsPage() {
           </div>
         </section>
 
-        <aside className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-5">
+        {isAdmin && <aside className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-5">
           <header className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">사용자 관리</h2>
             <span className="text-xs text-gray-500 dark:text-gray-400">선택: {selectedUser?.id}</span>
@@ -208,7 +215,7 @@ export default function ActivityLogsPage() {
               </tbody>
             </table>
           </div>
-        </aside>
+        </aside>}
       </div>
     </PageShell>
   );

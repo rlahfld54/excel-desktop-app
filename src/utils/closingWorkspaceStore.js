@@ -17,7 +17,9 @@ function normalizeRows(rows) {
 }
 
 function getProgress(row) {
-  return Math.round(([row.contactConfirmed, row.amountConfirmed, row.requestReady].filter(Boolean).length / 3) * 100);
+  if (row.amountConfirmed) return 100;
+  if (Number(row.contactCount) >= 1) return 50;
+  return 0;
 }
 
 export function readClosingWorkspaceRows() {
@@ -46,7 +48,7 @@ export function getClosingWelcomeSummary(rows = getClosingRowsForSummary()) {
   const total = normalizedRows.length;
   const done = normalizedRows.filter((row) => getProgress(row) === 100).length;
   const waiting = normalizedRows.filter((row) => getProgress(row) < 100).length;
-  const contactNeeded = normalizedRows.filter((row) => !row.contactConfirmed).length;
+  const contactNeeded = normalizedRows.filter((row) => Number(row.contactCount) === 0).length;
   const requestReady = normalizedRows.filter((row) => row.requestReady && !row.requestSent).length;
   const todayProcessed = done + requestReady;
   const passRate = total === 0 ? 0 : Math.round((done / total) * 100);
@@ -73,9 +75,9 @@ export function getClosingWelcomeSummary(rows = getClosingRowsForSummary()) {
 }
 
 export function getClosingRowStatus(row) {
-  if (getProgress(row) === 100 && row.requestSent) return '마감 완료';
-  if (!row.contactConfirmed) return '연락 필요';
-  if (!row.amountConfirmed) return '금액 확인';
-  if (row.requestReady && !row.requestSent) return '발송 준비';
-  return '검증 완료';
+  const successfulSendCount = Number(row.contactCount) || 0;
+  if (successfulSendCount >= 1 && row.amountConfirmed) return '완료';
+  if (successfulSendCount >= 3) return '처리 지연';
+  if (successfulSendCount >= 1) return '마감 진행 중';
+  return '연락 필요';
 }

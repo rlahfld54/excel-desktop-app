@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
+import { getCurrentUser } from '../utils/authSession';
 
 function statusClass(status) {
   if (['READY', 'CREATED', 'COMPLETED'].includes(status)) {
@@ -100,6 +101,7 @@ function ChecklistItem({ label, detail, status }) {
 }
 
 export default function SendPackagesPage() {
+  const currentUser = getCurrentUser();
   const [packages, setPackages] = useState([]);
   const [selectedPackageId, setSelectedPackageId] = useState(null);
   const [selectedItemId, setSelectedItemId] = useState(null);
@@ -153,7 +155,10 @@ export default function SendPackagesPage() {
     }
 
     try {
-      const result = await window.api.getSendPackages();
+      const result = await window.api.getSendPackages({
+        createdBy: currentUser.id,
+        isAdmin: currentUser.id === '황주은' && currentUser.role === 'ADMIN',
+      });
       setNextPackages(result.packages ?? []);
       setLoadState(result.packages?.length ? 'SQLite 연결됨' : 'SQLite 연결됨 / 패키지 없음');
     } catch (error) {
@@ -176,7 +181,11 @@ export default function SendPackagesPage() {
 
     setIsPreparing(true);
     try {
-      const result = await window.api.prepareSendPackageAttachments(selectedPackage.packageId);
+      const result = await window.api.prepareSendPackageAttachments({
+        packageId: selectedPackage.packageId,
+        createdBy: currentUser.id,
+        isAdmin: currentUser.id === '황주은' && currentUser.role === 'ADMIN',
+      });
       setNextPackages(result.packages ?? []);
       setExportState('거래처별 PDF/XLSX 첨부 경로를 준비했습니다.');
     } catch (error) {

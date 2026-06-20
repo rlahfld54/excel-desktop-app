@@ -41,6 +41,7 @@ export default function UserPreferencesPage() {
   const [mailSettings, setMailSettings] = useState(() => makeMailSettings(currentUser));
   const [stateText, setStateText] = useState('개인 정보와 메일 명함 정보를 관리합니다.');
   const [copyText, setCopyText] = useState('');
+  const [isSavingMailSettings, setIsSavingMailSettings] = useState(false);
   const businessCard = getBusinessCard(currentUser);
 
   useEffect(() => {
@@ -120,6 +121,36 @@ export default function UserPreferencesPage() {
     refreshUser('프로필 정보와 Gmail 테스트 조건이 저장되었습니다.');
   };
 
+  const handleMailSettingsSave = async () => {
+    if (isSavingMailSettings) return;
+    if (!window.api?.saveAppSettings) {
+      setStateText('Gmail 설정 저장은 Electron 데스크톱 앱에서 사용할 수 있습니다.');
+      return;
+    }
+
+    setIsSavingMailSettings(true);
+    setStateText('Gmail 테스트 조건을 저장하는 중입니다.');
+
+    try {
+      const nextSettings = {
+        ...(appSettings ?? {}),
+        ...mailSettings,
+      };
+      const result = await window.api.saveAppSettings(nextSettings);
+      if (!result?.ok) {
+        throw new Error(result?.message || 'Gmail 설정 저장에 실패했습니다.');
+      }
+
+      setAppSettings(result.settings ?? nextSettings);
+      addActivityLog('INFO', 'Gmail 테스트 조건 저장', currentUser.id);
+      setStateText('Gmail 테스트 조건이 저장되었습니다.');
+    } catch (error) {
+      setStateText(error?.message || 'Gmail 설정 저장에 실패했습니다.');
+    } finally {
+      setIsSavingMailSettings(false);
+    }
+  };
+
   const handleReset = () => {
     refreshUser('저장된 정보로 되돌렸습니다.');
   };
@@ -193,9 +224,19 @@ export default function UserPreferencesPage() {
       </div>
 
       <section className="mt-5 rounded-lg border border-gray-200 bg-white p-5 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="flex flex-col gap-1">
-          <h2 className="font-semibold text-gray-900 dark:text-gray-100">Gmail 테스트 조건</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">마감 발송 큐의 전송 전 점검과 테스트 발송에서 이 값을 사용합니다.</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-semibold text-gray-900 dark:text-gray-100">Gmail 테스트 조건</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">마감 발송 큐의 전송 전 점검과 테스트 발송에서 이 값을 사용합니다.</p>
+          </div>
+          <button
+            className="btn btn-primary shrink-0 whitespace-nowrap"
+            type="button"
+            onClick={handleMailSettingsSave}
+            disabled={isSavingMailSettings}
+          >
+            {isSavingMailSettings ? '저장 중...' : 'Gmail 설정 저장'}
+          </button>
         </div>
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <Field label="발송자 이름">

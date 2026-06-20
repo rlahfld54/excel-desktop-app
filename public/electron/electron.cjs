@@ -177,6 +177,8 @@ function normalizeMailAttachments(attachments = []) {
       filename: path.basename(String(attachment.fileName)),
       content: Buffer.from(String(attachment.base64), "base64"),
       contentType: attachment.mimeType || "application/octet-stream",
+      cid: attachment.cid || undefined,
+      contentDisposition: attachment.contentDisposition || undefined,
     }));
 }
 
@@ -558,6 +560,7 @@ function registerIpcHandlers() {
       replyTo: payload.replyToEmail || gmailAddress,
       subject: payload.subject || "[마감 확인 요청] 테스트 발송",
       text: payload.text || "마감 확인 요청 테스트 메일입니다.",
+      html: payload.html || undefined,
       attachments,
     });
 
@@ -567,6 +570,91 @@ function registerIpcHandlers() {
       accepted: info.accepted ?? [],
       rejected: info.rejected ?? [],
       attachmentCount: attachments.length,
+    };
+  });
+
+  ipcMain.handle("gmail:send-closing", async (_, payload = {}) => {
+    const gmailAddress = String(payload.gmailAddress ?? "").trim();
+    const appPassword = String(payload.appPassword ?? "").replace(/\s+/g, "");
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+
+    if (!isEmail(gmailAddress) || !gmailAddress.toLowerCase().endsWith("@gmail.com")) {
+      return { ok: false, message: "Gmail 주소를 확인하세요.", results: [] };
+    }
+
+    if (appPassword.length < 12) {
+      return { ok: false, message: "Google 앱 비밀번호 16자리를 입력하세요.", results: [] };
+    }
+
+    if (messages.length === 0) {
+      return { ok: false, message: "발송할 메일이 없습니다.", results: [] };
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      auth: {
+        user: gmailAddress,
+        pass: appPassword,
+      },
+    });
+
+    await transporter.verify();
+    const results = [];
+
+    for (const message of messages) {
+      const to = String(message.to ?? "").trim();
+      const attachments = normalizeMailAttachments(message.attachments);
+
+      if (!isEmail(to)) {
+        results.push({
+          targetId: message.targetId,
+          ok: false,
+          to,
+          message: "수신 이메일 주소를 확인하세요.",
+          attachmentCount: attachments.length,
+        });
+        continue;
+      }
+
+      try {
+        const info = await transporter.sendMail({
+          from: `"${payload.senderName || "Excel Desktop App"}" <${gmailAddress}>`,
+          to,
+          replyTo: payload.replyToEmail || gmailAddress,
+          subject: message.subject || "[마감 확인 요청]",
+          text: message.text || "마감 확인 요청드립니다.",
+          html: message.html || undefined,
+          attachments,
+        });
+
+        results.push({
+          targetId: message.targetId,
+          ok: true,
+          to,
+          messageId: info.messageId,
+          attachmentCount: attachments.length,
+        });
+      } catch (error) {
+        results.push({
+          targetId: message.targetId,
+          ok: false,
+          to,
+          message: error?.message || "메일 발송에 실패했습니다.",
+          attachmentCount: attachments.length,
+        });
+      }
+    }
+
+    const successCount = results.filter((result) => result.ok).length;
+    return {
+      ok: successCount === results.length,
+      partial: successCount > 0 && successCount < results.length,
+      successCount,
+      failureCount: results.length - successCount,
+      results,
+      message: `${successCount}건 성공, ${results.length - successCount}건 실패`,
     };
   });
 

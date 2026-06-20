@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { addNotification } from '../utils/appNotifications';
@@ -100,9 +100,10 @@ function getInitialMasterData() {
 }
 
 export default function CodeMappingPage() {
-  const [masterData, setMasterData] = useState(getInitialMasterData);
-  const [loadState, setLoadState] = useState(window.api?.getMasterData ? 'SQLite 기준 데이터를 조회하는 중입니다.' : '등록된 기준 데이터가 없습니다.');
+  const [masterData, setMasterData] = useState(emptyMasterData);
+  const [loadState, setLoadState] = useState('조회 버튼을 눌러 SQLite 기준 데이터를 불러오세요.');
   const [activeView, setActiveView] = useState('customers');
+  const [isLoading, setIsLoading] = useState(false);
 
   const metrics = useMemo(() => {
     const aliasCount = masterData.productAliases.length;
@@ -119,6 +120,12 @@ export default function CodeMappingPage() {
   }, [masterData]);
 
   const loadMasterData = async () => {
+    if (!window.api?.getMasterData || isLoading) {
+      if (!window.api?.getMasterData) setLoadState('SQLite 조회는 Electron 데스크톱 앱에서만 사용할 수 있습니다.');
+      return;
+    }
+
+    setIsLoading(true);
     addNotification({
       title: '기준 데이터 조회 시작',
       message: '거래처/제품/단가 기준 데이터를 불러오는 중입니다.',
@@ -126,56 +133,39 @@ export default function CodeMappingPage() {
       target: '코드 매핑',
       href: '/validate/code-mapping',
     });
-    if (window.api?.getMasterData) {
-      try {
-        const data = await window.api.getMasterData();
-        const nextData = {
-          customers: data?.customers ?? [],
-          products: data?.products ?? [],
-          productAliases: data?.productAliases ?? [],
-          prices: data?.prices ?? [],
-          suggestions: data?.suggestions ?? [],
-          contacts: data?.contacts ?? [],
-        };
-        setMasterData(nextData);
-        localStorage.setItem(masterStorageKey, JSON.stringify(nextData));
-        setLoadState('SQLite에서 기준 데이터를 다시 불러왔습니다.');
-        addNotification({
-          title: '기준 데이터 조회 완료',
-          message: 'SQLite에서 기준 데이터를 다시 불러왔습니다.',
-          level: 'SUCCESS',
-          target: '코드 매핑',
-          href: '/validate/code-mapping',
-        });
-        return;
-      } catch (error) {
-        setLoadState(`SQLite 조회 실패: ${error.message}`);
-        addNotification({
-          title: 'SQLite 조회 실패',
-          message: error.message,
-          level: 'WARN',
-          target: '코드 매핑',
-          href: '/validate/code-mapping',
-        });
-      }
+    try {
+      const data = await window.api.getMasterData();
+      const nextData = {
+        customers: data?.customers ?? [],
+        products: data?.products ?? [],
+        productAliases: data?.productAliases ?? [],
+        prices: data?.prices ?? [],
+        suggestions: data?.suggestions ?? [],
+        contacts: data?.contacts ?? [],
+      };
+      setMasterData(nextData);
+      setLoadState('SQLite에서 기준 데이터를 불러왔습니다.');
+      addNotification({
+        title: '기준 데이터 조회 완료',
+        message: 'SQLite에서 기준 데이터를 불러왔습니다.',
+        level: 'SUCCESS',
+        target: '코드 매핑',
+        href: '/validate/code-mapping',
+      });
+    } catch (error) {
+      setMasterData(emptyMasterData);
+      setLoadState(`SQLite 조회 실패: ${error.message}`);
+      addNotification({
+        title: 'SQLite 조회 실패',
+        message: error.message,
+        level: 'WARN',
+        target: '코드 매핑',
+        href: '/validate/code-mapping',
+      });
+    } finally {
+      setIsLoading(false);
     }
-
-    const data = getInitialMasterData();
-    setMasterData(data);
-    setLoadState('브라우저 저장소에서 기준 데이터를 불러왔습니다.');
-    addNotification({
-      title: '기준 데이터 조회 완료',
-      message: '브라우저 저장소에서 기준 데이터를 불러왔습니다.',
-      level: 'SUCCESS',
-      target: '코드 매핑',
-      href: '/validate/code-mapping',
-    });
   };
-
-  useEffect(() => {
-    if (!window.api?.getMasterData) return;
-    loadMasterData();
-  }, []);
 
   const tableViews = useMemo(() => [
     {
@@ -271,7 +261,9 @@ export default function CodeMappingPage() {
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{loadState}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="btn btn-secondary" type="button" onClick={loadMasterData}>조회</button>
+            <button className="btn btn-secondary" type="button" onClick={loadMasterData} disabled={isLoading}>
+              {isLoading ? '조회 중...' : '조회'}
+            </button>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">

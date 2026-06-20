@@ -6,7 +6,7 @@ import {
   addActivityLog,
   clearSession,
   getCurrentUser,
-  getLogs,
+  getVisibleLogs,
   getSession,
   saveSession,
   updateUser,
@@ -41,7 +41,7 @@ export default function SecurityPage() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
   const [session, setSession] = useState(() => getSession());
-  const [logs, setLogs] = useState(() => getLogs());
+  const [logs, setLogs] = useState(() => getVisibleLogs());
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
     nextPassword: '',
@@ -65,7 +65,7 @@ export default function SecurityPage() {
   const refreshState = () => {
     setCurrentUser(getCurrentUser());
     setSession(getSession());
-    setLogs(getLogs());
+    setLogs(getVisibleLogs());
   };
 
   const handlePasswordChange = (event) => {

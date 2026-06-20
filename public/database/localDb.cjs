@@ -12,9 +12,11 @@ function ensureColumn(database, tableName, columnName, definition) {
 }
 
 function tableExists(database, tableName) {
-  return Boolean(database
-    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
-    .get(tableName));
+  return Boolean(
+    database
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(tableName),
+  );
 }
 
 function hasForeignKeyTo(database, tableName, referencedTable) {
@@ -292,6 +294,32 @@ CREATE TABLE IF NOT EXISTS contacts (
 CREATE INDEX IF NOT EXISTS idx_contacts_customer
 ON contacts(customer_code, status);
 
+CREATE TABLE IF NOT EXISTS closing_status (
+  closing_status_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  closing_month TEXT NOT NULL,
+  customer_code TEXT NOT NULL,
+  owner_name TEXT,
+  deadline TEXT NOT NULL DEFAULT '30일',
+  contact_confirmed INTEGER NOT NULL DEFAULT 0,
+  amount_confirmed INTEGER NOT NULL DEFAULT 0,
+  confirmed_amount REAL NOT NULL DEFAULT 0,
+  tax_issued INTEGER NOT NULL DEFAULT 0,
+  tax_matched INTEGER NOT NULL DEFAULT 0,
+  request_ready INTEGER NOT NULL DEFAULT 0,
+  request_sent INTEGER NOT NULL DEFAULT 0,
+  closing_sheet_sent INTEGER NOT NULL DEFAULT 0,
+  reason TEXT NOT NULL DEFAULT '회신 대기',
+  memo TEXT,
+  history_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(closing_month, customer_code),
+  FOREIGN KEY(customer_code) REFERENCES customers(customer_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_closing_status_month
+ON closing_status(closing_month, customer_code);
+
 CREATE TABLE IF NOT EXISTS message_templates (
   template_id INTEGER PRIMARY KEY AUTOINCREMENT,
   template_name TEXT NOT NULL,
@@ -366,13 +394,39 @@ ON email_history(package_id, status);
   ensureColumn(db, "customers", "closing_json", "TEXT");
   ensureColumn(db, "users", "department_name", "TEXT");
   ensureColumn(db, "workspace_snapshots", "file_path", "TEXT");
-  ensureColumn(db, "workspace_snapshots", "row_count", "INTEGER NOT NULL DEFAULT 0");
-  ensureColumn(db, "workspace_snapshots", "column_count", "INTEGER NOT NULL DEFAULT 0");
-  ensureColumn(db, "workspace_snapshots", "issue_count", "INTEGER NOT NULL DEFAULT 0");
-  ensureColumn(db, "workspace_snapshots", "duplicate_count", "INTEGER NOT NULL DEFAULT 0");
-  ensureColumn(db, "workspace_snapshots", "review_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(
+    db,
+    "workspace_snapshots",
+    "row_count",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  ensureColumn(
+    db,
+    "workspace_snapshots",
+    "column_count",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  ensureColumn(
+    db,
+    "workspace_snapshots",
+    "issue_count",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  ensureColumn(
+    db,
+    "workspace_snapshots",
+    "duplicate_count",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  ensureColumn(
+    db,
+    "workspace_snapshots",
+    "review_count",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
   ensureColumn(db, "sales", "transaction_date", "TEXT");
   ensureColumn(db, "sales", "owner_name", "TEXT");
+  ensureColumn(db, "email_history", "created_by", "TEXT");
   if (tableExists(db, "sales_rows")) {
     ensureColumn(db, "sales_rows", "transaction_date", "TEXT");
     ensureColumn(db, "sales_rows", "owner_name", "TEXT");
@@ -461,12 +515,14 @@ ON email_history(package_id, status);
 
   db.exec("DROP TABLE IF EXISTS departments");
 
-  db.prepare(`
+  db.prepare(
+    `
     INSERT OR IGNORE INTO users (
       username, display_name, password_hash, role, department_name, status
     )
     VALUES ('황주은', '황주은', '0000', 'ADMIN', '총무팀', 'ACTIVE')
-  `).run();
+  `,
+  ).run();
 
   if (tableExists(db, "sales_prices")) {
     db.exec(`
@@ -638,7 +694,10 @@ ON email_history(package_id, status);
     `);
   }
 
-  if (tableExists(db, "send_packages") && tableExists(db, "send_package_items")) {
+  if (
+    tableExists(db, "send_packages") &&
+    tableExists(db, "send_package_items")
+  ) {
     db.exec(`
       INSERT INTO email_history (
         email_id, package_id, package_name, upload_id, closing_month,
@@ -908,9 +967,6 @@ function getFilteredSalesData(database, options = {}) {
     database
       .prepare(`SELECT COUNT(*) AS count FROM sales WHERE ${where}`)
       .get(params)?.count ?? 0;
-  console.log("[debug:data-query:sql] params", params);
-  console.log("[debug:data-query:sql] where", where);
-  console.log("[debug:data-query:sql] total", total);
   const rows = database
     .prepare(
       `
@@ -943,7 +999,6 @@ function getFilteredSalesData(database, options = {}) {
       row.validationStatus ?? "",
       row.ownerName ?? "",
     ]);
-  console.log("[debug:data-query:sql] rows preview", rows.slice(0, 3));
 
   return {
     ok: true,
@@ -1069,6 +1124,67 @@ function normalizeClosingCompany(row) {
   };
 }
 
+function migrateLegacyClosingStatus(database) {
+  const rows = database
+    .prepare(
+      `SELECT customer_code AS customerCode, closing_json AS closingJson, updated_at AS updatedAt
+       FROM customers
+       WHERE closing_json IS NOT NULL AND closing_json <> ''`,
+    )
+    .all();
+  const insert = database.prepare(
+    `INSERT OR IGNORE INTO closing_status (
+       closing_month, customer_code, owner_name, deadline,
+       contact_confirmed, amount_confirmed, confirmed_amount,
+       tax_issued, tax_matched, request_ready, request_sent,
+       closing_sheet_sent, reason, memo, history_json, updated_at
+     )
+     VALUES (
+       @closingMonth, @customerCode, @ownerName, @deadline,
+       @contactConfirmed, @amountConfirmed, @confirmedAmount,
+       @taxIssued, @taxMatched, @requestReady, @requestSent,
+       @closingSheetSent, @reason, @memo, @historyJson, @updatedAt
+     )`,
+  );
+
+  return database.transaction(() => {
+    let inserted = 0;
+    rows.forEach((row) => {
+      let data = {};
+      try {
+        data = JSON.parse(row.closingJson || "{}");
+      } catch {
+        data = {};
+      }
+      const closingMonth = /^\d{4}-\d{2}/.test(row.updatedAt || "")
+        ? row.updatedAt.slice(0, 7)
+        : new Date().toISOString().slice(0, 7);
+      const result = insert.run({
+        closingMonth,
+        customerCode: row.customerCode,
+        ownerName: data.owner ?? "",
+        deadline: data.deadline ?? "30일",
+        contactConfirmed: toBooleanNumber(data.contactConfirmed),
+        amountConfirmed: toBooleanNumber(data.amountConfirmed),
+        confirmedAmount: Number(data.confirmedAmount) || 0,
+        taxIssued: toBooleanNumber(data.taxIssued),
+        taxMatched: toBooleanNumber(data.taxMatched),
+        requestReady: toBooleanNumber(data.requestReady),
+        requestSent: toBooleanNumber(data.requestSent),
+        closingSheetSent: toBooleanNumber(data.closingSheetSent),
+        reason: data.reason ?? "회신 대기",
+        memo: data.memo ?? "",
+        historyJson: JSON.stringify(
+          data.history ?? parseJsonArray(data.historyJson),
+        ),
+        updatedAt: row.updatedAt ?? new Date().toISOString(),
+      });
+      inserted += result.changes;
+    });
+    return inserted;
+  })();
+}
+
 function getDepartmentRequests(database) {
   return database
     .prepare(
@@ -1100,69 +1216,210 @@ function getDepartmentRequests(database) {
     });
 }
 
-function getClosingCompanies(database) {
+function getClosingCompanies(database, options = {}) {
+  const params = {
+    month: String(options.month ?? options.closingMonth ?? ""),
+    startDate: String(options.startDate ?? ""),
+    endDate: String(options.endDate ?? ""),
+    excludeCompleted: options.excludeCompleted ? 1 : 0,
+    emailOnly: options.emailOnly ? 1 : 0,
+  };
+
   return database
     .prepare(
       `
-    SELECT
-      customer_code AS closingId,
-      customer_name AS company,
-      closing_json AS closingJson,
-      updated_at AS updatedAt
-    FROM customers
-    WHERE closing_json IS NOT NULL
-    ORDER BY customer_code ASC
-  `,
+      WITH selected_upload AS (
+        SELECT uploads.upload_id
+        FROM sales_uploads uploads
+        WHERE EXISTS (
+          SELECT 1
+          FROM sales source_rows
+          WHERE source_rows.upload_id = uploads.upload_id
+            AND (@startDate = '' OR source_rows.transaction_date >= @startDate)
+            AND (@endDate = '' OR source_rows.transaction_date <= @endDate)
+        )
+        ORDER BY
+          CASE WHEN @month <> '' AND uploads.closing_month = @month THEN 0 ELSE 1 END,
+          uploads.uploaded_at DESC,
+          uploads.upload_id DESC
+        LIMIT 1
+      ),
+      sales_summary AS (
+        SELECT
+          sales.customer_code AS customerCode,
+          SUM(COALESCE(sales.sales_amount, 0)) AS salesAmount,
+          MAX(COALESCE(sales.owner_name, '')) AS ownerName
+        FROM sales
+        WHERE sales.upload_id = (SELECT upload_id FROM selected_upload)
+          AND sales.customer_code IS NOT NULL
+          AND (@startDate = '' OR sales.transaction_date >= @startDate)
+          AND (@endDate = '' OR sales.transaction_date <= @endDate)
+        GROUP BY sales.customer_code
+      ),
+      issue_summary AS (
+        SELECT sales.customer_code AS customerCode, COUNT(*) AS issueCount
+        FROM validation_issues issues
+        JOIN sales ON sales.row_id = issues.row_id
+        WHERE sales.upload_id = (SELECT upload_id FROM selected_upload)
+          AND issues.status = 'OPEN'
+        GROUP BY sales.customer_code
+      ),
+      email_summary AS (
+        SELECT
+          customer_code AS customerCode,
+          SUM(CASE WHEN status IN ('SENT', 'SUCCESS', 'COMPLETED', 'REPLIED', 'CLOSED') THEN 1 ELSE 0 END) AS contactCount,
+          MAX(CASE WHEN status IN ('SENT', 'SUCCESS', 'COMPLETED', 'REPLIED', 'CLOSED') THEN created_at END) AS lastContactAt,
+          MAX(CASE WHEN status IN ('SENT', 'SUCCESS', 'COMPLETED', 'REPLIED', 'CLOSED') THEN 1 ELSE 0 END) AS requestSent,
+          MAX(CASE WHEN attachment_xlsx_path IS NOT NULL AND attachment_xlsx_path <> '' THEN 1 ELSE 0 END) AS closingSheetSent
+        FROM email_history
+        WHERE (@month = '' OR closing_month = @month)
+        GROUP BY customer_code
+      )
+      SELECT
+        customers.customer_code AS closingId,
+        customers.customer_name AS company,
+        COALESCE(status.owner_name, sales_summary.ownerName, '') AS owner,
+        COALESCE(
+          status.deadline,
+          CASE customers.rowid % 3 WHEN 1 THEN '10일' WHEN 2 THEN '25일' ELSE '30일' END
+        ) AS deadline,
+        COALESCE((
+          SELECT contacts.recipient_name FROM contacts
+          WHERE contacts.customer_code = customers.customer_code
+          ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
+          LIMIT 1
+        ), '') AS contactName,
+        COALESCE((
+          SELECT contacts.department_name FROM contacts
+          WHERE contacts.customer_code = customers.customer_code
+          ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
+          LIMIT 1
+        ), '') AS contactDepartment,
+        '' AS contactTitle,
+        COALESCE((
+          SELECT contacts.recipient_email FROM contacts
+          WHERE contacts.customer_code = customers.customer_code
+          ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
+          LIMIT 1
+        ), '') AS email,
+        COALESCE((
+          SELECT contacts.recipient_phone FROM contacts
+          WHERE contacts.customer_code = customers.customer_code
+          ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
+          LIMIT 1
+        ), '') AS phone,
+        COALESCE((
+          SELECT contacts.preferred_channel FROM contacts
+          WHERE contacts.customer_code = customers.customer_code
+          ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
+          LIMIT 1
+        ), 'EMAIL') AS channel,
+        sales_summary.salesAmount,
+        COALESCE(NULLIF(status.confirmed_amount, 0), sales_summary.salesAmount) AS confirmedAmount,
+        ROUND(sales_summary.salesAmount * 0.1) AS taxAmount,
+        COALESCE(status.contact_confirmed, 0) AS contactConfirmed,
+        COALESCE(status.amount_confirmed, 0) AS amountConfirmed,
+        COALESCE(status.tax_matched, 0) AS taxMatched,
+        COALESCE(status.tax_issued, 0) AS taxIssued,
+        COALESCE(status.request_ready, 0) AS requestReady,
+        MAX(COALESCE(status.request_sent, 0), COALESCE(email_summary.requestSent, 0)) AS requestSent,
+        MAX(COALESCE(status.closing_sheet_sent, 0), COALESCE(email_summary.closingSheetSent, 0)) AS closingSheetSent,
+        COALESCE(
+          status.reason,
+          CASE WHEN COALESCE(issue_summary.issueCount, 0) > 0 THEN '내부 검토' ELSE '회신 대기' END
+        ) AS reason,
+        COALESCE(status.memo, '') AS memo,
+        COALESCE(email_summary.lastContactAt, '') AS lastContactAt,
+        COALESCE(email_summary.contactCount, 0) AS contactCount,
+        COALESCE(status.history_json, '[]') AS historyJson,
+        COALESCE(status.updated_at, customers.updated_at) AS updatedAt
+      FROM sales_summary
+      JOIN customers ON customers.customer_code = sales_summary.customerCode
+      LEFT JOIN closing_status status
+        ON status.customer_code = customers.customer_code
+       AND status.closing_month = @month
+      LEFT JOIN issue_summary ON issue_summary.customerCode = customers.customer_code
+      LEFT JOIN email_summary ON email_summary.customerCode = customers.customer_code
+      WHERE (
+        @excludeCompleted = 0
+        OR COALESCE(status.amount_confirmed, 0) = 0
+      )
+      AND (
+        @emailOnly = 0
+        OR COALESCE((
+          SELECT contacts.preferred_channel FROM contacts
+          WHERE contacts.customer_code = customers.customer_code
+          ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
+          LIMIT 1
+        ), 'EMAIL') = 'EMAIL'
+      )
+      ORDER BY customers.customer_code ASC
+    `,
     )
-    .all()
-    .map((row) => {
-      const data = JSON.parse(row.closingJson || "{}");
-      return normalizeClosingCompany({
-        ...data,
-        closingId: row.closingId,
-        company: row.company,
-        historyJson: data.historyJson ?? JSON.stringify(data.history ?? []),
-        updatedAt: row.updatedAt,
-      });
-    });
+    .all(params)
+    .map(normalizeClosingCompany);
 }
 
-function saveClosingCompanies(database, rows = []) {
+function saveClosingCompanies(database, rows = [], options = {}) {
+  const closingMonth = String(
+    options.month ??
+      options.closingMonth ??
+      new Date().toISOString().slice(0, 7),
+  );
   const upsert = database.prepare(`
-    INSERT INTO customers (
-      customer_code, customer_name, status, memo, closing_json, updated_at
+    INSERT INTO closing_status (
+      closing_month, customer_code, owner_name, deadline,
+      contact_confirmed, amount_confirmed, confirmed_amount,
+      tax_issued, tax_matched, request_ready, request_sent,
+      closing_sheet_sent, reason, memo, history_json, updated_at
     )
-    VALUES (@id, @company, 'ACTIVE', @memo, @closingJson, CURRENT_TIMESTAMP)
-    ON CONFLICT(customer_code) DO UPDATE SET
-      customer_name = excluded.customer_name,
+    VALUES (
+      @closingMonth, @id, @owner, @deadline,
+      @contactConfirmed, @amountConfirmed, @confirmedAmount,
+      @taxIssued, @taxMatched, @requestReady, @requestSent,
+      @closingSheetSent, @reason, @memo, @historyJson, CURRENT_TIMESTAMP
+    )
+    ON CONFLICT(closing_month, customer_code) DO UPDATE SET
+      owner_name = excluded.owner_name,
+      deadline = excluded.deadline,
+      contact_confirmed = excluded.contact_confirmed,
+      amount_confirmed = excluded.amount_confirmed,
+      confirmed_amount = excluded.confirmed_amount,
+      tax_issued = excluded.tax_issued,
+      tax_matched = excluded.tax_matched,
+      request_ready = excluded.request_ready,
+      request_sent = excluded.request_sent,
+      closing_sheet_sent = excluded.closing_sheet_sent,
+      reason = excluded.reason,
       memo = excluded.memo,
-      closing_json = excluded.closing_json,
+      history_json = excluded.history_json,
       updated_at = CURRENT_TIMESTAMP
   `);
 
   const transaction = database.transaction(() => {
     rows.forEach((row) => {
       upsert.run({
+        closingMonth,
         id: row.id,
-        company: row.company ?? "",
+        owner: row.owner ?? "",
+        deadline: row.deadline ?? "30일",
+        contactConfirmed: toBooleanNumber(row.contactConfirmed),
+        amountConfirmed: toBooleanNumber(row.amountConfirmed),
+        confirmedAmount: Number(row.confirmedAmount) || 0,
+        taxIssued: toBooleanNumber(row.taxIssued),
+        taxMatched: toBooleanNumber(row.taxMatched),
+        requestReady: toBooleanNumber(row.requestReady),
+        requestSent: toBooleanNumber(row.requestSent),
+        closingSheetSent: toBooleanNumber(row.closingSheetSent),
+        reason: row.reason ?? "회신 대기",
         memo: row.memo ?? "",
-        closingJson: JSON.stringify({
-          ...row,
-          contactConfirmed: toBooleanNumber(row.contactConfirmed),
-          amountConfirmed: toBooleanNumber(row.amountConfirmed),
-          taxMatched: toBooleanNumber(row.taxMatched),
-          taxIssued: toBooleanNumber(row.taxIssued),
-          requestReady: toBooleanNumber(row.requestReady),
-          requestSent: toBooleanNumber(row.requestSent),
-          closingSheetSent: toBooleanNumber(row.closingSheetSent),
-          historyJson: JSON.stringify(row.history ?? []),
-        }),
+        historyJson: JSON.stringify(row.history ?? []),
       });
     });
   });
 
   transaction();
-  return getClosingCompanies(database);
+  return getClosingCompanies(database, options);
 }
 
 const defaultMessageTemplates = [
@@ -1260,7 +1517,9 @@ function getMessageTemplates(database) {
     .all();
 }
 
-function getSendPackages(database) {
+function getSendPackages(database, options = {}) {
+  const createdBy = String(options.createdBy ?? "");
+  const isAdmin = Boolean(options.isAdmin);
   const rows = database
     .prepare(
       `
@@ -1281,12 +1540,14 @@ function getSendPackages(database) {
       attachment_xlsx_path AS attachmentXlsxPath,
       status,
       memo,
+      created_by AS createdBy,
       created_at AS createdAt
     FROM email_history
+    WHERE (@isAdmin = 1 OR created_by = @createdBy)
     ORDER BY package_id DESC, email_id ASC
   `,
     )
-    .all();
+    .all({ createdBy, isAdmin: isAdmin ? 1 : 0 });
 
   const grouped = new Map();
   rows.forEach((row) => {
@@ -1331,7 +1592,7 @@ function getSendPackages(database) {
   });
 }
 
-function prepareSendPackageAttachments(database, packageId) {
+function prepareSendPackageAttachments(database, packageId, options = {}) {
   const sendPackage = database
     .prepare(
       `
@@ -1342,10 +1603,15 @@ function prepareSendPackageAttachments(database, packageId) {
       output_folder_path AS outputFolderPath
     FROM email_history
     WHERE package_id = @packageId
+      AND (@isAdmin = 1 OR created_by = @createdBy)
     LIMIT 1
   `,
     )
-    .get({ packageId });
+    .get({
+      packageId,
+      createdBy: String(options.createdBy ?? ""),
+      isAdmin: options.isAdmin ? 1 : 0,
+    });
 
   if (!sendPackage) {
     throw new Error("발송 패키지를 찾을 수 없습니다.");
@@ -1357,10 +1623,15 @@ function prepareSendPackageAttachments(database, packageId) {
     SELECT email_id AS itemId, customer_code AS customerCode
     FROM email_history
     WHERE package_id = @packageId
+      AND (@isAdmin = 1 OR created_by = @createdBy)
     ORDER BY email_id
   `,
     )
-    .all({ packageId });
+    .all({
+      packageId,
+      createdBy: String(options.createdBy ?? ""),
+      isAdmin: options.isAdmin ? 1 : 0,
+    });
 
   const updateItem = database.prepare(`
     UPDATE email_history
@@ -1372,6 +1643,7 @@ function prepareSendPackageAttachments(database, packageId) {
         ELSE status
       END
     WHERE email_id = @itemId
+      AND (@isAdmin = 1 OR created_by = @createdBy)
   `);
   const insertEvent = database.prepare(`
     INSERT INTO activity_logs (level, message, meta_json)
@@ -1395,7 +1667,7 @@ function prepareSendPackageAttachments(database, packageId) {
   });
 
   transaction();
-  return getSendPackages(database);
+  return getSendPackages(database, options);
 }
 
 function updateSendPackageItemStatus(database, payload) {
@@ -1438,6 +1710,8 @@ function updateSendPackageItemStatus(database, payload) {
       itemId,
       status,
       memo: payload?.memo ?? null,
+      createdBy: String(payload?.createdBy ?? ""),
+      isAdmin: payload?.isAdmin ? 1 : 0,
     });
 
     if (result.changes === 0) {
@@ -1451,7 +1725,82 @@ function updateSendPackageItemStatus(database, payload) {
   });
 
   transaction();
-  return getSendPackages(database);
+  return getSendPackages(database, {
+    createdBy: payload?.createdBy,
+    isAdmin: payload?.isAdmin,
+  });
+}
+
+function recordClosingSendHistory(database, payload = {}) {
+  const records = Array.isArray(payload.records) ? payload.records : [];
+  if (records.length === 0) {
+    throw new Error("저장할 발송 기록이 없습니다.");
+  }
+
+  const packageId = Number(payload.packageId) || Date.now();
+  const packageName = String(payload.packageName || "마감 발송 큐");
+  const closingMonth = String(payload.closingMonth || "");
+  const outputFolderPath = String(payload.outputFolderPath || "");
+  const createdBy = String(payload.createdBy || "");
+  const insertHistory = database.prepare(`
+    INSERT INTO email_history (
+      package_id, package_name, closing_month, output_folder_path,
+      customer_code, customer_name, recipient_email, recipient_phone,
+      channel, subject, body, attachment_pdf_path, attachment_xlsx_path,
+      status, sent_checked_at, memo, created_by, created_at
+    )
+    VALUES (
+      @packageId, @packageName, @closingMonth, @outputFolderPath,
+      @customerCode, @customerName, @recipientEmail, @recipientPhone,
+      @channel, @subject, @body, @attachmentPdfPath, @attachmentXlsxPath,
+      @status, CURRENT_TIMESTAMP, @memo, @createdBy, CURRENT_TIMESTAMP
+    )
+  `);
+  const insertEvent = database.prepare(`
+    INSERT INTO activity_logs (level, message, meta_json)
+    VALUES ('INFO', @message, @metaJson)
+  `);
+
+  const transaction = database.transaction(() => {
+    const savedRecords = records.map((record) => {
+      const result = insertHistory.run({
+        packageId,
+        packageName,
+        closingMonth,
+        outputFolderPath,
+        customerCode: record.customerCode || null,
+        customerName: record.customerName || "",
+        recipientEmail: record.recipientEmail || "",
+        recipientPhone: record.recipientPhone || "",
+        channel: record.channel || "EMAIL",
+        subject: record.subject || "",
+        body: record.body || "",
+        attachmentPdfPath: record.attachmentPdfPath || null,
+        attachmentXlsxPath: record.attachmentXlsxPath || null,
+        status: record.status || "SENT",
+        memo: record.memo || null,
+        createdBy,
+      });
+
+      return {
+        emailId: Number(result.lastInsertRowid),
+        ...record,
+        status: record.status || "SENT",
+      };
+    });
+
+    insertEvent.run({
+      message: "마감 발송 큐의 업체별 발송 기록을 저장했습니다.",
+      metaJson: toJson({ packageId, recordCount: savedRecords.length, closingMonth }),
+    });
+
+    return savedRecords;
+  });
+
+  return {
+    packageId,
+    records: transaction(),
+  };
 }
 
 function getMasterData(database) {
@@ -1499,6 +1848,84 @@ function getMasterData(database) {
     `,
       )
       .all(),
+  };
+}
+
+function getFilteredContacts(database, options = {}) {
+  const pageSize = Math.min(Math.max(Number(options.pageSize) || 8, 1), 100);
+  const page = Math.max(Number(options.page) || 1, 1);
+  const offset = (page - 1) * pageSize;
+  const params = {
+    customer: `%${String(options.customer ?? "")
+      .trim()
+      .toLowerCase()}%`,
+    contact: `%${String(options.contact ?? "")
+      .trim()
+      .toLowerCase()}%`,
+    email: `%${String(options.email ?? "")
+      .trim()
+      .toLowerCase()}%`,
+    phone: `%${String(options.phone ?? "")
+      .trim()
+      .toLowerCase()}%`,
+    channel: String(options.channel ?? "ALL"),
+    status: String(options.status ?? "ALL"),
+    limit: pageSize,
+    offset,
+  };
+  const where = [
+    `(
+      @customer = '%%'
+      OR lower(COALESCE(customers.customer_name, '')) LIKE @customer
+      OR lower(COALESCE(contacts.customer_code, '')) LIKE @customer
+    )`,
+    "(@contact = '%%' OR lower(COALESCE(contacts.recipient_name, '')) LIKE @contact)",
+    "(@email = '%%' OR lower(COALESCE(contacts.recipient_email, '')) LIKE @email)",
+    "(@phone = '%%' OR lower(COALESCE(contacts.recipient_phone, '')) LIKE @phone)",
+    "(@channel = 'ALL' OR contacts.preferred_channel = @channel)",
+    "(@status = 'ALL' OR contacts.status = @status)",
+  ].join(" AND ");
+
+  const total =
+    database
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM contacts
+         LEFT JOIN customers ON customers.customer_code = contacts.customer_code
+         WHERE ${where}`,
+      )
+      .get(params)?.count ?? 0;
+
+  const rows = database
+    .prepare(
+      `SELECT
+         contacts.contact_id AS contactId,
+         contacts.customer_code AS customerCode,
+         customers.customer_name AS customerName,
+         customers.business_number AS businessNumber,
+         contacts.department_name AS departmentName,
+         contacts.recipient_name AS recipientName,
+         contacts.recipient_email AS recipientEmail,
+         contacts.recipient_phone AS recipientPhone,
+         contacts.preferred_channel AS preferredChannel,
+         contacts.status,
+         contacts.memo
+       FROM contacts
+       LEFT JOIN customers ON customers.customer_code = contacts.customer_code
+       WHERE ${where}
+       ORDER BY contacts.contact_id DESC
+       LIMIT @limit OFFSET @offset`,
+    )
+    .all(params);
+
+  return {
+    ok: true,
+    data: {
+      rows,
+      total,
+      page,
+      pageSize,
+    },
   };
 }
 
@@ -1600,12 +2027,256 @@ function importContacts(database, contacts) {
   return transaction();
 }
 
+function ensureContactsForCustomers(database) {
+  const generatedMemo = "거래처 기준 자동 생성 연락처";
+  const departments = [
+    "정산팀",
+    "회계팀",
+    "재무팀",
+    "경영지원팀",
+    "구매관리팀",
+    "영업지원팀",
+    "운영관리팀",
+    "총무팀",
+  ];
+  const recipientNames = [
+    "김서연",
+    "이도윤",
+    "박지우",
+    "최민준",
+    "정하은",
+    "강현우",
+    "조수빈",
+    "윤지호",
+    "장예린",
+    "임준서",
+    "한채원",
+    "오시우",
+    "서유진",
+    "신도현",
+    "권나연",
+    "황민재",
+    "안서윤",
+    "송재현",
+    "류가은",
+    "홍우진",
+    "문하린",
+    "배건우",
+    "백소연",
+    "허지훈",
+    "남예진",
+    "심준영",
+    "노다은",
+    "하승민",
+    "곽유나",
+    "성태윤",
+  ];
+  const initials = [
+    "g",
+    "kk",
+    "n",
+    "d",
+    "tt",
+    "r",
+    "m",
+    "b",
+    "pp",
+    "s",
+    "ss",
+    "",
+    "j",
+    "jj",
+    "ch",
+    "k",
+    "t",
+    "p",
+    "h",
+  ];
+  const vowels = [
+    "a",
+    "ae",
+    "ya",
+    "yae",
+    "eo",
+    "e",
+    "yeo",
+    "ye",
+    "o",
+    "wa",
+    "wae",
+    "oe",
+    "yo",
+    "u",
+    "wo",
+    "we",
+    "wi",
+    "yu",
+    "eu",
+    "ui",
+    "i",
+  ];
+  const finals = [
+    "",
+    "k",
+    "k",
+    "ks",
+    "n",
+    "nj",
+    "nh",
+    "t",
+    "l",
+    "lk",
+    "lm",
+    "lb",
+    "ls",
+    "lt",
+    "lp",
+    "lh",
+    "m",
+    "p",
+    "ps",
+    "t",
+    "t",
+    "ng",
+    "t",
+    "t",
+    "k",
+    "t",
+    "p",
+    "h",
+  ];
+  const englishCompanyTerms = {
+    솔루션: "solution",
+    시스템: "system",
+    유통: "distribution",
+    오피스: "office",
+    상사: "trading",
+    리테일: "retail",
+    테크: "tech",
+    물류: "logistics",
+    문구: "stationery",
+    컴퍼니: "company",
+    비즈: "biz",
+    산업: "industry",
+    전자: "electronics",
+    네트웍스: "networks",
+  };
+  const romanize = (value) => {
+    let normalized = String(value ?? "");
+    Object.entries(englishCompanyTerms).forEach(([korean, english]) => {
+      normalized = normalized.replaceAll(korean, ` ${english} `);
+    });
+
+    return normalized
+      .split("")
+      .map((character) => {
+        const code = character.charCodeAt(0) - 0xac00;
+        if (code < 0 || code > 11171) return character;
+        const initialIndex = Math.floor(code / 588);
+        const vowelIndex = Math.floor((code % 588) / 28);
+        const finalIndex = code % 28;
+        return `${initials[initialIndex]}${vowels[vowelIndex]}${finals[finalIndex]}`;
+      })
+      .join("")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "")
+      .replace(/^_+|_+$/g, "");
+  };
+  const makeContact = (customer, index) => {
+    const recipientName = recipientNames[index % recipientNames.length];
+    const seed = Number(customer.customerId) || index + 1;
+    const middle = String(2100 + ((seed * 137) % 7600)).padStart(4, "0");
+    const last = String(1000 + ((seed * 389) % 9000)).padStart(4, "0");
+
+    return {
+      customerCode: customer.customerCode,
+      departmentName: departments[index % departments.length],
+      recipientName,
+      recipientEmail: `${romanize(customer.customerName)}_${romanize(recipientName)}@example.com`,
+      recipientPhone: `010-${middle}-${last}`,
+      preferredChannel: index % 7 === 0 ? "KAKAO" : "EMAIL",
+      status: "ACTIVE",
+      memo: generatedMemo,
+    };
+  };
+  const customers = database
+    .prepare(
+      `SELECT rowid AS customerId, customer_code AS customerCode, customer_name AS customerName
+       FROM customers
+       ORDER BY customer_code`,
+    )
+    .all();
+  const findContact = database.prepare(
+    `SELECT contact_id AS contactId, memo
+     FROM contacts
+     WHERE customer_code = ?
+     ORDER BY contact_id
+     LIMIT 1`,
+  );
+  const insertContact = database.prepare(
+    `INSERT INTO contacts (
+       customer_code, department_name, recipient_name, recipient_email,
+       recipient_phone, preferred_channel, status, memo
+     )
+     VALUES (
+       @customerCode, @departmentName, @recipientName, @recipientEmail,
+       @recipientPhone, @preferredChannel, @status, @memo
+     )`,
+  );
+  const updateGeneratedContact = database.prepare(
+    `UPDATE contacts
+     SET department_name = @departmentName,
+         recipient_name = @recipientName,
+         recipient_email = @recipientEmail,
+         recipient_phone = @recipientPhone,
+         preferred_channel = @preferredChannel,
+         status = @status,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE contact_id = @contactId`,
+  );
+  const result = database.transaction(() => {
+    let inserted = 0;
+    let updated = 0;
+
+    customers.forEach((customer, index) => {
+      const contact = findContact.get(customer.customerCode);
+      const generated = makeContact(customer, index);
+
+      if (!contact) {
+        insertContact.run(generated);
+        inserted += 1;
+        return;
+      }
+
+      if (contact.memo === generatedMemo) {
+        updateGeneratedContact.run({
+          ...generated,
+          contactId: contact.contactId,
+        });
+        updated += 1;
+      }
+    });
+
+    return { inserted, updated };
+  })();
+
+  return result;
+}
+
 function ensureCoreBusinessData(database) {
-  const countTable = (tableName) => database.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get().count;
+  const countTable = (tableName) =>
+    database.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get().count;
+  const contactSync = ensureContactsForCustomers(database);
+  const migratedClosingStatuses = migrateLegacyClosingStatus(database);
   return {
     users: countTable("users"),
     customers: countTable("customers"),
     products: countTable("products"),
+    contacts: countTable("contacts"),
+    insertedContacts: contactSync.inserted,
+    updatedContacts: contactSync.updated,
+    closingStatuses: countTable("closing_status"),
+    migratedClosingStatuses,
     salesUploads: countTable("sales_uploads"),
     salesRows: countTable("sales"),
   };
@@ -1878,6 +2549,11 @@ function registerDatabaseIpc(ipcMain, app) {
     };
   });
 
+  ipcMain.handle("contacts:query", (_, options) => {
+    const database = getDatabase(app);
+    return getFilteredContacts(database, options);
+  });
+
   ipcMain.handle("contacts:import", (_, contacts) => {
     const database = getDatabase(app);
     const summary = importContacts(database, contacts ?? []);
@@ -1896,19 +2572,21 @@ function registerDatabaseIpc(ipcMain, app) {
     };
   });
 
-  ipcMain.handle("send-packages:get", () => {
+  ipcMain.handle("send-packages:get", (_, options) => {
     const database = getDatabase(app);
     return {
       ok: true,
-      packages: getSendPackages(database),
+      packages: getSendPackages(database, options),
     };
   });
 
-  ipcMain.handle("send-packages:prepare-attachments", (_, packageId) => {
+  ipcMain.handle("send-packages:prepare-attachments", (_, payload) => {
     const database = getDatabase(app);
+    const packageId = typeof payload === "object" ? payload.packageId : payload;
+    const options = typeof payload === "object" ? payload : {};
     return {
       ok: true,
-      packages: prepareSendPackageAttachments(database, packageId),
+      packages: prepareSendPackageAttachments(database, packageId, options),
     };
   });
 
@@ -1920,6 +2598,14 @@ function registerDatabaseIpc(ipcMain, app) {
     };
   });
 
+  ipcMain.handle("closing-send-history:record", (_, payload) => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      ...recordClosingSendHistory(database, payload),
+    };
+  });
+
   ipcMain.handle("department-requests:list", () => {
     const database = getDatabase(app);
     return {
@@ -1928,19 +2614,21 @@ function registerDatabaseIpc(ipcMain, app) {
     };
   });
 
-  ipcMain.handle("closing-companies:list", () => {
+  ipcMain.handle("closing-companies:list", (_, options) => {
     const database = getDatabase(app);
     return {
       ok: true,
-      rows: getClosingCompanies(database),
+      rows: getClosingCompanies(database, options),
     };
   });
 
-  ipcMain.handle("closing-companies:save", (_, rows) => {
+  ipcMain.handle("closing-companies:save", (_, payload) => {
     const database = getDatabase(app);
+    const rows = Array.isArray(payload) ? payload : payload?.rows;
+    const options = Array.isArray(payload) ? {} : payload?.options;
     return {
       ok: true,
-      rows: saveClosingCompanies(database, rows ?? []),
+      rows: saveClosingCompanies(database, rows ?? [], options ?? {}),
     };
   });
 
@@ -1951,11 +2639,7 @@ function registerDatabaseIpc(ipcMain, app) {
 
   ipcMain.handle("data:query", (_, options) => {
     const database = getDatabase(app);
-    console.log("[debug:data-query:main] options", options);
-    console.log("[debug:data-query:main] database open", Boolean(database));
     const result = getFilteredSalesData(database, options);
-    console.log("[debug:data-query:main] total", result?.data?.total);
-    console.log("[debug:data-query:main] rows preview", result?.data?.rows?.slice(0, 3));
     return result;
   });
 

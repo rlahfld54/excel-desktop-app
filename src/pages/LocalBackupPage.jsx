@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import PageShell from './PageShell';
+import { getCurrentUser } from '../utils/authSession';
 
 const fallbackSettings = {
   databasePath: 'AppData/Excel Desktop App/excel-desktop-app.sqlite',
@@ -92,6 +93,8 @@ function BackupRow({ backup, selected, onPreview, onRestore }) {
 }
 
 export default function LocalBackupPage() {
+  const currentUser = getCurrentUser();
+  const isAdmin = currentUser.id === '황주은' && currentUser.role === 'ADMIN';
   const [settings, setSettings] = useState(fallbackSettings);
   const [backups, setBackups] = useState([]);
   const [selectedBackup, setSelectedBackup] = useState(null);
@@ -113,7 +116,9 @@ export default function LocalBackupPage() {
     setIsBusy(true);
     try {
       const result = await window.api.listBackups();
-      const loadedBackups = result.backups ?? [];
+      const loadedBackups = (result.backups ?? []).filter((backup) => (
+        isAdmin || backup.createdBy === currentUser.id
+      ));
       setSettings({ ...fallbackSettings, ...(result.settings ?? {}) });
       setBackups(loadedBackups);
       setSelectedBackup((current) => loadedBackups.find((backup) => backup.id === current?.id) ?? loadedBackups[0] ?? null);
@@ -162,7 +167,7 @@ export default function LocalBackupPage() {
         id: `preview_${Date.now()}`,
         message: trimmedMessage,
         type: 'manual',
-        createdBy: '사용자',
+        createdBy: currentUser.id,
         createdAt: new Date().toISOString(),
         retentionUntil: new Date(Date.now() + 31 * 24 * 60 * 60 * 1000).toISOString(),
         sizeBytes: 0,
@@ -177,7 +182,7 @@ export default function LocalBackupPage() {
 
     setIsBusy(true);
     try {
-      const result = await window.api.createBackup({ message: trimmedMessage, type: 'manual', createdBy: '사용자' });
+      const result = await window.api.createBackup({ message: trimmedMessage, type: 'manual', createdBy: currentUser.id });
       setMessage('');
       await loadBackups();
       setSelectedBackup(result.backup);

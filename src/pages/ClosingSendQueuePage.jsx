@@ -7,117 +7,15 @@ import { addActivityLog, getCurrentUser } from '../utils/authSession';
 import { addNotification } from '../utils/appNotifications';
 import { getBusinessCard, makeSignatureText } from '../utils/businessCard';
 
-const defaultClosingTargets = [
-  {
-    id: 'SEND-001',
-    company: '모블상사',
-    manager: '김민서',
-    contactName: '강소영',
-    email: 'admin@moble.example',
-    channel: 'EMAIL',
-    deadline: '10일',
-    closingSheetSent: true,
-    amountConfirmed: false,
-    taxIssued: false,
-    taxMatched: false,
-    reason: '회신 대기',
-    amount: 19650000,
-    lastContactAt: '2026-06-08 10:30',
-    contactCount: 2,
-  },
-  {
-    id: 'SEND-002',
-    company: '다원문구',
-    manager: '박정우',
-    contactName: '이지현',
-    email: 'purchase@dawon.example',
-    channel: 'EMAIL',
-    deadline: '10일',
-    closingSheetSent: true,
-    amountConfirmed: true,
-    taxIssued: true,
-    taxMatched: true,
-    reason: '내부 검토',
-    amount: 9870000,
-    lastContactAt: '2026-06-09 09:20',
-    contactCount: 1,
-  },
-  {
-    id: 'SEND-003',
-    company: '그린물류',
-    manager: '박정우',
-    contactName: '서가은',
-    email: 'tax@greenlog.example',
-    channel: 'EMAIL',
-    deadline: '25일',
-    closingSheetSent: true,
-    amountConfirmed: true,
-    taxIssued: true,
-    taxMatched: true,
-    reason: '내부 검토',
-    amount: 43180000,
-    lastContactAt: '2026-06-09 14:00',
-    contactCount: 1,
-  },
-  {
-    id: 'SEND-004',
-    company: '청담리테일',
-    manager: '이서연',
-    contactName: '윤나래',
-    email: 'closing@cheongdam.example',
-    channel: 'KAKAO',
-    deadline: '25일',
-    closingSheetSent: true,
-    amountConfirmed: false,
-    taxIssued: false,
-    taxMatched: false,
-    reason: '금액 조율',
-    amount: 12400000,
-    lastContactAt: '2026-06-08 16:10',
-    contactCount: 3,
-  },
-  {
-    id: 'SEND-005',
-    company: '서울컴퍼니',
-    manager: '최현우',
-    contactName: '문하린',
-    email: 'finance@seoulcp.example',
-    channel: 'EMAIL',
-    deadline: '30일',
-    closingSheetSent: false,
-    amountConfirmed: false,
-    taxIssued: false,
-    taxMatched: false,
-    reason: '마감장 발송 전',
-    amount: 35860000,
-    lastContactAt: '-',
-    contactCount: 0,
-  },
-  {
-    id: 'SEND-006',
-    company: '코리아비즈',
-    manager: '최현우',
-    contactName: '손우진',
-    email: 'account@koreabiz.example',
-    channel: 'KAKAO',
-    deadline: '25일',
-    closingSheetSent: true,
-    amountConfirmed: false,
-    taxIssued: false,
-    taxMatched: true,
-    reason: '내부 검토',
-    amount: 48200000,
-    lastContactAt: '2026-06-09 15:30',
-    contactCount: 2,
-  },
-];
+const closingDays = ['10일', '25일', '30일'];
+const temporaryRecipientEmail = 'rlahfld54@naver.com';
 
 const steps = [
   { title: '대상 선택', description: '연락할 업체를 묶어서 발송 큐에 담습니다.' },
   { title: '발송 유형 확인', description: '상태에 따라 마감장, 금액 확인, 세금계산서 확인 요청을 자동 분류합니다.' },
   { title: '첨부 생성', description: '업체별 엑셀/PDF 마감장과 요청 자료 생성 상태를 확인합니다.' },
   { title: '문구 미리보기', description: '메일 또는 카톡 문구를 발송 전 한 번에 검토합니다.' },
-  { title: '발송 완료 처리', description: '발송 기록, 다음 연락 예정일, 상태 변경을 저장합니다.' },
+  { title: '메일 발송', description: '선택한 거래처에 실제 메일을 보내고 성공·실패 기록을 저장합니다.' },
 ];
 
 function formatCurrency(value) {
@@ -133,6 +31,31 @@ function isInDateRange(value, startDate, endDate) {
   if (startDate && value < startDate) return false;
   if (endDate && value > endDate) return false;
   return true;
+}
+
+function matchesTargetFilters(target, params) {
+  const targetDate = getTargetDate(target, params.month);
+  const matchesDate = isInDateRange(targetDate, params.startDate, params.endDate);
+  const matchesManager = params.manager === '전체' || target.manager === params.manager;
+  const matchesDeadline = params.deadline === '전체' || target.deadline === params.deadline;
+  return matchesDate && matchesManager && matchesDeadline;
+}
+
+function getCurrentMonthRange() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const format = (date) => {
+    const dateMonth = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${date.getFullYear()}-${dateMonth}-${day}`;
+  };
+
+  return {
+    month: `${year}-${String(month + 1).padStart(2, '0')}`,
+    startDate: format(new Date(year, month, 1)),
+    endDate: format(new Date(year, month + 1, 0)),
+  };
 }
 
 function getUserEmail(user) {
@@ -361,6 +284,95 @@ function createBusinessCardFile(user) {
   };
 }
 
+async function createBusinessCardImageFile(user) {
+  const response = await fetch(`${import.meta.env.BASE_URL}email-signature-card.png`);
+  if (!response.ok) {
+    throw new Error('메일 명함 이미지를 불러오지 못했습니다.');
+  }
+  const backgroundBlob = await response.blob();
+  const backgroundImage = await createImageBitmap(backgroundBlob);
+  const card = getBusinessCard(user);
+  const canvas = document.createElement('canvas');
+  canvas.width = 1200;
+  canvas.height = 512;
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('메일 명함 이미지를 만들 수 없습니다.');
+  }
+
+  context.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+  backgroundImage.close();
+
+  context.fillStyle = 'rgba(255,255,255,0.9)';
+  context.beginPath();
+  context.roundRect(335, 75, 610, 360, 22);
+  context.fill();
+
+  context.fillStyle = '#0f766e';
+  context.font = '700 24px "Noto Sans KR", Arial, sans-serif';
+  context.fillText(card.companyKr || card.company || 'Aster Works', 390, 135);
+
+  context.fillStyle = '#0f172a';
+  context.font = '700 52px "Noto Sans KR", Arial, sans-serif';
+  context.fillText(card.name || '담당자', 390, 210);
+
+  context.fillStyle = '#475569';
+  context.font = '600 27px "Noto Sans KR", Arial, sans-serif';
+  context.fillText([card.department, card.title].filter(Boolean).join(' · ') || '총무팀', 390, 260);
+
+  context.strokeStyle = '#99f6e4';
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(390, 292);
+  context.lineTo(885, 292);
+  context.stroke();
+
+  context.fillStyle = '#334155';
+  context.font = '500 24px "Noto Sans KR", Arial, sans-serif';
+  if (card.email) context.fillText(`E. ${card.email}`, 390, 340);
+  if (card.phone) context.fillText(`T. ${card.phone}`, 390, 382);
+
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((result) => {
+      if (result) resolve(result);
+      else reject(new Error('메일 명함 이미지 변환에 실패했습니다.'));
+    }, 'image/png');
+  });
+
+  return {
+    type: 'IMAGE',
+    fileName: 'email-signature-card.png',
+    blob,
+    size: blob.size,
+    mimeType: 'image/png',
+    cid: 'asterworks-business-card',
+    contentDisposition: 'inline',
+  };
+}
+
+function escapeMailHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function createMailHtml(target, templates, currentUser) {
+  const bodyHtml = escapeMailHtml(getTargetMailBody(target, templates)).replace(/\n/g, '<br>');
+
+  return `
+    <div style="font-family:Arial,'Noto Sans KR',sans-serif;color:#334155;font-size:14px;line-height:1.75">
+      <div>${bodyHtml}</div>
+      <div style="margin-top:28px;width:600px;max-width:100%">
+        <img src="cid:asterworks-business-card" alt="Aster Works 명함" width="600" style="display:block;width:100%;height:auto;border:0;border-radius:12px">
+      </div>
+    </div>
+  `;
+}
+
 function getContactLabel(target) {
   const department = target.contactDepartment || '정산팀';
   const name = target.contactName || '담당자';
@@ -411,10 +423,15 @@ function getDefaultTemplateBySendType(sendType) {
   return templates[sendType] ?? templates['마감장 최초 발송'];
 }
 
-function makeDefaultMailTemplates() {
+function makeDefaultMailTemplates(user = {}) {
+  const card = getBusinessCard(user);
+  const department = card.department || '담당 부서';
+  const name = card.name || '담당자';
+  const title = card.title ? ` ${card.title}` : '';
+
   return {
     subjectSuffix: '의 건',
-    greeting: '안녕하세요. 총무팀 황주은 사원입니다.',
+    greeting: `안녕하세요. ${department} ${name}${title}입니다.`,
     closing: '감사합니다.',
     commonByType: {
       '마감장 최초 발송': getDefaultTemplateBySendType('마감장 최초 발송'),
@@ -449,7 +466,7 @@ function getTargetMailBody(target, templates = makeDefaultMailTemplates()) {
   return [
     getContactLabel(target),
     '',
-    templates.greeting || '안녕하세요. 총무팀 황주은 사원입니다.',
+    templates.greeting || '안녕하세요. 담당자입니다.',
     '',
     commonBody,
     '',
@@ -641,7 +658,7 @@ function makePreflightChecks({ mailSettings, mailTemplates, selectedTargets, ema
     {
       label: '실제 발송 잠금',
       ok: true,
-      detail: '테스트 수신 이메일로 실제 발송할 수 있습니다. 거래처 전체 발송은 아직 잠겨 있습니다.',
+      detail: '최종 단계에서 선택한 거래처 이메일로 실제 발송할 수 있습니다.',
     },
   ];
 }
@@ -720,6 +737,37 @@ function SendResultModal({ result, onClose }) {
             <span className="font-semibold text-gray-900 dark:text-gray-100">{new Date(result.createdAt).toLocaleString('ko-KR', { hour12: false })}</span>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MailSendProgressModal({ state, onClose }) {
+  if (!state) return null;
+  const isSending = state.status === 'sending';
+  const isSuccess = state.status === 'completed' && state.failureCount === 0;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-gray-950/50 p-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-md rounded-xl bg-white p-6 text-center shadow-2xl dark:bg-gray-800">
+        {isSending ? (
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-teal-100 border-t-teal-600" />
+        ) : (
+          <div className={`mx-auto flex h-12 w-12 items-center justify-center rounded-full text-2xl font-bold ${isSuccess ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+            {isSuccess ? '✓' : '!'}
+          </div>
+        )}
+        <h2 className="mt-4 text-lg font-bold text-gray-900 dark:text-gray-100">
+          {isSending ? '메일 발송 중' : isSuccess ? '메일 발송 완료' : '메일 발송 결과'}
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">{state.message}</p>
+        {!isSending && (
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-emerald-50 p-3 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">성공 {state.successCount}건</div>
+            <div className="rounded-lg bg-rose-50 p-3 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">실패 {state.failureCount}건</div>
+          </div>
+        )}
+        {!isSending && <button className="btn btn-primary mt-5 w-full" type="button" onClick={onClose}>확인</button>}
       </div>
     </div>
   );
@@ -968,35 +1016,68 @@ function mapClosingCompanyToTarget(row) {
   };
 }
 
-async function readClosingTargetsFromDatabase() {
+async function readClosingTargetsFromDatabase(options) {
   if (!window.api?.getClosingCompanies) return [];
-  const result = await window.api.getClosingCompanies();
-  return result?.ok && Array.isArray(result.rows) ? result.rows.map(mapClosingCompanyToTarget) : [];
+  const result = await window.api.getClosingCompanies({
+    ...options,
+    excludeCompleted: true,
+    emailOnly: true,
+  });
+  return result?.ok && Array.isArray(result.rows)
+    ? result.rows.map(mapClosingCompanyToTarget).filter((target) => target.channel === 'EMAIL')
+    : [];
+}
+
+async function readClosingSendRecordsFromDatabase(month, currentUser) {
+  if (!window.api?.getSendPackages) return [];
+  const result = await window.api.getSendPackages({
+    createdBy: currentUser.id,
+    isAdmin: currentUser.id === '황주은' && currentUser.role === 'ADMIN',
+  });
+  const packages = result?.ok && Array.isArray(result.packages) ? result.packages : [];
+  const successfulStatuses = new Set(['SENT', 'SUCCESS', 'COMPLETED', 'REPLIED', 'CLOSED']);
+
+  return packages
+    .filter((sendPackage) => !month || sendPackage.closingMonth === month)
+    .flatMap((sendPackage) => sendPackage.items.map((item) => ({
+      id: `db-${item.itemId}`,
+      status: successfulStatuses.has(item.status) ? 'SUCCESS' : 'ERROR',
+      type: 'CLOSING',
+      to: item.channel === 'EMAIL' ? item.recipientEmail : item.recipientPhone,
+      subject: item.subject,
+      attachmentCount: [item.attachmentPdfPath, item.attachmentXlsxPath].filter(Boolean).length,
+      message: item.memo || `${item.customerName} 발송 기록`,
+      createdAt: item.createdAt,
+    })))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
 export default function ClosingSendQueuePage() {
   const currentUser = getCurrentUser();
   const currentUserEmail = getUserEmail(currentUser);
   const [currentStep, setCurrentStep] = useState(0);
-  const [closingTargets, setClosingTargets] = useState(defaultClosingTargets);
-  const [selectedIds, setSelectedIds] = useState(() => defaultClosingTargets.filter((item) => item.reason !== '마감 완료').map((item) => item.id));
-  const [params, setParams] = useState({
-    month: '2026-06',
-    startDate: '2026-06-01',
-    endDate: '2026-06-30',
+  const [closingTargets, setClosingTargets] = useState([]);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [params, setParams] = useState(() => ({
+    ...getCurrentMonthRange(),
+    manager: currentUser.name || currentUser.id || '전체',
+    deadline: '전체',
     page: 1,
     pageSize: 10,
-  });
+  }));
+  const [isLoading, setIsLoading] = useState(false);
   const [isGenerated, setIsGenerated] = useState(false);
   const [isGeneratingFiles, setIsGeneratingFiles] = useState(false);
   const [isSendingTestMail, setIsSendingTestMail] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [mailSendProgress, setMailSendProgress] = useState(null);
   const [generatedFileGroups, setGeneratedFileGroups] = useState([]);
   const [sendRecords, setSendRecords] = useState([]);
   const [sendResultModal, setSendResultModal] = useState(null);
   const [attachmentPreview, setAttachmentPreview] = useState(null);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [editingTargetId, setEditingTargetId] = useState(null);
-  const [mailTemplates, setMailTemplates] = useState(() => makeDefaultMailTemplates());
+  const [mailTemplates, setMailTemplates] = useState(() => makeDefaultMailTemplates(currentUser));
   const [mailDraftStatus, setMailDraftStatus] = useState('첨부 파일을 생성하면 메일 초안 파일을 만들 수 있습니다.');
   const [statusText, setStatusText] = useState('오늘 연락할 업체를 모아서 한 번에 검토합니다.');
   const [mailSettings, setMailSettings] = useState({
@@ -1011,25 +1092,13 @@ export default function ClosingSendQueuePage() {
   useEffect(() => {
     let isMounted = true;
 
-    readClosingTargetsFromDatabase()
-      .then((databaseTargets) => {
-        if (!isMounted || databaseTargets.length === 0) return;
-        setClosingTargets(databaseTargets);
-        setSelectedIds(databaseTargets.filter((item) => item.reason !== '마감 완료').map((item) => item.id));
-        setGeneratedFileGroups([]);
-        setIsGenerated(false);
-      })
-      .catch(() => {
-        // Keep fallback targets in browser-only development.
-      });
-
     if (window.api?.getAppSettings) {
       window.api.getAppSettings()
         .then((result) => {
           const settings = result?.settings ?? result;
           if (!isMounted || !settings) return;
           setMailSettings({
-            senderName: settings.gmailSenderName || getDefaultSenderName(currentUser),
+            senderName: getDefaultSenderName(currentUser),
             gmailAddress: settings.gmailAddress || currentUserEmail,
             appPassword: settings.gmailAppPassword || '',
             testEmail: settings.gmailTestEmail || '',
@@ -1046,9 +1115,16 @@ export default function ClosingSendQueuePage() {
     };
   }, [currentUser.name, currentUserEmail]);
 
+  const managerOptions = useMemo(
+    () => Array.from(new Set([
+      currentUser.name || currentUser.id,
+      ...closingTargets.map((target) => target.manager),
+    ].filter(Boolean))),
+    [closingTargets, currentUser.id, currentUser.name],
+  );
   const visibleClosingTargets = useMemo(
-    () => closingTargets.filter((target) => isInDateRange(getTargetDate(target, params.month), params.startDate, params.endDate)),
-    [closingTargets, params.endDate, params.month, params.startDate]
+    () => closingTargets.filter((target) => matchesTargetFilters(target, params)),
+    [closingTargets, params]
   );
   const selectedTargets = useMemo(
     () => visibleClosingTargets.filter((target) => selectedIds.includes(target.id)),
@@ -1072,7 +1148,12 @@ export default function ClosingSendQueuePage() {
     return acc;
   }, {}), [selectedTargets]);
   const emailTargets = useMemo(
-    () => selectedTargets.filter((target) => target.channel === 'EMAIL'),
+    () => selectedTargets
+      .filter((target) => target.channel === 'EMAIL')
+      .map((target) => ({
+        ...target,
+        email: temporaryRecipientEmail,
+      })),
     [selectedTargets]
   );
   const preflightChecks = useMemo(
@@ -1084,6 +1165,16 @@ export default function ClosingSendQueuePage() {
     [selectedTargets, editingTargetId]
   );
   const isPreflightReady = preflightChecks.every((check) => check.ok);
+  const isActualSendReady = preflightChecks
+    .filter((check) => check.label !== '테스트 수신자')
+    .every((check) => check.ok)
+    && emailTargets.every((target) => isEmail(target.email));
+  const visibleTargetIds = useMemo(
+    () => visibleClosingTargets.map((target) => target.id),
+    [visibleClosingTargets],
+  );
+  const selectedVisibleCount = visibleTargetIds.filter((id) => selectedIds.includes(id)).length;
+  const isAllVisibleSelected = visibleTargetIds.length > 0 && selectedVisibleCount === visibleTargetIds.length;
 
   const updateDateRange = (key, value) => {
     setParams((current) => ({
@@ -1095,6 +1186,45 @@ export default function ClosingSendQueuePage() {
     setGeneratedFileGroups([]);
     setIsGenerated(false);
     setMailDraftStatus('조회 기간이 바뀌었습니다. 첨부 파일을 다시 생성하세요.');
+  };
+
+  const updateQueryFilter = (key, value) => {
+    setParams((current) => ({
+      ...current,
+      [key]: value,
+      page: 1,
+    }));
+    setGeneratedFileGroups([]);
+    setIsGenerated(false);
+    setMailDraftStatus('조회 조건이 바뀌었습니다. 첨부 파일을 다시 생성하세요.');
+  };
+
+  const handleSearch = async () => {
+    if (isLoading) return;
+
+    setIsLoading(true);
+    setStatusText('SQLite에서 발송 대상 업체를 조회하는 중입니다.');
+    try {
+      const [databaseTargets, databaseSendRecords] = await Promise.all([
+        readClosingTargetsFromDatabase(params),
+        readClosingSendRecordsFromDatabase(params.month, currentUser),
+      ]);
+      const searchedTargets = databaseTargets.filter((target) => matchesTargetFilters(target, params));
+      setClosingTargets(databaseTargets);
+      setSelectedIds(searchedTargets.filter((item) => item.reason !== '마감 완료').map((item) => item.id));
+      setSendRecords(databaseSendRecords);
+      setParams((current) => ({ ...current, page: 1 }));
+      setCurrentStep(0);
+      setGeneratedFileGroups([]);
+      setIsGenerated(false);
+      setStatusText(`조회 조건에 맞는 발송 대상 ${searchedTargets.length.toLocaleString('ko-KR')}개 업체를 불러왔습니다.`);
+    } catch (error) {
+      setClosingTargets([]);
+      setSelectedIds([]);
+      setStatusText(error?.message || 'SQLite 발송 대상 조회에 실패했습니다.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleMailTemplatesChange = (nextTemplates) => {
@@ -1109,6 +1239,24 @@ export default function ClosingSendQueuePage() {
     setSelectedIds((current) => (
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
     ));
+    setGeneratedFileGroups([]);
+    setIsGenerated(false);
+    setMailDraftStatus('발송 대상이 바뀌었습니다. 첨부 파일을 다시 생성하세요.');
+  };
+
+  const toggleAllVisibleTargets = () => {
+    setSelectedIds((current) => {
+      if (isAllVisibleSelected) {
+        return current.filter((id) => !visibleTargetIds.includes(id));
+      }
+      return Array.from(new Set([...current, ...visibleTargetIds]));
+    });
+    setGeneratedFileGroups([]);
+    setIsGenerated(false);
+    setMailDraftStatus('발송 대상이 바뀌었습니다. 첨부 파일을 다시 생성하세요.');
+    setStatusText(isAllVisibleSelected
+      ? '현재 조회 결과의 선택을 모두 해제했습니다.'
+      : `현재 조회 결과 ${visibleTargetIds.length.toLocaleString('ko-KR')}개 업체를 모두 선택했습니다.`);
   };
 
   const selectByPredicate = (predicate, message) => {
@@ -1250,28 +1398,32 @@ export default function ClosingSendQueuePage() {
     try {
       const attachments = [];
       const businessCardFile = createBusinessCardFile(currentUser);
+      const businessCardImageFile = await createBusinessCardImageFile(currentUser);
       const targetIds = new Set(emailTargets.map((target) => target.id));
       const files = generatedFileGroups
         .filter((group) => targetIds.has(group.targetId))
         .flatMap((group) => group.files)
-        .concat(businessCardFile);
+        .concat(businessCardFile, businessCardImageFile);
 
       for (const file of files) {
         attachments.push({
           fileName: file.fileName,
           mimeType: file.mimeType,
           base64: await blobToBase64(file.blob),
+          cid: file.cid,
+          contentDisposition: file.contentDisposition,
         });
       }
 
       const result = await window.api.sendGmailTest({
-        senderName: mailSettings.senderName,
+        senderName: getDefaultSenderName(currentUser),
         gmailAddress: mailSettings.gmailAddress,
         appPassword: mailSettings.appPassword,
         testEmail: mailSettings.testEmail,
         replyToEmail: mailSettings.replyToEmail,
         subject: getMailSubject(emailTargets[0], mailTemplates),
         text: createMailBody({ emailTargets, mailTemplates, currentUser }),
+        html: createMailHtml(emailTargets[0], mailTemplates, currentUser),
         attachments,
       });
 
@@ -1327,50 +1479,226 @@ export default function ClosingSendQueuePage() {
     }
   };
 
-  const handleComplete = () => {
-    addActivityLog('INFO', '마감 발송 큐 완료 처리', `${selectedTargets.length}개 업체`);
-    addNotification({
-      title: '발송 완료 처리',
-      message: `${selectedTargets.length}개 업체 발송 기록을 저장했습니다.`,
-      level: 'SUCCESS',
-      target: 'closing-send-queue',
-      href: '/closing-workspace/send-queue',
+  const handleComplete = async () => {
+    if (emailTargets.length === 0 || isCompleting) return;
+    if (!window.api?.sendClosingEmails || !window.api?.recordClosingSendHistory) {
+      setStatusText('메일 발송 기능이 갱신되었습니다. Electron 앱을 완전히 종료한 뒤 다시 실행해 주세요.');
+      addNotification({
+        title: '앱 재시작 필요',
+        message: '새 메일 발송 기능을 사용하려면 Electron 앱을 완전히 종료한 뒤 다시 실행해 주세요.',
+        level: 'WARNING',
+        target: 'closing-send-queue',
+        href: '/closing-workspace/send-queue',
+      });
+      return;
+    }
+    if (!isActualSendReady) {
+      setPreflightChecked(true);
+      setStatusText('Gmail 주소, 앱 비밀번호, 거래처 이메일, 첨부 생성 상태를 확인하세요.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `${emailTargets.length}개 거래처에 실제 메일을 발송합니다.\n발송 후에는 취소할 수 없습니다. 계속할까요?`,
+    );
+    if (!confirmed) return;
+
+    setIsCompleting(true);
+    setMailSendProgress({
+      status: 'sending',
+      message: `${emailTargets.length}개 거래처에 메일을 발송하고 있습니다. 창을 닫지 마세요.`,
+      successCount: 0,
+      failureCount: 0,
     });
-    setStatusText(`${selectedTargets.length}개 업체 발송 기록과 다음 연락 예정일을 저장했습니다.`);
+    setStatusText(`${emailTargets.length}개 거래처에 실제 메일을 발송하는 중입니다.`);
+
+    try {
+      const packageId = Date.now();
+      const createdAt = new Date().toISOString();
+      const fileGroupByTarget = new Map(generatedFileGroups.map((group) => [group.targetId, group]));
+      const businessCardFile = createBusinessCardFile(currentUser);
+      const businessCardImageFile = await createBusinessCardImageFile(currentUser);
+      const messages = [];
+
+      for (const target of emailTargets) {
+        const fileGroup = fileGroupByTarget.get(target.id);
+        const files = [...(fileGroup?.files ?? []), businessCardFile, businessCardImageFile];
+        const attachments = [];
+        for (const file of files) {
+          attachments.push({
+            fileName: file.fileName,
+            mimeType: file.mimeType,
+            base64: await blobToBase64(file.blob),
+            cid: file.cid,
+            contentDisposition: file.contentDisposition,
+          });
+        }
+        messages.push({
+          targetId: target.id,
+          to: target.email,
+          subject: getMailSubject(target, mailTemplates),
+          text: `${getTargetMailBody(target, mailTemplates)}\n${makeSignatureText(currentUser)}`,
+          html: createMailHtml(target, mailTemplates, currentUser),
+          attachments,
+        });
+      }
+
+      const sendResult = await window.api.sendClosingEmails({
+        senderName: getDefaultSenderName(currentUser),
+        gmailAddress: mailSettings.gmailAddress,
+        appPassword: mailSettings.appPassword,
+        replyToEmail: mailSettings.replyToEmail,
+        messages,
+      });
+      const resultByTargetId = new Map((sendResult?.results ?? []).map((result) => [result.targetId, result]));
+      const historyRecords = emailTargets.map((target) => {
+        const fileGroup = fileGroupByTarget.get(target.id);
+        const pdfFile = fileGroup?.files.find((file) => file.fileName.toLowerCase().endsWith('.pdf'));
+        const xlsxFile = fileGroup?.files.find((file) => file.fileName.toLowerCase().endsWith('.xlsx'));
+        const result = resultByTargetId.get(target.id);
+        return {
+          customerCode: target.id,
+          customerName: target.company,
+          recipientEmail: target.email,
+          recipientPhone: target.phone,
+          channel: target.channel,
+          subject: getMailSubject(target, mailTemplates),
+          body: getTargetMailBody(target, mailTemplates),
+          attachmentPdfPath: pdfFile?.filePath || '',
+          attachmentXlsxPath: xlsxFile?.filePath || '',
+          status: result?.ok ? 'SENT' : 'FAILED',
+          memo: result?.ok
+            ? `${getSendType(target)} 메일 발송 성공`
+            : result?.message || '메일 발송 실패',
+        };
+      });
+
+      const historyResult = await window.api.recordClosingSendHistory({
+        packageId,
+        packageName: `${params.month} 마감 발송`,
+        closingMonth: params.month,
+        outputFolderPath: generatedFileGroups[0]?.savedFolderPath || '',
+        createdBy: currentUser.id,
+        records: historyRecords,
+      });
+      if (!historyResult?.ok) {
+        throw new Error(historyResult?.message || '메일은 발송됐지만 SQLite 기록 저장에 실패했습니다.');
+      }
+
+      const nextRecords = historyRecords.map((record, index) => ({
+        id: `${packageId}-${index}`,
+        status: record.status === 'SENT' ? 'SUCCESS' : 'ERROR',
+        type: 'CLOSING',
+        to: record.recipientEmail,
+        subject: record.subject,
+        attachmentCount: [record.attachmentPdfPath, record.attachmentXlsxPath].filter(Boolean).length,
+        message: record.memo,
+        createdAt,
+      }));
+      setSendRecords((current) => [...nextRecords, ...current]);
+
+      const successCount = nextRecords.filter((record) => record.status === 'SUCCESS').length;
+      const failureCount = nextRecords.length - successCount;
+      addActivityLog('INFO', '마감 메일 발송', `${successCount}건 성공 / ${failureCount}건 실패`);
+      addNotification({
+        title: failureCount > 0 ? '메일 발송 일부 실패' : '메일 발송 완료',
+        message: `${successCount}건 성공, ${failureCount}건 실패했습니다.`,
+        level: failureCount > 0 ? 'WARNING' : 'SUCCESS',
+        target: 'closing-send-queue',
+        href: '/closing-workspace/send-queue',
+      });
+      setStatusText(`메일 발송 결과: ${successCount}건 성공, ${failureCount}건 실패. 상세 오류는 발송 기록에서 확인하세요.`);
+      setMailSendProgress({
+        status: 'completed',
+        message: failureCount > 0 ? '일부 메일 발송에 실패했습니다. 발송 기록에서 오류를 확인하세요.' : '선택한 거래처에 메일 발송을 완료했습니다.',
+        successCount,
+        failureCount,
+      });
+    } catch (error) {
+      const rawMessage = error?.message || '메일 발송에 실패했습니다.';
+      const message = rawMessage.includes('No handler registered')
+        ? '새 메일 발송 기능을 사용하려면 Electron 앱을 완전히 종료한 뒤 다시 실행해 주세요.'
+        : rawMessage;
+      const failedAt = new Date().toISOString();
+      const failedRecords = emailTargets.map((target, index) => ({
+        id: `failed-${Date.now()}-${index}`,
+        status: 'ERROR',
+        type: 'CLOSING',
+        to: target.email || '-',
+        subject: getMailSubject(target, mailTemplates),
+        attachmentCount: generatedFileGroups.find((group) => group.targetId === target.id)?.files.length ?? 0,
+        message,
+        createdAt: failedAt,
+      }));
+      setSendRecords((current) => [...failedRecords, ...current]);
+      setStatusText(message);
+      setMailSendProgress({
+        status: 'completed',
+        message,
+        successCount: 0,
+        failureCount: emailTargets.length,
+      });
+      addNotification({
+        title: '메일 발송 실패',
+        message,
+        level: 'ERROR',
+        target: 'closing-send-queue',
+        href: '/closing-workspace/send-queue',
+      });
+    } finally {
+      setIsCompleting(false);
+    }
   };
 
   return (
     <PageShell title="마감 발송 큐" description="여러 업체를 묶어서 마감장, 금액 확인, 세금계산서 확인 요청을 단계별로 검토하고 발송 처리합니다.">
       <div className="flex h-[calc(100vh-14rem)] flex-col">
 
+
       <section className="mb-4 shrink-0 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="font-bold text-gray-900 dark:text-gray-100">발송 작업</h2>
-              <StatusPill className={isPreflightReady ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'}>
-                {isPreflightReady ? '전송 전 준비 완료' : '점검 필요'}
-              </StatusPill>
-            </div>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Gmail 테스트 조건은 마이페이지에 저장된 설정을 사용합니다. 이 화면에서는 문구 수정과 전송 전 점검을 바로 실행합니다.
-            </p>
-          </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_140px_120px_auto] xl:items-end">
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">시작일</span>
+            <input
+              className="form-input w-full"
+              type="date"
+              value={params.startDate}
+              onChange={(event) => updateDateRange('startDate', event.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">종료일</span>
+            <input
+              className="form-input w-full"
+              type="date"
+              value={params.endDate}
+              onChange={(event) => updateDateRange('endDate', event.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">담당자</span>
+            <select className="form-select w-full" value={params.manager} onChange={(event) => updateQueryFilter('manager', event.target.value)}>
+              <option>전체</option>
+              {managerOptions.map((manager) => <option key={manager}>{manager}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">마감일</span>
+            <select className="form-select w-full" value={params.deadline} onChange={(event) => updateQueryFilter('deadline', event.target.value)}>
+              <option>전체</option>
+              {closingDays.map((day) => <option key={day}>{day}</option>)}
+            </select>
+          </label>
           <div className="flex flex-wrap gap-2">
-            <button className="btn btn-secondary" type="button" onClick={() => setIsTemplateModalOpen(true)}>
-              메일 문구 수정
+            <button className="btn btn-primary whitespace-nowrap" type="button" onClick={handleSearch} disabled={isLoading}>
+              {isLoading ? '조회 중...' : '조회'}
             </button>
-            <button className="btn btn-primary" type="button" onClick={handlePreflightCheck}>
-              전송 전 점검
+            <button className="btn btn-secondary whitespace-nowrap" type="button" onClick={() => setIsTemplateModalOpen(true)}>
+              메일 문구 수정
             </button>
           </div>
         </div>
-
-        {preflightChecked && (
-          <div className="mt-3">
-            <PreflightChecklist checks={preflightChecks} />
-          </div>
-        )}
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{statusText}</p>
       </section>
 
       <section className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
@@ -1419,7 +1747,19 @@ export default function ClosingSendQueuePage() {
             <table className="min-w-full text-sm">
               <thead className="sticky top-0 z-10 bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900 dark:text-gray-400">
                 <tr>
-                  <th className="px-4 py-3">선택</th>
+                  <th className="px-4 py-3">
+                    <label className="inline-flex items-center gap-2 whitespace-nowrap">
+                      <input
+                        aria-label="조회 결과 전체 선택 또는 해제"
+                        className="form-checkbox"
+                        type="checkbox"
+                        checked={isAllVisibleSelected}
+                        disabled={visibleClosingTargets.length === 0}
+                        onChange={toggleAllVisibleTargets}
+                      />
+                      <span>전체 선택</span>
+                    </label>
+                  </th>
                   <th className="px-4 py-3">업체</th>
                   <th className="px-4 py-3">담당자</th>
                   <th className="px-4 py-3">마감일</th>
@@ -1435,7 +1775,13 @@ export default function ClosingSendQueuePage() {
                   return (
                     <tr key={target.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
                       <td className="px-4 py-3">
-                        <input className="form-checkbox" type="checkbox" checked={selectedIds.includes(target.id)} onChange={() => toggleTarget(target.id)} />
+                        <input
+                          aria-label={`${target.company} 발송 대상 선택`}
+                          className="form-checkbox"
+                          type="checkbox"
+                          checked={selectedIds.includes(target.id)}
+                          onChange={() => toggleTarget(target.id)}
+                        />
                       </td>
                       <td className="px-4 py-3">
                         <p className="font-semibold text-gray-900 dark:text-gray-100">{target.company}</p>
@@ -1557,25 +1903,6 @@ export default function ClosingSendQueuePage() {
                     {mailDraftStatus}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button className="btn btn-secondary" type="button" onClick={handlePreflightCheck}>
-                    다시 점검
-                  </button>
-                  <button className="btn btn-primary" type="button" onClick={handleCreateMailDraft} disabled={!isGenerated || emailTargets.length === 0}>
-                    첨부 포함 초안 만들기
-                  </button>
-                  <button
-                    className="btn bg-rose-600 text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    type="button"
-                    onClick={handleSendRealTestMail}
-                    disabled={!isPreflightReady || isSendingTestMail}
-                  >
-                    {isSendingTestMail ? '실제 발송 중...' : '테스트 메일 실제 발송'}
-                  </button>
-                  <button className="btn btn-secondary opacity-60" type="button" disabled>
-                    거래처 전체 발송 잠금
-                  </button>
-                </div>
               </div>
             </div>
 
@@ -1608,19 +1935,19 @@ export default function ClosingSendQueuePage() {
         {currentStep === 4 && (
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4 dark:border-emerald-500/20 dark:bg-emerald-500/10">
-              <h3 className="font-bold text-emerald-800 dark:text-emerald-200">발송 완료 전 최종 확인</h3>
+              <h3 className="font-bold text-emerald-800 dark:text-emerald-200">메일 발송 전 최종 확인</h3>
               <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">
-                {selectedTargets.length}개 업체의 발송 기록을 저장하고, 각 업체의 다음 연락 예정일을 자동으로 생성합니다.
+                이메일 채널 {emailTargets.length}개 업체에 실제 Gmail을 발송하고 결과를 업체별로 저장합니다.
               </p>
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
               <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700/60">
-                <p className="text-xs font-semibold text-gray-400">발송 대상</p>
+                <p className="text-xs font-semibold text-gray-400">선택 업체</p>
                 <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">{selectedTargets.length}개</p>
               </div>
               <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700/60">
-                <p className="text-xs font-semibold text-gray-400">다음 연락</p>
-                <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">익일 10:00</p>
+                <p className="text-xs font-semibold text-gray-400">실제 메일 대상</p>
+                <p className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">{emailTargets.length}개</p>
               </div>
               <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700/60">
                 <p className="text-xs font-semibold text-gray-400">기록 방식</p>
@@ -1641,6 +1968,7 @@ export default function ClosingSendQueuePage() {
                       <th className="px-3 py-2">제목</th>
                       <th className="px-3 py-2">첨부</th>
                       <th className="px-3 py-2">시각</th>
+                      <th className="px-3 py-2">처리 결과</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60">
@@ -1655,11 +1983,12 @@ export default function ClosingSendQueuePage() {
                         <td className="px-3 py-2 text-gray-500 dark:text-gray-400">{record.subject}</td>
                         <td className="px-3 py-2 text-gray-500 dark:text-gray-400">{record.attachmentCount}개</td>
                         <td className="px-3 py-2 text-gray-500 dark:text-gray-400">{new Date(record.createdAt).toLocaleString('ko-KR', { hour12: false })}</td>
+                        <td className={record.status === 'SUCCESS' ? 'px-3 py-2 text-gray-500 dark:text-gray-400' : 'px-3 py-2 font-semibold text-rose-600 dark:text-rose-300'}>{record.message}</td>
                       </tr>
                     ))}
                     {sendRecords.length === 0 && (
                       <tr>
-                        <td className="px-3 py-5 text-center text-gray-500 dark:text-gray-400" colSpan={5}>아직 실제 발송 기록이 없습니다.</td>
+                        <td className="px-3 py-5 text-center text-gray-500 dark:text-gray-400" colSpan={6}>아직 실제 발송 기록이 없습니다.</td>
                       </tr>
                     )}
                   </tbody>
@@ -1671,7 +2000,7 @@ export default function ClosingSendQueuePage() {
                 Gmail 전송 전 점검: {isPreflightReady ? '완료' : '보완 필요'}
               </p>
               <p className={`mt-1 text-sm ${isPreflightReady ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                테스트 수신 이메일로 실제 발송할 수 있습니다. 거래처 전체 발송은 아직 잠겨 있으니, 테스트 결과를 확인한 뒤 열면 됩니다.
+                발송 버튼을 누르면 선택된 이메일 채널 거래처에 실제 메일이 전송됩니다. 발송 전 수신자와 첨부를 확인하세요.
               </p>
             </div>
           </div>
@@ -1683,7 +2012,9 @@ export default function ClosingSendQueuePage() {
           </button>
           <div className="flex gap-2">
             {currentStep === steps.length - 1 ? (
-              <button className="btn btn-primary" type="button" onClick={handleComplete} disabled={selectedTargets.length === 0}>발송 완료 처리</button>
+              <button className="btn btn-primary" type="button" onClick={handleComplete} disabled={selectedTargets.length === 0 || isCompleting}>
+                {isCompleting ? '메일 발송 중...' : '메일 발송하기'}
+              </button>
             ) : (
               <button className="btn btn-primary" type="button" onClick={handleNext} disabled={selectedTargets.length === 0}>다음 단계</button>
             )}
@@ -1692,6 +2023,7 @@ export default function ClosingSendQueuePage() {
       </section>
       </div>
       <SendResultModal result={sendResultModal} onClose={() => setSendResultModal(null)} />
+      <MailSendProgressModal state={mailSendProgress} onClose={() => setMailSendProgress(null)} />
       <AttachmentPreviewModal preview={attachmentPreview} onClose={() => setAttachmentPreview(null)} onDownload={handleDownloadFile} />
       {isTemplateModalOpen && (
         <MailTemplateModal

@@ -114,7 +114,6 @@ export const menuGroups = [
         label: "보안",
         path: "/settings/security",
         component: "SecurityPage",
-        allowedRoles: ["ADMIN"],
       },
       {
         label: "백업 및 복구",
@@ -142,7 +141,6 @@ export const menuGroups = [
         label: "활동 로그",
         path: "/results/activity-logs",
         component: "ActivityLogsPage",
-        allowedRoles: ["ADMIN"],
       },
       {
         label: "작업 이력",

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
+import { getCurrentUser } from '../utils/authSession';
 
 const statusActions = [
   { status: 'SENT', label: '발송 완료' },
@@ -59,6 +60,7 @@ function isInDateRange(value, startDate, endDate) {
 }
 
 export default function SendHistoryPage() {
+  const currentUser = getCurrentUser();
   const [items, setItems] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [params, setParams] = useState({
@@ -112,7 +114,10 @@ export default function SendHistoryPage() {
     }
 
     try {
-      const result = await window.api.getSendPackages();
+      const result = await window.api.getSendPackages({
+        createdBy: currentUser.id,
+        isAdmin: currentUser.id === '황주은' && currentUser.role === 'ADMIN',
+      });
       setNextItems(result.packages ?? []);
       setLoadState(result.packages?.length ? 'SQLite 연결됨' : 'SQLite 연결됨 / 이력 없음');
     } catch (error) {
@@ -142,6 +147,8 @@ export default function SendHistoryPage() {
         itemId: selectedItem.itemId,
         status,
         memo,
+        createdBy: currentUser.id,
+        isAdmin: currentUser.id === '황주은' && currentUser.role === 'ADMIN',
       });
       setNextItems(result.packages ?? []);
       setUpdateState(`${selectedItem.customerName} 상태를 ${status}(으)로 변경했습니다.`);

@@ -1,8 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
-
-const storageKey = 'excel-workspace:customerContacts';
 
 
 const fields = [
@@ -51,52 +49,6 @@ const fields = [
   },
 ];
 
-//이거 sql테이블에서 가져와야됨..
-const fallbackContacts = [
-  {
-    contactId: 'CONTACT-001',
-    customerCode: 'CUST-001',
-    customerName: '한빛유통',
-    businessNumber: '120-81-00011',
-    departmentName: '정산팀',
-    recipientName: '오민지',
-    recipientTitle: '대리',
-    recipientEmail: 'settle@hanbit.example',
-    recipientPhone: '010-4210-1842',
-    preferredChannel: 'EMAIL',
-    status: 'ACTIVE',
-    memo: '10일 마감. 메일 회신이 빠른 거래처.',
-  },
-  {
-    contactId: 'CONTACT-002',
-    customerCode: 'CUST-002',
-    customerName: '모블상사',
-    businessNumber: '214-86-55021',
-    departmentName: '관리팀',
-    recipientName: '강지훈',
-    recipientTitle: '대리',
-    recipientEmail: 'admin@moble.example',
-    recipientPhone: '010-3188-5502',
-    preferredChannel: 'EMAIL',
-    status: 'ACTIVE',
-    memo: '금액 확인 재연락 대상.',
-  },
-  {
-    contactId: 'CONTACT-003',
-    customerCode: 'CUST-003',
-    customerName: '그린물류',
-    businessNumber: '109-87-43180',
-    departmentName: '정산팀',
-    recipientName: '서가은',
-    recipientTitle: '팀장',
-    recipientEmail: 'tax@greenlog.example',
-    recipientPhone: '010-9402-6620',
-    preferredChannel: 'KAKAO',
-    status: 'HOLD',
-    memo: '담당자 부재가 잦아 카톡 안내 후 메일 발송.',
-  },
-];
-
 const emptyDraft = {
   contactId: '',
   customerCode: '',
@@ -138,18 +90,6 @@ function normalizeContact(contact) {
   };
 }
 
-function readStoredContacts() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(storageKey));
-    return Array.isArray(saved) ? saved.map(normalizeContact) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveStoredContacts(contacts) {
-  localStorage.setItem(storageKey, JSON.stringify(contacts));
-}
 
 function statusClass(status) {
   if (status === 'ACTIVE') return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
@@ -255,78 +195,31 @@ function ContactForm({ draft = emptyDraft, mode, onChange, onSubmit, onCancel })
 }
 
 export default function ContactListPage() {
-  const [contacts, setContacts] = useState(() => {
-    const saved = readStoredContacts();
-    return saved.length ? saved : fallbackContacts.map(normalizeContact);
-  });
-  const [selectedId, setSelectedId] = useState(() => contacts[0]?.contactId ?? '');
+  const [contacts, setContacts] = useState([]);
+  const [selectedId, setSelectedId] = useState('');
   const [draft, setDraft] = useState(emptyDraft);
   const [formMode, setFormMode] = useState('create');
-  const [params, setParams] = useState({ query: '', channel: 'ALL', status: 'ALL', page: 1, pageSize: 10 });
-  const [notice, setNotice] = useState('거래처 담당자를 등록하거나 행을 선택해 바로 수정할 수 있습니다.');
-
-  useEffect(() => {
-    let isMounted = true;
-
-    if (!window.api?.getMasterData) return undefined;
-
-    window.api.getMasterData()
-      .then((data) => {
-        if (!isMounted || !Array.isArray(data.contacts) || data.contacts.length === 0) return;
-        const nextContacts = data.contacts.map(normalizeContact);
-        setContacts(nextContacts);
-        setSelectedId(nextContacts[0]?.contactId ?? '');
-        saveStoredContacts(nextContacts);
-      })
-      .catch(() => {
-        // Browser preview and Electron fallback both keep the local contacts.
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    saveStoredContacts(contacts);
-  }, [contacts]);
+  const [params, setParams] = useState({
+    customer: '',
+    contact: '',
+    email: '',
+    phone: '',
+    channel: 'ALL',
+    status: 'ALL',
+    page: 1,
+    pageSize: 8,
+  });
+  const [notice, setNotice] = useState('조회 버튼을 눌러 SQLite 담당자 데이터를 불러오세요.');
+  const [isSearching, setIsSearching] = useState(false);
+  const [isPaging, setIsPaging] = useState(false);
+  const [serverTotal, setServerTotal] = useState(0);
 
   const selectedContact = useMemo(
     () => contacts.find((contact) => contact.contactId === selectedId) ?? contacts[0] ?? null,
     [contacts, selectedId],
   );
 
-  const filteredContacts = useMemo(() => {
-    const query = params.query.trim().toLowerCase();
-
-    return contacts.filter((contact) => {
-      const matchesQuery = query === '' || [
-        contact.customerName,
-        contact.customerCode,
-        contact.businessNumber,
-        contact.departmentName,
-        contact.recipientName,
-        contact.recipientEmail,
-        contact.recipientPhone,
-        contact.memo,
-      ].join(' ').toLowerCase().includes(query);
-      const matchesChannel = params.channel === 'ALL' || contact.preferredChannel === params.channel;
-      const matchesStatus = params.status === 'ALL' || contact.status === params.status;
-      return matchesQuery && matchesChannel && matchesStatus;
-    });
-  }, [contacts, params.channel, params.query, params.status]);
-  const totalPages = Math.max(Math.ceil(filteredContacts.length / params.pageSize), 1);
-  const paginatedContacts = useMemo(
-    () => filteredContacts.slice((params.page - 1) * params.pageSize, params.page * params.pageSize),
-    [filteredContacts, params.page, params.pageSize]
-  );
-
-  useEffect(() => {
-    setParams((current) => ({
-      ...current,
-      page: Math.min(current.page, totalPages),
-    }));
-  }, [totalPages]);
+  const totalPages = Math.max(Math.ceil(serverTotal / params.pageSize), 1);
 
   const updateParams = (nextValues) => {
     setParams((current) => ({
@@ -336,6 +229,51 @@ export default function ContactListPage() {
     }));
   };
 
+  const handleSearch = async (targetPage = 1, mode = 'search') => {
+    const isPageChange = mode === 'page';
+    if (!window.api?.queryContacts || isSearching || isPaging) {
+      if (!window.api?.queryContacts) setNotice('SQLite 조회는 Electron 데스크톱 앱에서만 사용할 수 있습니다.');
+      return;
+    }
+
+    if (isPageChange) {
+      setIsPaging(true);
+    } else {
+      setIsSearching(true);
+    }
+    try {
+      const result = await window.api.queryContacts({
+        ...params,
+        page: targetPage,
+      });
+      const data = result?.data;
+      const nextContacts = result?.ok && Array.isArray(data?.rows)
+        ? data.rows.map(normalizeContact)
+        : [];
+      setContacts(nextContacts);
+      setSelectedId(nextContacts[0]?.contactId ?? '');
+      setDraft(emptyDraft);
+      setFormMode('create');
+      setServerTotal(Number(data?.total) || 0);
+      setParams((current) => ({ ...current, page: Number(data?.page) || targetPage }));
+      setNotice(`SQLite에서 담당자 ${Number(data?.total || 0).toLocaleString('ko-KR')}명을 조회했습니다.`);
+    } catch (error) {
+      setContacts([]);
+      setSelectedId('');
+      setDraft(emptyDraft);
+      setFormMode('create');
+      setServerTotal(0);
+      setParams((current) => ({ ...current, page: 1 }));
+      setNotice(`SQLite 조회 실패: ${error?.message || '알 수 없는 오류'}`);
+    } finally {
+      if (isPageChange) {
+        setIsPaging(false);
+      } else {
+        setIsSearching(false);
+      }
+    }
+  };
+
   const metrics = useMemo(() => {
     const customerCount = new Set(contacts.map((contact) => contact.customerCode || contact.customerName).filter(Boolean)).size;
     const activeCount = contacts.filter((contact) => contact.status === 'ACTIVE').length;
@@ -343,12 +281,12 @@ export default function ContactListPage() {
     const missingInfoCount = contacts.filter((contact) => !contact.recipientEmail && !contact.recipientPhone).length;
 
     return [
-      { label: '등록 담당자', value: `${contacts.length.toLocaleString('ko-KR')}명`, detail: `${customerCount.toLocaleString('ko-KR')}개 거래처` },
+      { label: '등록 담당자', value: `${serverTotal.toLocaleString('ko-KR')}명`, detail: `현재 페이지 ${customerCount.toLocaleString('ko-KR')}개 거래처` },
       { label: '사용 중', value: `${activeCount.toLocaleString('ko-KR')}명`, detail: '발송/마감 작업에 사용' },
       { label: '메일 대상', value: `${emailCount.toLocaleString('ko-KR')}명`, detail: '메일 채널 우선' },
       { label: '정보 확인', value: `${missingInfoCount.toLocaleString('ko-KR')}명`, detail: '이메일 또는 전화번호 필요' },
     ];
-  }, [contacts]);
+  }, [contacts, serverTotal]);
 
   const startCreate = () => {
     setFormMode('create');
@@ -426,13 +364,40 @@ export default function ContactListPage() {
   return (
     <PageShell title="거래처 담당자 관리" description="거래처별 담당자를 등록하고, 연락처와 발송 채널을 바로 수정하거나 삭제합니다.">
       <section className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_150px_150px_auto] xl:items-end">
-          <Field label="검색">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(150px,1fr))_130px_130px_auto] xl:items-end">
+          <Field label="거래처">
             <input
               className="form-input w-full"
-              value={params.query}
-              onChange={(event) => updateParams({ query: event.target.value })}
-              placeholder="거래처, 담당자, 이메일, 전화번호 검색"
+              value={params.customer}
+              onChange={(event) => updateParams({ customer: event.target.value })}
+              placeholder="거래처명 또는 코드"
+              type="search"
+            />
+          </Field>
+          <Field label="담당자">
+            <input
+              className="form-input w-full"
+              value={params.contact}
+              onChange={(event) => updateParams({ contact: event.target.value })}
+              placeholder="담당자명"
+              type="search"
+            />
+          </Field>
+          <Field label="이메일">
+            <input
+              className="form-input w-full"
+              value={params.email}
+              onChange={(event) => updateParams({ email: event.target.value })}
+              placeholder="이메일"
+              type="search"
+            />
+          </Field>
+          <Field label="전화번호">
+            <input
+              className="form-input w-full"
+              value={params.phone}
+              onChange={(event) => updateParams({ phone: event.target.value })}
+              placeholder="전화번호"
               type="search"
             />
           </Field>
@@ -449,7 +414,9 @@ export default function ContactListPage() {
             </select>
           </Field>
           <div className="flex gap-2">
-            <button className="btn btn-primary whitespace-nowrap" type="button" onClick={startCreate}>새 담당자</button>
+            <button className="btn btn-primary whitespace-nowrap" type="button" onClick={() => handleSearch(1)} disabled={isSearching}>
+              {isSearching ? '조회 중...' : '조회'}
+            </button>
           </div>
         </div>
       </section>
@@ -459,24 +426,19 @@ export default function ContactListPage() {
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <div>
               <h2 className="font-bold text-gray-900 dark:text-gray-100">거래처 담당자 목록</h2>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{filteredContacts.length.toLocaleString('ko-KR')}명 표시 중</p>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                전체 {serverTotal.toLocaleString('ko-KR')}명 중 {contacts.length.toLocaleString('ko-KR')}명 표시
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {filteredContacts.length > params.pageSize && (
+              {serverTotal > params.pageSize && (
                 <div className="flex items-center gap-2">
-                  <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page <= 1} onClick={() => updateParams({ page: params.page - 1 })}>이전</button>
+                  <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page <= 1 || isPaging} onClick={() => handleSearch(params.page - 1, 'page')}>이전</button>
                   <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">{params.page} / {totalPages}</span>
-                  <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page >= totalPages} onClick={() => updateParams({ page: params.page + 1 })}>다음</button>
+                  <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page >= totalPages || isPaging} onClick={() => handleSearch(params.page + 1, 'page')}>다음</button>
                 </div>
               )}
-              {selectedContact && (
-                <>
-                <button className="btn btn-secondary" type="button" onClick={() => startEdit(selectedContact)}>선택 수정</button>
-                <button className="rounded-md border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-gray-800 dark:text-rose-300 dark:hover:bg-rose-500/10" type="button" onClick={() => handleDelete(selectedContact)}>
-                  삭제
-                </button>
-                </>
-              )}
+             
             </div>
           </header>
 
@@ -493,7 +455,7 @@ export default function ContactListPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60">
-                {paginatedContacts.map((contact) => {
+                {contacts.map((contact) => {
                   const selected = contact.contactId === selectedContact?.contactId;
 
                   return (
@@ -527,7 +489,7 @@ export default function ContactListPage() {
                     </tr>
                   );
                 })}
-                {filteredContacts.length === 0 && (
+                {contacts.length === 0 && (
                   <tr>
                     <td className="px-4 py-10 text-center text-gray-500" colSpan="6">조건에 맞는 담당자가 없습니다.</td>
                   </tr>

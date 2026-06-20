@@ -211,6 +211,13 @@ export function getLogs() {
   return readJson(logsStorageKey, []);
 }
 
+export function getVisibleLogs(user = getCurrentUser()) {
+  const logs = getLogs();
+  return user.id === adminUserId && user.role === 'ADMIN'
+    ? logs
+    : logs.filter((log) => log.userId === user.id);
+}
+
 export function saveLogs(logs) {
   writeJson(logsStorageKey, logs);
   return logs;

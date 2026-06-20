@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import PageShell from './PageShell';
+import { getCurrentUser } from '../utils/authSession';
 
 const fallbackState = {
   contacts: [
@@ -56,6 +57,7 @@ function StepCard({ index, title, detail, status, to }) {
 }
 
 export default function RequestDashboardPage() {
+  const currentUser = getCurrentUser();
   const [requestState, setRequestState] = useState(fallbackState);
   const [loadState, setLoadState] = useState('브라우저 미리보기');
 
@@ -70,7 +72,10 @@ export default function RequestDashboardPage() {
       const [masterData, templateData, packageData] = await Promise.all([
         window.api.getMasterData(),
         window.api.getMessageTemplates(),
-        window.api.getSendPackages(),
+        window.api.getSendPackages({
+          createdBy: currentUser.id,
+          isAdmin: currentUser.id === '황주은' && currentUser.role === 'ADMIN',
+        }),
       ]);
 
       setRequestState({

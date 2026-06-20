@@ -29,28 +29,43 @@ function getDateIndex(columns) {
   return columns.findIndex((column) => ['거래일', '일자', '날짜', '마감일'].includes(column));
 }
 
+function formatDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getCurrentMonthRange() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+
+  return {
+    startDate: formatDateInputValue(new Date(year, month, 1)),
+    endDate: formatDateInputValue(new Date(year, month + 1, 0)),
+  };
+}
+
 export default function DataTablePage() {
   const fileName = useWorkspaceDataStore((state) => state.fileName);
   const columns = useWorkspaceDataStore((state) => state.columns);
   const rows = useWorkspaceDataStore((state) => state.rows);
+  const setRows = useWorkspaceDataStore((state) => state.setRows);
   const stageWorkspace = useWorkspaceDataStore((state) => state.stageWorkspace);
-  const loadLatest = useWorkspaceDataStore((state) => state.loadLatest);
-  const [params, setParams] = useState({
-    startDate: '2026-05-01',
-    endDate: '2026-05-31',
+  const [params, setParams] = useState(() => ({
+    ...getCurrentMonthRange(),
     status: '전체',
     query: '',
     pageSize: 50,
-  });
+  }));
   const [page, setPage] = useState(1);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [serverTotal, setServerTotal] = useState(rows.length);
 
-  useEffect(() => {
-    loadLatest().then((latest) => {
-      setServerTotal(latest.rows?.length ?? 0);
-    });
-  }, [loadLatest]);
+  useEffect(() => () => {
+    setRows([]);
+  }, [setRows]);
 
   const statusIndex = getStatusIndex(columns);
   const dateIndex = getDateIndex(columns);
