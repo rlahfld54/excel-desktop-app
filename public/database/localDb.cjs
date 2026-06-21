@@ -1,4 +1,5 @@
 const path = require("node:path");
+const crypto = require("node:crypto");
 const Database = require("better-sqlite3");
 
 let db;
@@ -17,6 +18,14 @@ function tableExists(database, tableName) {
       .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
       .get(tableName),
   );
+}
+
+function columnExists(database, tableName, columnName) {
+  if (!tableExists(database, tableName)) return false;
+  return database
+    .prepare(`PRAGMA table_info(${tableName})`)
+    .all()
+    .some((column) => column.name === columnName);
 }
 
 function hasForeignKeyTo(database, tableName, referencedTable) {
@@ -432,7 +441,10 @@ ON email_history(package_id, status);
     ensureColumn(db, "sales_rows", "owner_name", "TEXT");
   }
 
-  if (tableExists(db, "departments")) {
+  if (
+    tableExists(db, "departments") &&
+    columnExists(db, "users", "department_code")
+  ) {
     db.exec(`
       UPDATE users
       SET department_name = COALESCE(
@@ -514,15 +526,6 @@ ON email_history(package_id, status);
   }
 
   db.exec("DROP TABLE IF EXISTS departments");
-
-  db.prepare(
-    `
-    INSERT OR IGNORE INTO users (
-      username, display_name, password_hash, role, department_name, status
-    )
-    VALUES ('황주은', '황주은', '0000', 'ADMIN', '총무팀', 'ACTIVE')
-  `,
-  ).run();
 
   if (tableExists(db, "sales_prices")) {
     db.exec(`
@@ -2315,6 +2318,280 @@ function initializeDatabase(app) {
   };
 }
 
+function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
+  const hash = crypto.scryptSync(String(password), salt, 64).toString("hex");
+  return `scrypt:${salt}:${hash}`;
+}
+
+function verifyPassword(password, storedHash) {
+  const value = String(storedHash ?? "");
+  if (!value.startsWith("scrypt:")) {
+    return value === String(password);
+  }
+
+  const [, salt, expectedHex] = value.split(":");
+  if (!salt || !expectedHex) return false;
+  const actual = crypto.scryptSync(String(password), salt, 64);
+  const expected = Buffer.from(expectedHex, "hex");
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+function listLocalUsers(database) {
+  return database.prepare(`
+    SELECT
+      username AS id,
+      display_name AS name,
+      role,
+      department_name AS department,
+      status
+    FROM users
+    ORDER BY user_id
+  `).all();
+}
+
+function registerLocalUser(database, payload = {}) {
+  const username = String(payload.username ?? "").trim();
+  const displayName = String(payload.displayName ?? username).trim();
+  const password = String(payload.password ?? "");
+  const departmentName = String(payload.departmentName ?? "").trim();
+
+  if (username.length < 2) throw new Error("아이디를 2자 이상 입력해 주세요.");
+  if (displayName.length < 2) throw new Error("이름을 2자 이상 입력해 주세요.");
+  if (password.length < 6) throw new Error("비밀번호를 6자 이상 입력해 주세요.");
+  if (database.prepare("SELECT 1 FROM users WHERE username = ?").get(username)) {
+    throw new Error("이미 사용 중인 아이디입니다.");
+  }
+
+  const userCount = database.prepare("SELECT COUNT(*) AS count FROM users").get().count;
+  const role = userCount === 0 ? "ADMIN" : "VIEWER";
+
+  database.prepare(`
+    INSERT INTO users (
+      username, display_name, password_hash, role, department_name, status
+    )
+    VALUES (@username, @displayName, @passwordHash, @role, @departmentName, 'ACTIVE')
+  `).run({
+    username,
+    displayName,
+    passwordHash: hashPassword(password),
+    role,
+    departmentName: departmentName || "미지정",
+  });
+
+  return listLocalUsers(database).find((user) => user.id === username);
+}
+
+function authenticateLocalUser(database, payload = {}) {
+  const username = String(payload.username ?? "").trim();
+  const user = database.prepare(`
+    SELECT
+      username AS id,
+      display_name AS name,
+      password_hash AS passwordHash,
+      role,
+      department_name AS department,
+      status
+    FROM users
+    WHERE username = ?
+  `).get(username);
+
+  if (!user || user.status === "INACTIVE" || !verifyPassword(payload.password, user.passwordHash)) {
+    return { ok: false, message: "사용자 또는 비밀번호를 확인해 주세요." };
+  }
+
+  database.prepare(`
+    UPDATE users
+    SET last_login_at = CURRENT_TIMESTAMP
+    WHERE username = ?
+  `).run(username);
+
+  delete user.passwordHash;
+  return { ok: true, user };
+}
+
+function updateLocalUser(database, payload = {}) {
+  const username = String(payload.username ?? "").trim();
+  const current = database.prepare(`
+    SELECT username, role, status
+    FROM users
+    WHERE username = ?
+  `).get(username);
+  if (!current) throw new Error("사용자를 찾을 수 없습니다.");
+
+  const nextRole = ["ADMIN", "MANAGER", "VIEWER"].includes(payload.role)
+    ? payload.role
+    : current.role;
+  const nextStatus = ["ACTIVE", "INACTIVE"].includes(payload.status)
+    ? payload.status
+    : current.status;
+
+  if (current.role === "ADMIN" && (nextRole !== "ADMIN" || nextStatus === "INACTIVE")) {
+    const adminCount = database.prepare(`
+      SELECT COUNT(*) AS count
+      FROM users
+      WHERE role = 'ADMIN' AND status = 'ACTIVE'
+    `).get().count;
+    if (adminCount <= 1) {
+      throw new Error("마지막 활성 관리자 계정의 권한이나 상태는 변경할 수 없습니다.");
+    }
+  }
+
+  database.prepare(`
+    UPDATE users
+    SET
+      display_name = @displayName,
+      role = @role,
+      department_name = @departmentName,
+      status = @status,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE username = @username
+  `).run({
+    username,
+    displayName: String(payload.displayName ?? username).trim() || username,
+    role: nextRole,
+    departmentName: String(payload.departmentName ?? "").trim() || "미지정",
+    status: nextStatus,
+  });
+
+  return listLocalUsers(database).find((user) => user.id === username);
+}
+
+function deleteLocalUser(database, username) {
+  const normalizedUsername = String(username ?? "").trim();
+  const user = database.prepare(`
+    SELECT username, role, status
+    FROM users
+    WHERE username = ?
+  `).get(normalizedUsername);
+  if (!user) throw new Error("사용자를 찾을 수 없습니다.");
+
+  if (user.role === "ADMIN" && user.status === "ACTIVE") {
+    const adminCount = database.prepare(`
+      SELECT COUNT(*) AS count
+      FROM users
+      WHERE role = 'ADMIN' AND status = 'ACTIVE'
+    `).get().count;
+    if (adminCount <= 1) {
+      throw new Error("마지막 활성 관리자 계정은 탈퇴할 수 없습니다.");
+    }
+  }
+
+  database.prepare("DELETE FROM users WHERE username = ?").run(normalizedUsername);
+  return { username: normalizedUsername };
+}
+
+function changeLocalUserPassword(database, payload = {}) {
+  const username = String(payload.username ?? "").trim();
+  const user = database.prepare(`
+    SELECT password_hash AS passwordHash
+    FROM users
+    WHERE username = ?
+  `).get(username);
+  if (!user || !verifyPassword(payload.currentPassword, user.passwordHash)) {
+    throw new Error("현재 비밀번호가 맞지 않습니다.");
+  }
+
+  const nextPassword = String(payload.nextPassword ?? "");
+  if (nextPassword.length < 6) {
+    throw new Error("새 비밀번호는 6자 이상 입력해 주세요.");
+  }
+
+  database.prepare(`
+    UPDATE users
+    SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE username = ?
+  `).run(hashPassword(nextPassword), username);
+  return { username };
+}
+
+function importBootstrapData(database, payload = {}) {
+  const customers = Array.isArray(payload.customers) ? payload.customers : [];
+  const products = Array.isArray(payload.products) ? payload.products : [];
+  const contacts = Array.isArray(payload.contacts) ? payload.contacts : [];
+
+  const upsertCustomer = database.prepare(`
+    INSERT INTO customers (
+      customer_code, customer_name, business_number, tax_status, status, memo, updated_at
+    )
+    VALUES (
+      @customerCode, @customerName, @businessNumber, @taxStatus, @status, @memo,
+      COALESCE(@updatedAt, CURRENT_TIMESTAMP)
+    )
+    ON CONFLICT(customer_code) DO UPDATE SET
+      customer_name = excluded.customer_name,
+      business_number = excluded.business_number,
+      tax_status = excluded.tax_status,
+      status = excluded.status,
+      memo = excluded.memo,
+      updated_at = excluded.updated_at
+  `);
+  const upsertProduct = database.prepare(`
+    INSERT INTO products (
+      product_code, product_name, unit, unit_price, currency, status, memo, updated_at
+    )
+    VALUES (
+      @productCode, @productName, @unit, @unitPrice, @currency, @status, @memo,
+      COALESCE(@updatedAt, CURRENT_TIMESTAMP)
+    )
+    ON CONFLICT(product_code) DO UPDATE SET
+      product_name = excluded.product_name,
+      unit = excluded.unit,
+      unit_price = excluded.unit_price,
+      currency = excluded.currency,
+      status = excluded.status,
+      memo = excluded.memo,
+      updated_at = excluded.updated_at
+  `);
+  const insertContact = database.prepare(`
+    INSERT INTO contacts (
+      customer_code, department_name, recipient_name, recipient_email,
+      recipient_phone, preferred_channel, status, memo
+    )
+    VALUES (
+      @customerCode, @departmentName, @recipientName, @recipientEmail,
+      @recipientPhone, @preferredChannel, @status, @memo
+    )
+  `);
+
+  database.transaction(() => {
+    customers.forEach((row) => upsertCustomer.run({
+      customerCode: row.customerCode,
+      customerName: row.customerName,
+      businessNumber: row.businessNumber ?? null,
+      taxStatus: row.taxStatus ?? "UNKNOWN",
+      status: row.status ?? "ACTIVE",
+      memo: row.memo ?? null,
+      updatedAt: row.updatedAt ?? null,
+    }));
+    products.forEach((row) => upsertProduct.run({
+      productCode: row.productCode,
+      productName: row.productName,
+      unit: row.unit ?? "EA",
+      unitPrice: Number(row.unitPrice) || 0,
+      currency: row.currency ?? "KRW",
+      status: row.status ?? "ACTIVE",
+      memo: row.memo ?? null,
+      updatedAt: row.updatedAt ?? null,
+    }));
+    contacts.forEach((row) => insertContact.run({
+      customerCode: row.customerCode ?? null,
+      departmentName: row.departmentName ?? null,
+      recipientName: row.recipientName ?? null,
+      recipientEmail: row.recipientEmail ?? null,
+      recipientPhone: row.recipientPhone ?? null,
+      preferredChannel: row.preferredChannel ?? "EMAIL",
+      status: row.status ?? "ACTIVE",
+      memo: row.memo ?? "AWS 초기 동기화",
+    }));
+  })();
+
+  return {
+    customers: customers.length,
+    products: products.length,
+    contacts: contacts.length,
+  };
+}
+
 function getDatabasePath(app) {
   return getDatabase(app).name;
 }
@@ -2325,6 +2602,40 @@ function backupDatabase(app, destinationPath) {
 }
 
 function registerDatabaseIpc(ipcMain, app) {
+  ipcMain.handle("users:list", () => ({
+    ok: true,
+    users: listLocalUsers(getDatabase(app)),
+  }));
+
+  ipcMain.handle("users:register", (_, payload) => ({
+    ok: true,
+    user: registerLocalUser(getDatabase(app), payload),
+  }));
+
+  ipcMain.handle("users:authenticate", (_, payload) =>
+    authenticateLocalUser(getDatabase(app), payload),
+  );
+
+  ipcMain.handle("users:update", (_, payload) => ({
+    ok: true,
+    user: updateLocalUser(getDatabase(app), payload),
+  }));
+
+  ipcMain.handle("users:delete", (_, payload) => ({
+    ok: true,
+    deleted: deleteLocalUser(getDatabase(app), payload?.username),
+  }));
+
+  ipcMain.handle("users:change-password", (_, payload) => ({
+    ok: true,
+    changed: changeLocalUserPassword(getDatabase(app), payload),
+  }));
+
+  ipcMain.handle("sync:import-bootstrap", (_, payload) => ({
+    ok: true,
+    imported: importBootstrapData(getDatabase(app), payload),
+  }));
+
   ipcMain.handle("db:health", () => {
     const database = getDatabase(app);
     const result = database
@@ -2861,9 +3172,17 @@ function closeDatabase() {
 }
 
 module.exports = {
+  authenticateLocalUser,
   backupDatabase,
   closeDatabase,
+  changeLocalUserPassword,
+  getDatabaseForInternalUse: getDatabase,
   getDatabasePath,
+  importBootstrapData,
   initializeDatabase,
+  listLocalUsers,
+  registerLocalUser,
   registerDatabaseIpc,
+  updateLocalUser,
+  deleteLocalUser,
 };

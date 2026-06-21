@@ -5,9 +5,9 @@ import PageShell from './PageShell';
 import { getCurrentUser } from '../utils/authSession';
 
 const fallbackSettings = {
-  databasePath: 'AppData/Excel Desktop App/excel-desktop-app.sqlite',
-  settingsPath: 'AppData/Excel Desktop App/app-settings.json',
-  backupPath: 'Documents/ExcelDesktopApp/Backups',
+  databasePath: '%APPDATA%/excel-desktop-app/excel-desktop-app.sqlite',
+  settingsPath: '%APPDATA%/excel-desktop-app/app-settings.json',
+  backupPath: '%ProgramData%/Excel Desktop App/Backup',
   retentionDays: 31,
   autoBackupEnabled: true,
   autoBackupTime: '23:50',
@@ -151,7 +151,7 @@ export default function LocalBackupPage() {
   const metrics = useMemo(() => [
     { label: '보관 기간', value: '최대 1개월', detail: `${Math.min(settings.retentionDays ?? 31, 31)}일 이후 자동 정리` },
     { label: '자동 백업', value: settings.autoBackupEnabled ? '켜짐' : '꺼짐', detail: `매일 ${settings.autoBackupTime ?? '23:50'}` },
-    { label: '백업 수', value: `${backups.length.toLocaleString('ko-KR')}개`, detail: '수동/자동/복구 전 저장 포함' },
+    { label: '백업 위치', value: settings.backupPath?.toLowerCase().includes('programdata') ? 'PC 공용' : '사용자 지정', detail: settings.backupPath },
     { label: '최근 백업', value: backups[0] ? formatDate(backups[0].createdAt) : '-', detail: backups[0]?.message ?? '아직 없음' },
   ], [backups, settings]);
 
@@ -235,7 +235,7 @@ export default function LocalBackupPage() {
             <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Backup timeline</p>
             <p className="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{statusText}</p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              자동 백업은 매일 23:50에 생성되고, 수동 백업은 커밋 메시지처럼 메모를 남깁니다.
+              자동 백업은 매일 23:50에 생성되고, 기본 백업 위치는 이 PC의 공용 ProgramData 폴더입니다.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -346,6 +346,7 @@ export default function LocalBackupPage() {
               <p>사용자가 남기는 수동 백업은 메모와 생성자를 함께 기록합니다.</p>
               <p>복구 전에는 현재 상태를 자동 저장해 되돌릴 지점을 남깁니다.</p>
               <p>모든 백업은 월 마감 기준에 맞춰 최대 한 달만 보관합니다.</p>
+              <p>ProgramData 사용 권한이 없으면 현재 사용자의 문서 폴더에 백업합니다.</p>
             </div>
           </section>
 

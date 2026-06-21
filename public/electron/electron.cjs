@@ -21,6 +21,40 @@ function getWorkspaceRoot() {
   return path.join(app.getPath("documents"), "ExcelDesktopApp");
 }
 
+function getLegacyBackupPath() {
+  return path.join(getWorkspaceRoot(), "Backups");
+}
+
+function getCommonBackupPath() {
+  if (process.platform === "win32" && process.env.ProgramData) {
+    return path.join(
+      process.env.ProgramData,
+      "Excel Desktop App",
+      "Backup",
+    );
+  }
+
+  return getLegacyBackupPath();
+}
+
+async function copyLegacyBackups(sourcePath, targetPath) {
+  if (!sourcePath || !targetPath || sourcePath === targetPath) return;
+
+  try {
+    await fs.access(sourcePath);
+    await fs.mkdir(targetPath, { recursive: true });
+    await fs.cp(sourcePath, targetPath, {
+      recursive: true,
+      force: false,
+      errorOnExist: false,
+    });
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      console.warn("Legacy backup copy skipped", error);
+    }
+  }
+}
+
 function getReportFolders(workspaceRoot, year = new Date().getFullYear()) {
   const reportTypes = [
     "MonthlySales",
@@ -60,7 +94,7 @@ function getDefaultAppSettings() {
     reportsPath: path.join(workspaceRoot, "Reports"),
     requestsPath: path.join(workspaceRoot, "Requests"),
     exportPath: path.join(workspaceRoot, "Exports"),
-    backupPath: path.join(workspaceRoot, "Backups"),
+    backupPath: getCommonBackupPath(),
     tempPath: path.join(workspaceRoot, "Temp"),
     logsPath: path.join(workspaceRoot, "Logs"),
     retentionDays: 31,
@@ -73,6 +107,10 @@ function getDefaultAppSettings() {
     desktopNotificationsEnabled: true,
     notificationSoundEnabled: true,
     notificationSoundPath: "",
+    setupCompleted: false,
+    setupCompletedAt: "",
+    cloudApiBaseUrl: "",
+    lastCloudSyncAt: "",
     gmailSenderName: "",
     gmailAddress: "",
     gmailAppPassword: "",
@@ -83,6 +121,19 @@ function getDefaultAppSettings() {
 
 async function ensureAppFolders(settings) {
   const workspaceRoot = settings.workspaceRoot || getWorkspaceRoot();
+  const normalizedSettings = { ...settings };
+
+  try {
+    await fs.mkdir(normalizedSettings.backupPath, { recursive: true });
+  } catch (error) {
+    if (normalizedSettings.backupPath !== getCommonBackupPath()) {
+      throw error;
+    }
+
+    normalizedSettings.backupPath = getLegacyBackupPath();
+    await fs.mkdir(normalizedSettings.backupPath, { recursive: true });
+  }
+
   const folders = [
     app.getPath("userData"),
     workspaceRoot,
@@ -92,9 +143,8 @@ async function ensureAppFolders(settings) {
     settings.reportsPath || path.join(workspaceRoot, "Reports"),
     settings.requestsPath || path.join(workspaceRoot, "Requests"),
     settings.exportPath,
-    settings.backupPath,
-    settings.tempPath,
-    settings.logsPath || path.join(workspaceRoot, "Logs"),
+    normalizedSettings.tempPath,
+    normalizedSettings.logsPath || path.join(workspaceRoot, "Logs"),
     ...getReportFolders(workspaceRoot),
   ];
 
@@ -103,6 +153,8 @@ async function ensureAppFolders(settings) {
       fs.mkdir(folderPath, { recursive: true }),
     ),
   );
+
+  return normalizedSettings;
 }
 
 async function readAppSettings() {
@@ -110,30 +162,46 @@ async function readAppSettings() {
 
   try {
     const saved = JSON.parse(await fs.readFile(getSettingsPath(), "utf8"));
-    const settings = { ...defaults, ...saved };
+    let settings = { ...defaults, ...saved };
+    const shouldCopyLegacyBackups =
+      saved.backupPath === getLegacyBackupPath() &&
+      defaults.backupPath !== getLegacyBackupPath();
+    if (!saved.backupPath || shouldCopyLegacyBackups) {
+      settings.backupPath = defaults.backupPath;
+    }
     settings.retentionDays = Math.min(Math.max(Number(settings.retentionDays) || 31, 1), 31);
     settings.autoBackupTime = settings.autoBackupTime || "23:50";
-    await ensureAppFolders(settings);
+    settings = await ensureAppFolders(settings);
+    if (shouldCopyLegacyBackups && settings.backupPath === defaults.backupPath) {
+      await copyLegacyBackups(saved.backupPath, settings.backupPath);
+    }
+    if (settings.backupPath !== saved.backupPath) {
+      await fs.writeFile(
+        getSettingsPath(),
+        JSON.stringify(settings, null, 2),
+        "utf8",
+      );
+    }
     return settings;
   } catch {
-    await ensureAppFolders(defaults);
+    const settings = await ensureAppFolders(defaults);
     await fs.writeFile(
       getSettingsPath(),
-      JSON.stringify(defaults, null, 2),
+      JSON.stringify(settings, null, 2),
       "utf8",
     );
-    return defaults;
+    return settings;
   }
 }
 
 async function writeAppSettings(nextSettings) {
-  const settings = {
+  let settings = {
     ...getDefaultAppSettings(),
     ...nextSettings,
   };
   settings.retentionDays = Math.min(Math.max(Number(settings.retentionDays) || 31, 1), 31);
   settings.autoBackupTime = settings.autoBackupTime || "23:50";
-  await ensureAppFolders(settings);
+  settings = await ensureAppFolders(settings);
   await fs.writeFile(
     getSettingsPath(),
     JSON.stringify(settings, null, 2),
@@ -475,6 +543,86 @@ function registerIpcHandlers() {
     settings: await writeAppSettings(settings),
   }));
 
+  ipcMain.handle("setup:status", async () => {
+    const settings = await readAppSettings();
+    const database = initializeDatabase(app);
+    return {
+      ok: true,
+      completed: Boolean(settings.setupCompleted),
+      settings,
+      database,
+    };
+  });
+
+  ipcMain.handle("setup:complete", async (_, payload = {}) => {
+    const current = await readAppSettings();
+    const settings = await writeAppSettings({
+      ...current,
+      setupCompleted: true,
+      setupCompletedAt: new Date().toISOString(),
+      cloudApiBaseUrl: String(payload.cloudApiBaseUrl ?? current.cloudApiBaseUrl ?? "").trim(),
+      lastCloudSyncAt: payload.lastCloudSyncAt ?? current.lastCloudSyncAt ?? "",
+    });
+    return { ok: true, settings };
+  });
+
+  ipcMain.handle("setup:download-cloud-data", async (_, payload = {}) => {
+    const apiBaseUrl = String(payload.apiBaseUrl ?? "").trim().replace(/\/$/, "");
+    if (!apiBaseUrl) {
+      return { ok: false, message: "AWS API 주소를 입력해 주세요." };
+    }
+
+    let url;
+    try {
+      url = new URL(`${apiBaseUrl}/bootstrap`);
+    } catch {
+      return { ok: false, message: "올바른 AWS API 주소가 아닙니다." };
+    }
+
+    if (url.protocol !== "https:" && !isDev) {
+      return { ok: false, message: "배포 앱에서는 HTTPS API만 사용할 수 있습니다." };
+    }
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          ...(payload.accessToken
+            ? { Authorization: `Bearer ${String(payload.accessToken).trim()}` }
+            : {}),
+        },
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        return {
+          ok: false,
+          status: response.status,
+          message: data?.message || `AWS 데이터 요청 실패 (${response.status})`,
+        };
+      }
+
+      const imported = require("../database/localDb.cjs").importBootstrapData(
+        require("../database/localDb.cjs").getDatabaseForInternalUse(app),
+        data,
+      );
+      const settings = await readAppSettings();
+      await writeAppSettings({
+        ...settings,
+        cloudApiBaseUrl: apiBaseUrl,
+        lastCloudSyncAt: new Date().toISOString(),
+      });
+      return { ok: true, imported };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error?.name === "TimeoutError"
+          ? "AWS 응답 시간이 초과되었습니다."
+          : `AWS 연결 실패: ${error?.message || error}`,
+      };
+    }
+  });
+
   ipcMain.handle("app-settings:choose-directory", async (_, { title }) => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: title ?? "폴더 선택",
@@ -684,24 +832,47 @@ function registerIpcHandlers() {
 }
 
 // 5. 앱 생명주기
-app.whenReady().then(async () => {
-  // preload.js 메서드 가져옴
-  registerIpcHandlers();
-  registerDatabaseIpc(ipcMain, app);
-  await readAppSettings();
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
-  //Electron 시작 시 DB 초기화.
-  initializeDatabase(app);
-  scheduleAutoBackup(app);
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const [win] = BrowserWindow.getAllWindows();
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
 
-  createWindow();
+  app.whenReady().then(async () => {
+    try {
+      // preload.js 메서드 가져옴
+      registerIpcHandlers();
+      registerDatabaseIpc(ipcMain, app);
+      await readAppSettings();
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+      // Electron 시작 시 DB 초기화.
+      initializeDatabase(app);
+      scheduleAutoBackup(app);
+
       createWindow();
+
+      app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          createWindow();
+        }
+      });
+    } catch (error) {
+      console.error("Application startup failed", error);
+      dialog.showErrorBox(
+        "Excel Desktop App 실행 오류",
+        `앱을 시작하지 못했습니다.\n\n${error?.message || error}`,
+      );
+      app.quit();
     }
   });
-});
+}
 
 // 6. 종료 처리
 app.on("window-all-closed", () => {

@@ -1,29 +1,47 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import Logo from '../images/logo.svg';
-import { addActivityLog, getUsers, saveSession } from '../utils/authSession';
+import { addActivityLog, saveSession, saveUsers } from '../utils/authSession';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const users = useMemo(() => getUsers().filter((user) => user.status !== 'INACTIVE'), []);
-  const [userId, setUserId] = useState(users[0]?.id ?? '');
+  const [users, setUsers] = useState([]);
+  const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const selectedUser = users.find((user) => user.id === userId);
+  useEffect(() => {
+    async function loadUsers() {
+      if (!window.api?.listUsers) return;
+      const result = await window.api.listUsers();
+      const activeUsers = (result.users ?? []).filter((user) => user.status !== 'INACTIVE');
+      setUsers(activeUsers);
+      saveUsers(activeUsers);
+      setUserId(activeUsers[0]?.id ?? '');
+    }
+    loadUsers().catch((error) => setError(error.message));
+  }, []);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
 
-    if (!selectedUser || selectedUser.password !== password) {
-      addActivityLog('WARN', '로그인 실패', userId || 'unknown', userId || 'unknown');
-      setError('사용자 또는 비밀번호를 확인해주세요.');
+    if (!window.api?.authenticateUser) {
+      setError('설치된 데스크톱 앱에서 로그인해 주세요.');
       return;
     }
 
+    const result = await window.api.authenticateUser({ username: userId, password });
+    if (!result?.ok) {
+      addActivityLog('WARN', '로그인 실패', userId || 'unknown', userId || 'unknown');
+      setError(result?.message || '사용자 또는 비밀번호를 확인해주세요.');
+      return;
+    }
+
+    const selectedUser = result.user;
+    saveUsers(users.map((user) => user.id === selectedUser.id ? selectedUser : user));
     saveSession({
       userId: selectedUser.id,
       role: selectedUser.role,
@@ -66,7 +84,7 @@ export default function LoginPage() {
                   로그인
                 </h1>
                 <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                  계정을 선택하고 비밀번호를 입력하세요.
+                  초기 설정에서 만든 계정으로 로그인하세요.
                 </p>
               </div>
 
@@ -122,8 +140,14 @@ export default function LoginPage() {
               </form>
 
               <p className="mt-6 text-center text-xs leading-5 text-gray-400 dark:text-gray-500">
-                내부 업무용 계정으로만 접근할 수 있습니다. 개발 기본값은 0000입니다.
+                계정이 없다면 초기 설정을 먼저 완료해 주세요.
               </p>
+              <Link className="mt-3 block text-center text-sm font-semibold text-teal-700 hover:text-teal-800 dark:text-accent-300" to="/setup">
+                초기 설정 다시 열기
+              </Link>
+              <Link className="mt-2 block text-center text-sm font-semibold text-teal-700 hover:text-teal-800 dark:text-accent-300" to="/signup">
+                새 사용자 회원가입
+              </Link>
             </div>
           </div>
         </div>

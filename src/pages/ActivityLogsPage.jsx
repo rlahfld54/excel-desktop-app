@@ -4,29 +4,35 @@ import { StatusBadge } from '../components/common';
 import PageShell from './PageShell';
 import {
   addActivityLog,
-  createAdminSession,
   createLog,
   getLogs,
   getCurrentUser,
   getSession,
-  getUsers,
   saveLogs,
-  saveSession,
   saveUsers,
 } from '../utils/authSession';
+import { clearPersonalTodoData } from '../utils/todoSchedule';
 
 export default function ActivityLogsPage() {
   const currentUser = getCurrentUser();
-  const isAdmin = currentUser.id === '황주은' && currentUser.role === 'ADMIN';
-  const [users, setUsers] = useState(() => getUsers());
+  const isAdmin = currentUser.role === 'ADMIN';
+  const [users, setUsers] = useState([]);
   const [session, setSession] = useState(() => getSession());
   const [logs, setLogs] = useState(() => getLogs());
   const [filter, setFilter] = useState('전체');
   const [selectedUserId, setSelectedUserId] = useState(session.userId);
+  const [userMessage, setUserMessage] = useState('');
 
   useEffect(() => {
-    if (isAdmin) setUsers(saveUsers(users));
-  }, []);
+    if (!isAdmin || !window.api?.listUsers) return;
+    window.api.listUsers()
+      .then((result) => {
+        const nextUsers = result.users ?? [];
+        setUsers(nextUsers);
+        saveUsers(nextUsers);
+      })
+      .catch((error) => setUserMessage(error.message));
+  }, [isAdmin]);
 
   useEffect(() => {
     saveLogs(logs);
@@ -56,46 +62,55 @@ export default function ActivityLogsPage() {
   };
 
   const updateUserField = (userId, field, value) => {
-    setUsers((current) => {
-      const nextUsers = current.map((user) => (
-        user.id === userId
-          ? {
-              ...user,
-              [field]: value,
-              role: user.id === '황주은' ? 'ADMIN' : field === 'role' ? value : user.role,
-              password: field === 'password' && value.trim() === '' ? '0000' : value,
-            }
-          : user
-      ));
-      return saveUsers(nextUsers);
-    });
-    appendLog('INFO', '사용자 정보 수정', `${userId} / ${field}`);
+    setUsers((current) => current.map((user) => (
+      user.id === userId ? { ...user, [field]: value } : user
+    )));
   };
 
-  const addUser = () => {
-    const nextIndex = users.length + 1;
-    const nextUser = {
-      id: `사용자${nextIndex}`,
-      name: `사용자${nextIndex}`,
-      password: '0000',
-      role: 'VIEWER',
-      department: '미지정',
-      title: '사용자',
-      email: `user${nextIndex}@example.com`,
-      phone: '010-0000-0000',
-      status: 'ACTIVE',
-    };
-    const nextUsers = saveUsers([...users, nextUser]);
+  const reloadUsers = async () => {
+    const result = await window.api.listUsers();
+    const nextUsers = result.users ?? [];
     setUsers(nextUsers);
-    setSelectedUserId(nextUser.id);
-    appendLog('INFO', '사용자 추가', nextUser.id);
+    saveUsers(nextUsers);
+    return nextUsers;
   };
 
-  const resetAutoLogin = () => {
-    const nextSession = saveSession(createAdminSession());
-    setSession(nextSession);
-    setUsers(getUsers());
-    appendLog('INFO', '자동 로그인 재설정', '황주은 관리자');
+  const saveUser = async (user) => {
+    setUserMessage('');
+    try {
+      await window.api.updateUserAccount({
+        username: user.id,
+        displayName: user.name,
+        role: user.role,
+        departmentName: user.department,
+        status: user.status,
+      });
+      await reloadUsers();
+      appendLog('INFO', '사용자 정보 수정', user.id);
+      setUserMessage(`${user.id} 계정을 저장했습니다.`);
+    } catch (error) {
+      setUserMessage(error.message);
+      await reloadUsers();
+    }
+  };
+
+  const deleteUser = async (user) => {
+    if (user.id === currentUser.id) {
+      setUserMessage('현재 로그인한 본인 계정은 보안 설정에서 탈퇴해 주세요.');
+      return;
+    }
+    if (!window.confirm(`${user.name} (${user.id}) 계정을 탈퇴 처리할까요?\n개인 투두와 일정도 이 PC에서 삭제됩니다.`)) return;
+
+    try {
+      await window.api.deleteUserAccount({ username: user.id });
+      clearPersonalTodoData(user.id);
+      const nextUsers = await reloadUsers();
+      setSelectedUserId(nextUsers[0]?.id ?? '');
+      appendLog('WARN', '사용자 탈퇴', user.id);
+      setUserMessage(`${user.id} 계정을 탈퇴 처리했습니다.`);
+    } catch (error) {
+      setUserMessage(error.message);
+    }
   };
 
   const addCheckLog = () => {
@@ -114,8 +129,6 @@ export default function ActivityLogsPage() {
           </div>
           {isAdmin && <div className="flex flex-wrap items-center gap-2">
             <button className="btn btn-secondary" type="button" onClick={addCheckLog}>점검 로그</button>
-            <button className="btn btn-secondary" type="button" onClick={addUser}>사용자 추가</button>
-            <button className="btn btn-primary" type="button" onClick={resetAutoLogin}>황주은 자동 로그인</button>
           </div>}
         </div>
       </section>
@@ -167,11 +180,12 @@ export default function ActivityLogsPage() {
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">사용자 관리</h2>
             <span className="text-xs text-gray-500 dark:text-gray-400">선택: {selectedUser?.id}</span>
           </header>
+          {userMessage && <p className="border-b border-gray-200 px-4 py-3 text-sm font-semibold text-accent-700 dark:border-gray-700/60 dark:text-accent-300">{userMessage}</p>}
           <div className="max-h-[440px] overflow-auto no-scrollbar">
-            <table className="min-w-[860px] w-full border-separate border-spacing-0 text-sm">
+            <table className="min-w-[760px] w-full border-separate border-spacing-0 text-sm">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  {['아이디', '이름', '비밀번호', '권한', '부서', '직책', '이메일', '상태'].map((column) => (
+                  {['아이디', '이름', '권한', '부서', '상태', '관리'].map((column) => (
                     <th key={column} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-400">{column}</th>
                   ))}
                 </tr>
@@ -181,19 +195,22 @@ export default function ActivityLogsPage() {
                   <tr key={user.id} className={`group cursor-pointer ${selectedUserId === user.id ? 'bg-accent-50/70 dark:bg-accent-500/10' : ''}`} onClick={() => setSelectedUserId(user.id)}>
                     <td className="border-b border-r border-gray-200 px-3 py-2 font-semibold text-gray-800 dark:border-gray-700/60 dark:text-gray-100">{user.id}</td>
                     <td className="border-b border-r border-gray-200 px-2 py-1 dark:border-gray-700/60"><input className="form-input h-8 w-28" value={user.name} onChange={(event) => updateUserField(user.id, 'name', event.target.value)} /></td>
-                    <td className="border-b border-r border-gray-200 px-2 py-1 dark:border-gray-700/60"><input className="form-input h-8 w-24 font-mono" value={user.password} onChange={(event) => updateUserField(user.id, 'password', event.target.value)} /></td>
                     <td className="border-b border-r border-gray-200 px-2 py-1 dark:border-gray-700/60">
-                      <select className="form-select h-8 w-28" value={user.role} onChange={(event) => updateUserField(user.id, 'role', event.target.value)} disabled={user.id === '황주은'}>
+                      <select className="form-select h-8 w-28" value={user.role} onChange={(event) => updateUserField(user.id, 'role', event.target.value)}>
                         {['ADMIN', 'MANAGER', 'VIEWER'].map((role) => <option key={role} value={role}>{role}</option>)}
                       </select>
                     </td>
                     <td className="border-b border-r border-gray-200 px-2 py-1 dark:border-gray-700/60"><input className="form-input h-8 w-28" value={user.department ?? ''} onChange={(event) => updateUserField(user.id, 'department', event.target.value)} /></td>
-                    <td className="border-b border-r border-gray-200 px-2 py-1 dark:border-gray-700/60"><input className="form-input h-8 w-28" value={user.title ?? ''} onChange={(event) => updateUserField(user.id, 'title', event.target.value)} /></td>
-                    <td className="border-b border-r border-gray-200 px-2 py-1 dark:border-gray-700/60"><input className="form-input h-8 w-48" value={user.email ?? ''} onChange={(event) => updateUserField(user.id, 'email', event.target.value)} /></td>
                     <td className="border-b border-r border-gray-200 px-2 py-1 dark:border-gray-700/60">
                       <select className="form-select h-8 w-28" value={user.status} onChange={(event) => updateUserField(user.id, 'status', event.target.value)}>
                         {['ACTIVE', 'INACTIVE'].map((status) => <option key={status} value={status}>{status}</option>)}
                       </select>
+                    </td>
+                    <td className="border-b border-r border-gray-200 px-2 py-1 dark:border-gray-700/60">
+                      <div className="flex gap-2">
+                        <button className="btn btn-secondary h-8 px-3 text-xs" type="button" onClick={() => saveUser(user)}>저장</button>
+                        <button className="h-8 rounded-md border border-rose-200 px-3 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-rose-500/30 dark:text-rose-300" type="button" disabled={user.id === currentUser.id} onClick={() => deleteUser(user)}>탈퇴</button>
+                      </div>
                     </td>
                   </tr>
                 ))}

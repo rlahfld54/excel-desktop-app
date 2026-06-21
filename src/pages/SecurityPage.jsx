@@ -10,8 +10,8 @@ import {
   getVisibleLogs,
   getSession,
   saveSession,
-  updateUser,
 } from '../utils/authSession';
+import { clearPersonalTodoData } from '../utils/todoSchedule';
 
 function StatCard({ label, value, detail, tone = 'accent' }) {
   const toneClass = tone === 'red'
@@ -60,16 +60,11 @@ export default function SecurityPage() {
     setLogs(getVisibleLogs());
   };
 
-  const handlePasswordChange = (event) => {
+  const handlePasswordChange = async (event) => {
     event.preventDefault();
 
-    if (passwordForm.currentPassword !== currentUser.password) {
-      updateMessage('현재 비밀번호가 맞지 않습니다.', 'error');
-      return;
-    }
-
-    if (passwordForm.nextPassword.trim().length < 4) {
-      updateMessage('새 비밀번호는 4자리 이상으로 입력해주세요.', 'error');
+    if (passwordForm.nextPassword.trim().length < 6) {
+      updateMessage('새 비밀번호는 6자리 이상으로 입력해주세요.', 'error');
       return;
     }
 
@@ -78,11 +73,19 @@ export default function SecurityPage() {
       return;
     }
 
-    updateUser(currentUser.id, { password: passwordForm.nextPassword });
-    addActivityLog('INFO', '비밀번호 변경', currentUser.id, currentUser.id);
-    setPasswordForm({ currentPassword: '', nextPassword: '', confirmPassword: '' });
-    refreshState();
-    updateMessage('비밀번호를 변경했습니다.', 'success');
+    try {
+      await window.api.changeUserPassword({
+        username: currentUser.id,
+        currentPassword: passwordForm.currentPassword,
+        nextPassword: passwordForm.nextPassword,
+      });
+      addActivityLog('INFO', '비밀번호 변경', currentUser.id, currentUser.id);
+      setPasswordForm({ currentPassword: '', nextPassword: '', confirmPassword: '' });
+      refreshState();
+      updateMessage('비밀번호를 변경했습니다.', 'success');
+    } catch (error) {
+      updateMessage(error.message, 'error');
+    }
   };
 
   const handleAutoLoginToggle = () => {
@@ -101,6 +104,23 @@ export default function SecurityPage() {
     addActivityLog('INFO', '로그아웃', currentUser.id, currentUser.id);
     clearSession();
     navigate('/login', { replace: true });
+  };
+
+  const handleWithdraw = async () => {
+    if (!window.api?.deleteUserAccount) {
+      updateMessage('설치된 데스크톱 앱에서 회원 탈퇴를 사용할 수 있습니다.', 'error');
+      return;
+    }
+    if (!window.confirm(`현재 계정 ${currentUser.name} (${currentUser.id})을 탈퇴할까요?\n개인 투두와 일정도 이 PC에서 삭제됩니다.`)) return;
+
+    try {
+      await window.api.deleteUserAccount({ username: currentUser.id });
+      clearPersonalTodoData(currentUser.id);
+      clearSession();
+      navigate('/login', { replace: true });
+    } catch (error) {
+      updateMessage(error.message, 'error');
+    }
   };
 
   const messageClass = messageTone === 'error'
@@ -166,6 +186,14 @@ export default function SecurityPage() {
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">로그인 화면으로 이동합니다.</p>
               <button className="btn mt-4 border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200" type="button" onClick={handleLogout}>
                 로그아웃
+              </button>
+            </div>
+
+            <div className="rounded-lg border border-red-200 bg-red-50/60 p-4 dark:border-red-500/30 dark:bg-red-500/10">
+              <p className="font-semibold text-red-800 dark:text-red-200">회원 탈퇴</p>
+              <p className="mt-1 text-sm text-red-700/80 dark:text-red-200/80">계정과 이 PC의 개인 투두·일정을 삭제합니다. 마지막 관리자 계정은 탈퇴할 수 없습니다.</p>
+              <button className="mt-4 rounded-md border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 dark:border-red-500/40 dark:bg-transparent dark:text-red-200" type="button" onClick={handleWithdraw}>
+                회원 탈퇴
               </button>
             </div>
           </div>

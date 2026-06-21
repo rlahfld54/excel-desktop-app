@@ -183,16 +183,30 @@ export function readTodos(userId) {
   const userTodos = store[userId]?.todos;
 
   if (Array.isArray(userTodos)) {
-    const defaultIds = new Set(defaultTodos.map((todo) => todo.id));
-    const mergedDefaults = defaultTodos.map((todo) => normalizeTodo({
-      ...todo,
-      ...(userTodos.find((item) => item.id === todo.id) ?? {}),
-    }, todo.itemType));
-    const customTodos = userTodos.filter((todo) => !defaultIds.has(todo.id)).map((todo) => normalizeTodo(todo));
-    return [...mergedDefaults, ...customTodos];
+    return userTodos.map((todo) => normalizeTodo(todo, todo.itemType));
   }
 
   return defaultTodos.map((todo) => normalizeTodo(todo, todo.itemType));
+}
+
+export function initializePersonalTodos(userId) {
+  const store = readStore();
+  if (store[userId]) return;
+  writeStore({
+    ...store,
+    [userId]: {
+      todos: [],
+      history: [],
+    },
+  });
+}
+
+export function clearPersonalTodoData(userId) {
+  const store = readStore();
+  if (!store[userId]) return;
+  const nextStore = { ...store };
+  delete nextStore[userId];
+  writeStore(nextStore);
 }
 
 export function readTeamTodos() {

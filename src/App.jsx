@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
 
 import '@fontsource/inter/latin-400.css';
@@ -15,6 +15,8 @@ import './charts/ChartjsConfig';
 import Dashboard from './pages/Dashboard';
 import WelcomePage from './pages/WelcomePage';
 import LoginPage from './pages/LoginPage';
+import SetupPage from './pages/SetupPage';
+import SignupPage from './pages/SignupPage';
 import RecentTasksPage from './pages/RecentTasksPage';
 import FileManagerPage from './pages/FileManagerPage';
 import ExecutiveReportDashboardPage from './pages/ExecutiveReportDashboardPage';
@@ -87,6 +89,30 @@ function App() {
   // search: URL 뒤에 붙는 쿼리 파라미터(예: "?sort=asc")
   // state: useNavigate 등을 통해 이전 페이지에서 전달받은 커스텀 데이터
   const location = useLocation();
+  const [setupState, setSetupState] = useState({
+    loading: Boolean(window.api?.getSetupStatus),
+    completed: !window.api?.getSetupStatus,
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    const refreshSetupStatus = async () => {
+      if (!window.api?.getSetupStatus) return;
+      try {
+        const result = await window.api.getSetupStatus();
+        if (mounted) setSetupState({ loading: false, completed: Boolean(result.completed) });
+      } catch {
+        if (mounted) setSetupState({ loading: false, completed: false });
+      }
+    };
+    const handleCompleted = () => setSetupState({ loading: false, completed: true });
+    refreshSetupStatus();
+    window.addEventListener('excel-workspace:setup-completed', handleCompleted);
+    return () => {
+      mounted = false;
+      window.removeEventListener('excel-workspace:setup-completed', handleCompleted);
+    };
+  }, []);
 
   //useEffect는 라이프사이클에 해당하는 함수. 렌더링될때마다 실행된다. 업데이트될때
   useEffect(() => {
@@ -110,10 +136,24 @@ function App() {
     });
   }, []);
 
+  if (setupState.loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gray-50 text-gray-700 dark:bg-gray-950 dark:text-gray-200">
+        <p className="text-sm font-semibold">이 PC의 초기 설정을 확인하고 있습니다…</p>
+      </main>
+    );
+  }
+
+  if (!setupState.completed && location.pathname !== '/setup') {
+    return <Navigate to="/setup" replace />;
+  }
+
   return (
     <Routes>
       <Route exact path="/" element={<WelcomePage />} />
+      <Route exact path="/setup" element={<SetupPage />} />
       <Route exact path="/login" element={<LoginPage />} />
+      <Route exact path="/signup" element={<SignupPage />} />
       <Route exact path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
 
       {menuGroups.map((group) => {
