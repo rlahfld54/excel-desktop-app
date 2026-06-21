@@ -94,7 +94,7 @@ function BackupRow({ backup, selected, onPreview, onRestore }) {
 
 export default function LocalBackupPage() {
   const currentUser = getCurrentUser();
-  const isAdmin = currentUser.id === '황주은' && currentUser.role === 'ADMIN';
+  const isAdmin = currentUser.role === 'ADMIN';
   const [settings, setSettings] = useState(fallbackSettings);
   const [backups, setBackups] = useState([]);
   const [selectedBackup, setSelectedBackup] = useState(null);

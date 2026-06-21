@@ -1032,7 +1032,7 @@ async function readClosingSendRecordsFromDatabase(month, currentUser) {
   if (!window.api?.getSendPackages) return [];
   const result = await window.api.getSendPackages({
     createdBy: currentUser.id,
-    isAdmin: currentUser.id === '황주은' && currentUser.role === 'ADMIN',
+    isAdmin: currentUser.role === 'ADMIN',
   });
   const packages = result?.ok && Array.isArray(result.packages) ? result.packages : [];
   const successfulStatuses = new Set(['SENT', 'SUCCESS', 'COMPLETED', 'REPLIED', 'CLOSED']);
@@ -1057,6 +1057,9 @@ export default function ClosingSendQueuePage() {
   const currentUserEmail = getUserEmail(currentUser);
   const [currentStep, setCurrentStep] = useState(0);
   const [closingTargets, setClosingTargets] = useState([]);
+  const [activeManagers, setActiveManagers] = useState(() => (
+    [currentUser.name || currentUser.id].filter(Boolean)
+  ));
   const [selectedIds, setSelectedIds] = useState([]);
   const [params, setParams] = useState(() => ({
     ...getCurrentMonthRange(),
@@ -1116,12 +1119,34 @@ export default function ClosingSendQueuePage() {
   }, [currentUser.name, currentUserEmail]);
 
   const managerOptions = useMemo(
-    () => Array.from(new Set([
-      currentUser.name || currentUser.id,
-      ...closingTargets.map((target) => target.manager),
-    ].filter(Boolean))),
-    [closingTargets, currentUser.id, currentUser.name],
+    () => activeManagers,
+    [activeManagers],
   );
+
+  useEffect(() => {
+    let active = true;
+    if (!window.api?.listUsers) return undefined;
+
+    window.api.listUsers()
+      .then((result) => {
+        if (!active) return;
+        const managers = (result?.users ?? [])
+          .filter((user) => (
+            user.status === 'ACTIVE'
+            && (currentUser.role === 'ADMIN' || user.id === currentUser.id)
+          ))
+          .map((user) => user.name || user.id)
+          .filter(Boolean);
+        setActiveManagers(Array.from(new Set(managers)));
+      })
+      .catch(() => {
+        // Keep the current logged-in user when SQLite users cannot be loaded.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [currentUser.id, currentUser.role]);
   const visibleClosingTargets = useMemo(
     () => closingTargets.filter((target) => matchesTargetFilters(target, params)),
     [closingTargets, params]
@@ -1678,7 +1703,7 @@ export default function ClosingSendQueuePage() {
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">담당자</span>
             <select className="form-select w-full" value={params.manager} onChange={(event) => updateQueryFilter('manager', event.target.value)}>
-              <option>전체</option>
+              {currentUser.role === 'ADMIN' && <option>전체</option>}
               {managerOptions.map((manager) => <option key={manager}>{manager}</option>)}
             </select>
           </label>

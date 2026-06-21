@@ -1,11 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, StatusBadge } from '../components/common';
 import PageShell from './PageShell';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
 import { addNotification } from '../utils/appNotifications';
 import { saveClosingWorkspaceRows } from '../utils/closingWorkspaceStore';
 
-const owners = ['김민서', '박지훈', '이서연', '최현우'];
 const closingDays = ['10일', '25일', '30일'];
 const reasonOptions = ['회신 대기', '금액 조율', '내부 검토', '기타'];
 
@@ -262,13 +261,38 @@ export default function ClosingWorkspacePage() {
   }));
   const [isLoading, setIsLoading] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [activeOwners, setActiveOwners] = useState(() => (
+    [currentUser.name || currentUser.id].filter(Boolean)
+  ));
+
+  useEffect(() => {
+    let active = true;
+    if (!window.api?.listUsers) return undefined;
+
+    window.api.listUsers()
+      .then((result) => {
+        if (!active) return;
+        const owners = (result?.users ?? [])
+          .filter((user) => (
+            user.status === 'ACTIVE'
+            && (currentUser.role === 'ADMIN' || user.id === currentUser.id)
+          ))
+          .map((user) => user.name || user.id)
+          .filter(Boolean);
+        setActiveOwners(Array.from(new Set(owners)));
+      })
+      .catch(() => {
+        // Keep the current logged-in user when SQLite users cannot be loaded.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [currentUser.id, currentUser.role]);
+
   const ownerOptions = useMemo(
-    () => Array.from(new Set([
-      currentUser.name || currentUser.id,
-      ...owners,
-      ...rows.map((row) => row.owner),
-    ].filter(Boolean))),
-    [currentUser.id, currentUser.name, rows],
+    () => activeOwners,
+    [activeOwners],
   );
 
   const statusScopeRows = useMemo(() => {
@@ -444,7 +468,7 @@ export default function ClosingWorkspacePage() {
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">담당자</span>
             <select className="form-select w-full" value={params.owner} onChange={(event) => setParams((current) => ({ ...current, owner: event.target.value }))}>
-              <option>전체</option>
+              {currentUser.role === 'ADMIN' && <option>전체</option>}
               {ownerOptions.map((owner) => <option key={owner}>{owner}</option>)}
             </select>
           </label>

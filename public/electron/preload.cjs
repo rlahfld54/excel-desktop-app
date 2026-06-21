@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld("api", {
   updateUserAccount: (payload) => ipcRenderer.invoke("users:update", payload),
   deleteUserAccount: (payload) => ipcRenderer.invoke("users:delete", payload),
   changeUserPassword: (payload) => ipcRenderer.invoke("users:change-password", payload),
+  getPersonalTodoState: (payload) => ipcRenderer.invoke("todos:get-personal", payload),
+  savePersonalTodoState: (payload) => ipcRenderer.invoke("todos:save-personal", payload),
   importBootstrapData: (payload) => ipcRenderer.invoke("sync:import-bootstrap", payload),
   addEvent: (event) => ipcRenderer.invoke("events:add", event),
   getEvents: () => ipcRenderer.invoke("events:list"),

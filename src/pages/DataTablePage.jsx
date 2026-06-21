@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
-import { getUsers } from '../utils/authSession';
+import { getCurrentUser } from '../utils/authSession';
 import {
   applyValidationStatus,
   validateBeforeInsert,
@@ -53,6 +53,7 @@ function getCurrentMonthRange() {
 }
 
 export default function DataTablePage() {
+  const currentUser = getCurrentUser();
   const fileName = useWorkspaceDataStore((state) => state.fileName);
   const columns = useWorkspaceDataStore((state) => state.columns);
   const rows = useWorkspaceDataStore((state) => state.rows);
@@ -63,7 +64,7 @@ export default function DataTablePage() {
     status: '전체',
     customer: '',
     product: '',
-    owner: '전체',
+    owner: currentUser.name || currentUser.id || '전체',
     pageSize: 50,
   }));
   const [page, setPage] = useState(1);
@@ -84,7 +85,34 @@ export default function DataTablePage() {
   const productCodeIndex = getColumnIndex(columns, ['품목 코드', '품목코드', '상품코드', '제품코드']);
   const productNameIndex = getColumnIndex(columns, ['품목명', '상품명', '제품명']);
   const ownerIndex = getColumnIndex(columns, ['담당자', '담당자명', '소유자']);
-  const [serverOwnerOptions, setServerOwnerOptions] = useState(() => getUsers().map((user) => user.name).filter(Boolean));
+  const [serverOwnerOptions, setServerOwnerOptions] = useState(() => (
+    [currentUser.name || currentUser.id].filter(Boolean)
+  ));
+
+  useEffect(() => {
+    let active = true;
+    if (!window.api?.listUsers) return undefined;
+
+    window.api.listUsers()
+      .then((result) => {
+        if (!active) return;
+        const owners = (result?.users ?? [])
+          .filter((user) => (
+            user.status === 'ACTIVE'
+            && (currentUser.role === 'ADMIN' || user.id === currentUser.id)
+          ))
+          .map((user) => user.name || user.id)
+          .filter(Boolean);
+        setServerOwnerOptions(Array.from(new Set(owners)));
+      })
+      .catch(() => {
+        // Keep the current logged-in user when the SQLite user list is unavailable.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [currentUser.id, currentUser.role]);
 
   const filteredRows = useMemo(() => {
     const customerQuery = params.customer.trim().toLowerCase();
@@ -114,9 +142,10 @@ export default function DataTablePage() {
     return ['전체', ...Array.from(new Set([...detected, '정상', '확인 필요', '반려', '승인 완료']))];
   }, [rows, statusIndex]);
   const ownerOptions = useMemo(() => {
-    const detected = ownerIndex >= 0 ? rows.map((row) => row[ownerIndex]).filter(Boolean) : [];
-    return ['전체', ...Array.from(new Set([...serverOwnerOptions, ...detected]))];
-  }, [ownerIndex, rows, serverOwnerOptions]);
+    return currentUser.role === 'ADMIN'
+      ? ['전체', ...serverOwnerOptions]
+      : serverOwnerOptions;
+  }, [currentUser.role, serverOwnerOptions]);
   const isSqlQueryMode = Boolean(window.api?.querySalesData);
   const sqlRows = useMemo(() => rows.map((row, rowIndex) => ({ row, rowIndex })), [rows]);
   const sortedRows = useMemo(() => {
@@ -180,7 +209,6 @@ export default function DataTablePage() {
             rowActions: {},
           });
           setServerTotal(Number(data.total) || 0);
-          setServerOwnerOptions(Array.isArray(data.ownerOptions) ? data.ownerOptions : []);
           setPage(Number(data.page) || nextPage);
           setSelectedIndex(0);
           return;

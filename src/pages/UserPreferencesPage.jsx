@@ -2,13 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import { FormField } from '../components/common';
 import PageShell from './PageShell';
-import { addActivityLog, getCurrentUser, updateUser } from '../utils/authSession';
+import { addActivityLog, getCurrentUser, saveUsers } from '../utils/authSession';
 import { getBusinessCard } from '../utils/businessCard';
 
 function makeForm(user) {
   return {
     name: user.name ?? '',
-    password: user.password ?? '0000',
     department: user.department ?? '',
     title: user.title ?? '',
     email: user.email ?? '',
@@ -93,7 +92,25 @@ export default function UserPreferencesPage() {
   };
 
   const handleSave = async () => {
-    updateUser(currentUser.id, form);
+    if (window.api?.updateUserAccount) {
+      try {
+        await window.api.updateUserAccount({
+          username: currentUser.id,
+          displayName: form.name,
+          role: currentUser.role,
+          departmentName: form.department,
+          title: form.title,
+          email: form.email,
+          phone: form.phone,
+          status: currentUser.status,
+        });
+        const usersResult = await window.api.listUsers();
+        saveUsers(usersResult.users ?? []);
+      } catch (error) {
+        setStateText(`프로필 저장 실패: ${error.message}`);
+        return;
+      }
+    }
     if (window.api?.saveAppSettings) {
       try {
         const nextSettings = {
@@ -183,9 +200,6 @@ export default function UserPreferencesPage() {
             </FormField>
             <FormField label="이름" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" value={form.name} onChange={(event) => handleChange('name', event.target.value)} />
-            </FormField>
-            <FormField label="비밀번호" labelClassName="uppercase text-gray-400 dark:text-gray-500">
-              <input className="form-input w-full font-mono" value={form.password} onChange={(event) => handleChange('password', event.target.value)} />
             </FormField>
             <FormField label="부서" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" value={form.department} onChange={(event) => handleChange('department', event.target.value)} />

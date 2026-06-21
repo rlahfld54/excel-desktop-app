@@ -116,7 +116,7 @@ export default function SendHistoryPage() {
     try {
       const result = await window.api.getSendPackages({
         createdBy: currentUser.id,
-        isAdmin: currentUser.id === '황주은' && currentUser.role === 'ADMIN',
+        isAdmin: currentUser.role === 'ADMIN',
       });
       setNextItems(result.packages ?? []);
       setLoadState(result.packages?.length ? 'SQLite 연결됨' : 'SQLite 연결됨 / 이력 없음');
@@ -148,7 +148,7 @@ export default function SendHistoryPage() {
         status,
         memo,
         createdBy: currentUser.id,
-        isAdmin: currentUser.id === '황주은' && currentUser.role === 'ADMIN',
+        isAdmin: currentUser.role === 'ADMIN',
       });
       setNextItems(result.packages ?? []);
       setUpdateState(`${selectedItem.customerName} 상태를 ${status}(으)로 변경했습니다.`);

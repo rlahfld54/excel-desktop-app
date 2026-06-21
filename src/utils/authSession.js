@@ -65,6 +65,11 @@ export function saveUsers(users) {
   return normalized;
 }
 
+export function clearUserCache() {
+  removeJson(usersStorageKey);
+  notifyAuthChanged();
+}
+
 export function getSession() {
   const saved = readJson(sessionStorageKey, null);
   if (saved?.userId && saved?.role) return saved;

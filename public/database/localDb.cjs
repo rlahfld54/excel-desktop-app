@@ -284,6 +284,14 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_department
 ON users(department_name, status);
 
+CREATE TABLE IF NOT EXISTS user_todo_state (
+  username TEXT PRIMARY KEY,
+  todos_json TEXT NOT NULL DEFAULT '[]',
+  history_json TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(username) REFERENCES users(username) ON DELETE CASCADE
+);
+
 
 CREATE TABLE IF NOT EXISTS contacts (
   contact_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -340,26 +348,6 @@ CREATE TABLE IF NOT EXISTS message_templates (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-
-INSERT OR IGNORE INTO message_templates (
-  template_id,
-  template_name,
-  channel,
-  subject_template,
-  body_template,
-  tone,
-  status
-)
-VALUES (
-  1,
-  '거래처 검수 협조 요청',
-  'EMAIL',
-  '[확인 요청] {{closing_month}} 매출 자료 검수 협조 요청드립니다',
-  '안녕하세요. 바쁘신 와중에 확인 요청드립니다.\n\n첨부드린 {{customer_name}} 매출 자료 중 확인이 필요한 항목이 있어 공유드립니다. 혹시 저희 쪽에서 추가로 맞춰드릴 내용이 있다면 편하게 알려주시면 감사하겠습니다.\n\n확인 부탁드립니다.\n감사합니다.',
-  'COOPERATIVE',
-  'ACTIVE'
-);
-
 
 CREATE TABLE IF NOT EXISTS email_history (
   email_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -436,6 +424,9 @@ ON email_history(package_id, status);
   ensureColumn(db, "sales", "transaction_date", "TEXT");
   ensureColumn(db, "sales", "owner_name", "TEXT");
   ensureColumn(db, "email_history", "created_by", "TEXT");
+  ensureColumn(db, "users", "title", "TEXT");
+  ensureColumn(db, "users", "email", "TEXT");
+  ensureColumn(db, "users", "phone", "TEXT");
   if (tableExists(db, "sales_rows")) {
     ensureColumn(db, "sales_rows", "transaction_date", "TEXT");
     ensureColumn(db, "sales_rows", "owner_name", "TEXT");
@@ -786,6 +777,10 @@ ON email_history(package_id, status);
     `);
   }
 
+  ensureColumn(db, "users", "title", "TEXT");
+  ensureColumn(db, "users", "email", "TEXT");
+  ensureColumn(db, "users", "phone", "TEXT");
+
   db.pragma("foreign_keys = ON");
 
   return db;
@@ -793,6 +788,14 @@ ON email_history(package_id, status);
 
 function toJson(value) {
   return JSON.stringify(value ?? null);
+}
+
+function fromJson(value, fallback) {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function getColumnIndex(columns, names) {
@@ -2343,6 +2346,9 @@ function listLocalUsers(database) {
       display_name AS name,
       role,
       department_name AS department,
+      title,
+      email,
+      phone,
       status
     FROM users
     ORDER BY user_id
@@ -2442,6 +2448,9 @@ function updateLocalUser(database, payload = {}) {
       display_name = @displayName,
       role = @role,
       department_name = @departmentName,
+      title = @title,
+      email = @email,
+      phone = @phone,
       status = @status,
       updated_at = CURRENT_TIMESTAMP
     WHERE username = @username
@@ -2450,6 +2459,9 @@ function updateLocalUser(database, payload = {}) {
     displayName: String(payload.displayName ?? username).trim() || username,
     role: nextRole,
     departmentName: String(payload.departmentName ?? "").trim() || "미지정",
+    title: String(payload.title ?? "").trim(),
+    email: String(payload.email ?? "").trim(),
+    phone: String(payload.phone ?? "").trim(),
     status: nextStatus,
   });
 
@@ -2502,6 +2514,48 @@ function changeLocalUserPassword(database, payload = {}) {
     WHERE username = ?
   `).run(hashPassword(nextPassword), username);
   return { username };
+}
+
+function getUserTodoState(database, username) {
+  const normalizedUsername = String(username ?? "").trim();
+  const row = database.prepare(`
+    SELECT todos_json AS todosJson, history_json AS historyJson, updated_at AS updatedAt
+    FROM user_todo_state
+    WHERE username = ?
+  `).get(normalizedUsername);
+
+  return {
+    username: normalizedUsername,
+    todos: fromJson(row?.todosJson, []),
+    history: fromJson(row?.historyJson, []),
+    updatedAt: row?.updatedAt ?? null,
+  };
+}
+
+function saveUserTodoState(database, payload = {}) {
+  const username = String(payload.username ?? "").trim();
+  if (!database.prepare("SELECT 1 FROM users WHERE username = ?").get(username)) {
+    throw new Error("투두를 저장할 사용자를 찾을 수 없습니다.");
+  }
+
+  const current = getUserTodoState(database, username);
+  const todos = Array.isArray(payload.todos) ? payload.todos : current.todos;
+  const history = Array.isArray(payload.history) ? payload.history : current.history;
+
+  database.prepare(`
+    INSERT INTO user_todo_state (username, todos_json, history_json, updated_at)
+    VALUES (@username, @todosJson, @historyJson, CURRENT_TIMESTAMP)
+    ON CONFLICT(username) DO UPDATE SET
+      todos_json = excluded.todos_json,
+      history_json = excluded.history_json,
+      updated_at = CURRENT_TIMESTAMP
+  `).run({
+    username,
+    todosJson: toJson(todos),
+    historyJson: toJson(history),
+  });
+
+  return getUserTodoState(database, username);
 }
 
 function importBootstrapData(database, payload = {}) {
@@ -2629,6 +2683,16 @@ function registerDatabaseIpc(ipcMain, app) {
   ipcMain.handle("users:change-password", (_, payload) => ({
     ok: true,
     changed: changeLocalUserPassword(getDatabase(app), payload),
+  }));
+
+  ipcMain.handle("todos:get-personal", (_, payload) => ({
+    ok: true,
+    state: getUserTodoState(getDatabase(app), payload?.username),
+  }));
+
+  ipcMain.handle("todos:save-personal", (_, payload) => ({
+    ok: true,
+    state: saveUserTodoState(getDatabase(app), payload),
   }));
 
   ipcMain.handle("sync:import-bootstrap", (_, payload) => ({
@@ -3178,11 +3242,13 @@ module.exports = {
   changeLocalUserPassword,
   getDatabaseForInternalUse: getDatabase,
   getDatabasePath,
+  getUserTodoState,
   importBootstrapData,
   initializeDatabase,
   listLocalUsers,
   registerLocalUser,
   registerDatabaseIpc,
+  saveUserTodoState,
   updateLocalUser,
   deleteLocalUser,
 };

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import Logo from '../images/logo.svg';
 import { addActivityLog, saveSession, saveUsers } from '../utils/authSession';
+import { hydratePersonalTodos } from '../utils/todoSchedule';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -41,6 +42,7 @@ export default function LoginPage() {
     }
 
     const selectedUser = result.user;
+    await hydratePersonalTodos(selectedUser.id);
     saveUsers(users.map((user) => user.id === selectedUser.id ? selectedUser : user));
     saveSession({
       userId: selectedUser.id,

@@ -20,123 +20,8 @@ export const priorityMeta = {
   },
 };
 
-export const defaultTodos = [
-  {
-    id: 'customer-contact',
-    title: '거래처 담당자 확인',
-    detail: '확인 필요 업체에 마감 금액 기준 회신 받기',
-    priority: 'HIGH',
-    due: '10일 마감',
-    dueDate: '2026-06-10',
-    reminderAt: '09:00',
-    done: false,
-    path: '/closing-workspace/overview',
-    itemType: 'TODO',
-  },
-  {
-    id: 'amount-confirm',
-    title: '마감 금액 확정',
-    detail: '거래처 회신 금액과 내부 집계 금액 맞추기',
-    priority: 'HIGH',
-    due: '25일 마감',
-    dueDate: '2026-06-25',
-    reminderAt: '10:00',
-    done: false,
-    path: '/closing-workspace/overview',
-    itemType: 'TODO',
-  },
-  {
-    id: 'tax-invoice-check',
-    title: '세금계산서 대조',
-    detail: '세금계산서 발행 금액과 확정 금액 차이 확인',
-    priority: 'HIGH',
-    due: '30일 마감',
-    dueDate: '2026-06-30',
-    reminderAt: '14:00',
-    done: false,
-    path: '/closing-workspace/overview',
-    itemType: 'SCHEDULE',
-  },
-  {
-    id: 'remaining-customers',
-    title: '남은 마감 업체 정리',
-    detail: '대시보드 남은 업체 목록에서 지연 단계 확인',
-    priority: 'MEDIUM',
-    due: '오늘',
-    dueDate: '2026-06-09',
-    reminderAt: '16:00',
-    done: false,
-    path: '/dashboard',
-    itemType: 'TODO',
-  },
-  {
-    id: 'request-package',
-    title: '확인 요청 패키지 준비',
-    detail: '거래처별 PDF/XLSX와 발송 목록 점검',
-    priority: 'LOW',
-    due: '이번 주',
-    dueDate: '2026-06-13',
-    reminderAt: '',
-    done: false,
-    path: '/closing-workspace/overview',
-    itemType: 'TODO',
-  },
-];
-
-export const defaultTeamTodos = [
-  {
-    id: 'team-closing-10',
-    title: '10일 마감 회신 취합',
-    detail: '거래처 회신, 미확정 사유, 담당자별 남은 업체를 총무팀 기준으로 정리',
-    priority: 'HIGH',
-    due: '총무팀',
-    dueDate: '2026-06-10',
-    reminderAt: '09:30',
-    done: false,
-    path: '/schedule/todos',
-    scope: 'TEAM',
-    itemType: 'TODO',
-  },
-  {
-    id: 'team-department-requests',
-    title: '타부서 요청 정리',
-    detail: '영업/물류/구매팀에서 들어온 마감 관련 요청을 담당자별로 배정',
-    priority: 'MEDIUM',
-    due: '총무팀',
-    dueDate: '2026-06-11',
-    reminderAt: '11:00',
-    done: false,
-    path: '/schedule/todos',
-    scope: 'TEAM',
-    itemType: 'SCHEDULE',
-  },
-  {
-    id: 'team-executive-report',
-    title: '사장님 보고 자료 업데이트',
-    detail: '위험 업체, 미확정 금액, 내부 검토 현황을 보고용으로 갱신',
-    priority: 'HIGH',
-    due: '총무팀',
-    dueDate: '2026-06-12',
-    reminderAt: '15:00',
-    done: false,
-    path: '/results/executive-dashboard',
-    scope: 'TEAM',
-    itemType: 'SCHEDULE',
-  },
-  {
-    id: 'team-closing-25-precheck',
-    title: '25일 마감 사전 점검',
-    detail: '마감장 미발송, 금액 미확정, 세금계산서 발행 대기 업체 확인',
-    priority: 'MEDIUM',
-    due: '총무팀',
-    dueDate: '2026-06-16',
-    reminderAt: '09:00',
-    done: false,
-    path: '/closing-workspace/overview',
-    scope: 'TEAM',
-    itemType: 'TODO',
-  },
-];
+export const defaultTodos = [];
+export const defaultTeamTodos = [];
 
 function readStore() {
   try {
@@ -153,6 +38,16 @@ function writeStore(store) {
   } catch {
     // Todo state is helpful but not critical.
   }
+}
+
+function savePersonalStateToDatabase(userId, patch) {
+  if (!window.api?.savePersonalTodoState || !userId) return;
+  window.api.savePersonalTodoState({
+    username: userId,
+    ...patch,
+  }).catch(() => {
+    // The local cache remains usable when SQLite is temporarily unavailable.
+  });
 }
 
 function todayKey(date = new Date()) {
@@ -186,12 +81,18 @@ export function readTodos(userId) {
     return userTodos.map((todo) => normalizeTodo(todo, todo.itemType));
   }
 
-  return defaultTodos.map((todo) => normalizeTodo(todo, todo.itemType));
+  return [];
 }
 
 export function initializePersonalTodos(userId) {
   const store = readStore();
-  if (store[userId]) return;
+  const existing = store[userId];
+  const legacyDefaultIds = new Set(defaultTodos.map((todo) => todo.id));
+  const containsOnlyLegacyDefaults = Array.isArray(existing?.todos)
+    && existing.todos.length > 0
+    && existing.todos.every((todo) => legacyDefaultIds.has(todo.id) && !todo.custom);
+
+  if (existing && !containsOnlyLegacyDefaults) return;
   writeStore({
     ...store,
     [userId]: {
@@ -199,6 +100,7 @@ export function initializePersonalTodos(userId) {
       history: [],
     },
   });
+  savePersonalStateToDatabase(userId, { todos: [], history: [] });
 }
 
 export function clearPersonalTodoData(userId) {
@@ -207,6 +109,25 @@ export function clearPersonalTodoData(userId) {
   const nextStore = { ...store };
   delete nextStore[userId];
   writeStore(nextStore);
+}
+
+export async function hydratePersonalTodos(userId) {
+  if (!userId || !window.api?.getPersonalTodoState) {
+    initializePersonalTodos(userId);
+    return readTodos(userId);
+  }
+
+  const result = await window.api.getPersonalTodoState({ username: userId });
+  const state = result?.state ?? { todos: [], history: [] };
+  const store = readStore();
+  writeStore({
+    ...store,
+    [userId]: {
+      todos: Array.isArray(state.todos) ? state.todos : [],
+      history: Array.isArray(state.history) ? state.history : [],
+    },
+  });
+  return readTodos(userId);
 }
 
 export function readTeamTodos() {
@@ -235,6 +156,7 @@ export function saveTodos(userId, todos) {
       todos,
     },
   });
+  savePersonalStateToDatabase(userId, { todos });
 }
 
 export function saveTeamTodos(todos) {
@@ -265,6 +187,7 @@ export function saveTodoHistory(userId, history) {
       history: history.slice(0, 300),
     },
   });
+  savePersonalStateToDatabase(userId, { history: history.slice(0, 300) });
 }
 
 export function saveTeamTodoHistory(history) {

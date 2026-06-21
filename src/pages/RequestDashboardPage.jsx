@@ -74,7 +74,7 @@ export default function RequestDashboardPage() {
         window.api.getMessageTemplates(),
         window.api.getSendPackages({
           createdBy: currentUser.id,
-          isAdmin: currentUser.id === '황주은' && currentUser.role === 'ADMIN',
+          isAdmin: currentUser.role === 'ADMIN',
         }),
       ]);
 

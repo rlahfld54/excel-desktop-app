@@ -41,6 +41,9 @@ import SystemStatusPage from './pages/SystemStatusPage';
 import CacheManagerPage from './pages/CacheManagerPage';
 import NotFoundPage from './pages/NotFoundPage';
 import { getCurrentUser, hasActiveSession } from './utils/authSession';
+import { saveUsers } from './utils/authSession';
+import { getSession } from './utils/authSession';
+import { hydratePersonalTodos } from './utils/todoSchedule';
 import { menuGroups, pageRoutes } from './routesConfig'; // 메뉴 라우터 모음
 
 const routeComponents = {
@@ -100,6 +103,10 @@ function App() {
       if (!window.api?.getSetupStatus) return;
       try {
         const result = await window.api.getSetupStatus();
+        const usersResult = await window.api.listUsers?.();
+        if (usersResult?.ok) saveUsers(usersResult.users ?? []);
+        const session = getSession();
+        if (session?.userId) await hydratePersonalTodos(session.userId);
         if (mounted) setSetupState({ loading: false, completed: Boolean(result.completed) });
       } catch {
         if (mounted) setSetupState({ loading: false, completed: false });
