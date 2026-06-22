@@ -21,6 +21,9 @@
     "postinstall": "electron-builder install-app-deps",
     "preview": "vite preview",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "seed:automotive": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/seed-automotive-data.cjs",
+    "seed:automotive:inspect": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/seed-automotive-data.cjs --inspect",
+    "verify:sales-query": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/verify-sales-query.cjs",
     "start": "electron ."
   },
   "dependencies": {

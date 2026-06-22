@@ -1,5 +1,3 @@
-export const reportTemplateStorageKey = 'excel-workspace:reportTemplates';
-
 export const defaultReportTemplates = [
   {
     id: 'monthly-sales',
@@ -75,25 +73,11 @@ export function normalizeTemplate(template) {
 }
 
 export function readReportTemplates() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(reportTemplateStorageKey));
-    if (Array.isArray(saved) && saved.length > 0) {
-      const normalizedSaved = saved.map(normalizeTemplate);
-      const savedIds = new Set(normalizedSaved.map((template) => template.id));
-      const missingDefaults = defaultReportTemplates.filter((template) => !savedIds.has(template.id));
-      return [...normalizedSaved, ...missingDefaults];
-    }
-
-    return defaultReportTemplates;
-  } catch {
-    return defaultReportTemplates;
-  }
+  return defaultReportTemplates;
 }
 
 export function saveReportTemplates(templates) {
-  const normalized = templates.map(normalizeTemplate);
-  localStorage.setItem(reportTemplateStorageKey, JSON.stringify(normalized));
-  return normalized;
+  return templates.map(normalizeTemplate);
 }
 
 export function createEmptyReportTemplate() {

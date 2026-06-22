@@ -1,8 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
 import Sidebar from '../partials/Sidebar';
 import Header from '../partials/Header';
 import Breadcrumbs from '../useComponents/Breadcrumbs';
+
+const EmbeddedPageShellContext = createContext(false);
+
+export function EmbeddedPageShellProvider({ children }) {
+  return (
+    <EmbeddedPageShellContext.Provider value>
+      {children}
+    </EmbeddedPageShellContext.Provider>
+  );
+}
 
 function escapeOptionText(value) {
   return String(value)
@@ -135,6 +145,7 @@ function bindTableTools(root) {
 }
 
 function PageShell({ title, description, children }) {
+  const isEmbedded = useContext(EmbeddedPageShellContext);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [contentNode, setContentNode] = useState(null);
 
@@ -158,6 +169,18 @@ function PageShell({ title, description, children }) {
       cleanups.forEach((cleanup) => cleanup?.());
     };
   }, [contentNode, children]);
+
+  if (isEmbedded) {
+    return (
+      <div ref={setContentNode} className="min-w-0 p-4 sm:p-6">
+        <div className="mb-5 border-b border-gray-200 pb-4 dark:border-gray-700/60">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 md:text-2xl">{title}</h1>
+          {description && <p className="mt-2 max-w-4xl text-sm text-gray-600 dark:text-gray-400">{description}</p>}
+        </div>
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen overflow-hidden">

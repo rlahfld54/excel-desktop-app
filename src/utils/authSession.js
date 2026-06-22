@@ -1,7 +1,7 @@
-export const usersStorageKey = 'excel-workspace:users';
 export const sessionStorageKey = 'excel-workspace:adminSession';
-export const logsStorageKey = 'excel-workspace:activityLogs';
 export const authChangedEvent = 'excel-workspace:auth-changed';
+let usersCache = [];
+let logsCache = [];
 
 export const adminUserId = '';
 export const defaultUsers = [];
@@ -53,20 +53,18 @@ export function ensureAdminUser(users) {
 }
 
 export function getUsers() {
-  const users = ensureAdminUser(readJson(usersStorageKey, defaultUsers));
-  writeJson(usersStorageKey, users);
-  return users;
+  return ensureAdminUser(usersCache);
 }
 
 export function saveUsers(users) {
   const normalized = ensureAdminUser(users);
-  writeJson(usersStorageKey, normalized);
+  usersCache = normalized;
   notifyAuthChanged();
   return normalized;
 }
 
 export function clearUserCache() {
-  removeJson(usersStorageKey);
+  usersCache = [];
   notifyAuthChanged();
 }
 
@@ -145,7 +143,7 @@ export function createLog(level, action, target, userId = adminUserId) {
 }
 
 export function getLogs() {
-  return readJson(logsStorageKey, []);
+  return logsCache;
 }
 
 export function getVisibleLogs(user = getCurrentUser()) {
@@ -156,8 +154,8 @@ export function getVisibleLogs(user = getCurrentUser()) {
 }
 
 export function saveLogs(logs) {
-  writeJson(logsStorageKey, logs);
-  return logs;
+  logsCache = Array.isArray(logs) ? logs : [];
+  return logsCache;
 }
 
 export function addActivityLog(level, action, target, userId = getSession()?.userId ?? '') {

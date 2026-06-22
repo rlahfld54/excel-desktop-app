@@ -3,16 +3,9 @@ import { Link } from 'react-router-dom';
 
 import PageShell from './PageShell';
 import { parseNumber } from '../data/sampleSalesData';
-import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 import { getCurrentUser } from '../utils/authSession';
 import { priorityMeta, readTeamTodos, todoChangedEvent } from '../utils/todoSchedule';
-
-const defaultDepartmentRequests = [
-  { id: 'REQ-001', department: '영업팀', title: '6월 거래처 마감 금액 확인 요청', due: '오늘 14:00', owner: '김민서', priority: 'HIGH', status: '확인 필요' },
-  { id: 'REQ-002', department: '물류팀', title: '반품 처리 기준 자료 공유 요청', due: '오늘 16:00', owner: '박정우', priority: 'MEDIUM', status: '진행 중' },
-  { id: 'REQ-003', department: '구매팀', title: '마감 금액 내부 승인 재확인', due: '내일 10:00', owner: '이서연', priority: 'HIGH', status: '대기' },
-  { id: 'REQ-004', department: 'CS팀', title: '거래처 담당자 연락처 변경 반영', due: '06-13', owner: '최현우', priority: 'LOW', status: '접수' },
-];
+import { getCurrentMonthSalesRange, queryAllSalesData } from '../utils/sqlSalesData';
 
 function toCurrency(value) {
   if (value >= 100000000) return `${(value / 100000000).toFixed(1)}억원`;
@@ -465,10 +458,9 @@ export default function Dashboard() {
   const currentUser = getCurrentUser();
   const isAdmin = currentUser.role === 'ADMIN';
   const roleInfo = getRoleCopy(currentUser.role);
-  const rows = useWorkspaceDataStore((state) => state.rows);
-  const loadLatest = useWorkspaceDataStore((state) => state.loadLatest);
+  const [rows, setRows] = useState([]);
   const [teamSchedules, setTeamSchedules] = useState(() => readTeamTodos());
-  const [departmentRequests, setDepartmentRequests] = useState(defaultDepartmentRequests);
+  const [departmentRequests, setDepartmentRequests] = useState([]);
   const scopedRows = rows;
   const [dailySalesTrend, setDailySalesTrend] = useState(null);
   const metrics = useMemo(() => {
@@ -486,10 +478,18 @@ export default function Dashboard() {
   }, [dailySalesTrend, isAdmin, scopedRows]);
 
   useEffect(() => {
-    loadLatest().catch(() => {
-      // Browser-only development keeps the workspace store fallback data.
-    });
-  }, [loadLatest]);
+    let active = true;
+    queryAllSalesData(getCurrentMonthSalesRange())
+      .then((result) => {
+        if (active) setRows(result.rows);
+      })
+      .catch(() => {
+        if (active) setRows([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -501,9 +501,7 @@ export default function Dashboard() {
       setDepartmentRequests(result.requests);
     }
 
-    loadDepartmentRequests().catch(() => {
-      // Keep the bundled fallback requests when SQLite is unavailable.
-    });
+    loadDepartmentRequests().catch(() => setDepartmentRequests([]));
 
     return () => {
       isMounted = false;
@@ -526,9 +524,7 @@ export default function Dashboard() {
       });
     }
 
-    loadDailySalesTrend().catch(() => {
-      // Browser-only development keeps the sample chart when Electron IPC is unavailable.
-    });
+    loadDailySalesTrend().catch(() => setDailySalesTrend(null));
 
     return () => {
       isMounted = false;

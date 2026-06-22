@@ -84,72 +84,44 @@ export const menuGroups = [
     basePath: "/settings",
     items: [
       {
-        label: "마이페이지",
-        path: "/settings/preferences",
-        component: "UserPreferencesPage",
+        label: "내 계정",
+        path: "/settings/account",
+        component: "AccountSettingsHubPage",
       },
       {
-        label: "저장 설정",
-        path: "/settings/save",
-        component: "SaveSettingsPage",
+        label: "저장 및 백업",
+        path: "/settings/storage",
+        component: "StorageSettingsHubPage",
+      },
+      {
+        label: "사용자 관리",
+        path: "/settings/users",
+        component: "UserSettingsHubPage",
         allowedRoles: ["ADMIN"],
       },
       {
-        label: "파일 관리",
-        path: "/settings/file-manager",
-        component: "FileManagerPage",
-      },
-      {
-        label: "최근 작업",
-        path: "/settings/recent-tasks",
-        component: "RecentTasksPage",
-      },
-      {
-        label: "동기화 설정",
-        path: "/settings/sync",
-        component: "SyncSettingsPage",
-        allowedRoles: ["ADMIN"],
-      },
-      {
-        label: "보안",
-        path: "/settings/security",
-        component: "SecurityPage",
-      },
-      {
-        label: "백업 및 복구",
-        path: "/settings/local-backup",
-        component: "LocalBackupPage",
-      },
-      {
-        label: "클라우드 백업",
-        path: "/settings/cloud-backup",
-        component: "CloudBackupPage",
-      },
-      {
-        label: "시스템 상태",
-        path: "/settings/system-status",
-        component: "SystemStatusPage",
-        allowedRoles: ["ADMIN"],
-      },
-      {
-        label: "캐시 관리",
-        path: "/settings/cache-manager",
-        component: "CacheManagerPage",
-        allowedRoles: ["ADMIN"],
-      },
-      {
-        label: "활동 로그",
-        path: "/results/activity-logs",
-        component: "ActivityLogsPage",
-      },
-      {
-        label: "작업 이력",
-        path: "/results/task-history",
-        component: "TaskHistoryPage",
+        label: "시스템 관리",
+        path: "/settings/system",
+        component: "SystemSettingsHubPage",
         allowedRoles: ["ADMIN"],
       },
     ],
   },
+];
+
+const compatibilityRoutes = [
+  { label: "마이페이지", path: "/settings/preferences", component: "UserPreferencesPage" },
+  { label: "저장 설정", path: "/settings/save", component: "SaveSettingsPage", allowedRoles: ["ADMIN"] },
+  { label: "파일 관리", path: "/settings/file-manager", component: "FileManagerPage" },
+  { label: "최근 작업", path: "/settings/recent-tasks", component: "RecentTasksPage" },
+  { label: "동기화 설정", path: "/settings/sync", component: "SyncSettingsPage", allowedRoles: ["ADMIN"] },
+  { label: "보안", path: "/settings/security", component: "SecurityPage" },
+  { label: "백업 및 복구", path: "/settings/local-backup", component: "LocalBackupPage" },
+  { label: "클라우드 백업", path: "/settings/cloud-backup", component: "CloudBackupPage", allowedRoles: ["ADMIN"] },
+  { label: "시스템 상태", path: "/settings/system-status", component: "SystemStatusPage", allowedRoles: ["ADMIN"] },
+  { label: "캐시 관리", path: "/settings/cache-manager", component: "CacheManagerPage", allowedRoles: ["ADMIN"] },
+  { label: "활동 로그", path: "/results/activity-logs", component: "ActivityLogsPage", allowedRoles: ["ADMIN"] },
+  { label: "작업 이력", path: "/results/task-history", component: "TaskHistoryPage", allowedRoles: ["ADMIN"] },
 ];
 
 export const pageRoutes = [
@@ -160,6 +132,11 @@ export const pageRoutes = [
       basePath: group.basePath,
     })),
   ),
+  ...compatibilityRoutes.map((item) => ({
+    ...item,
+    groupTitle: "설정",
+    basePath: "/settings",
+  })),
 ];
 
 export function canAccessRoute(route, role) {

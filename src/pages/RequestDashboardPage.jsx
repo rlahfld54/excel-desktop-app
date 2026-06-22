@@ -4,18 +4,10 @@ import { Link } from 'react-router-dom';
 import PageShell from './PageShell';
 import { getCurrentUser } from '../utils/authSession';
 
-const fallbackState = {
-  contacts: [
-    { contactId: 1, customerName: '한빛유통', recipientEmail: 'settle@hanbit.example', preferredChannel: 'EMAIL', status: 'ACTIVE' },
-    { contactId: 2, customerName: '모블상사', recipientEmail: 'admin@moble.example', preferredChannel: 'KAKAO', status: 'ACTIVE' },
-  ],
-  templates: [
-    { templateId: 1, templateName: '거래처 검수 협조 요청', channel: 'EMAIL', status: 'ACTIVE' },
-    { templateId: 2, templateName: '첨부 파일 재확인 요청', channel: 'EMAIL', status: 'ACTIVE' },
-  ],
-  packages: [
-    { packageId: 1, packageName: 'REQ-202605-SAMPLE', status: 'CREATED', itemCount: 2, readyCount: 2, missingEmailCount: 0, closingMonth: '2026-05' },
-  ],
+const emptyState = {
+  contacts: [],
+  templates: [],
+  packages: [],
 };
 
 function MetricCard({ label, value, detail, tone = 'default' }) {
@@ -58,13 +50,13 @@ function StepCard({ index, title, detail, status, to }) {
 
 export default function RequestDashboardPage() {
   const currentUser = getCurrentUser();
-  const [requestState, setRequestState] = useState(fallbackState);
-  const [loadState, setLoadState] = useState('브라우저 미리보기');
+  const [requestState, setRequestState] = useState(emptyState);
+  const [loadState, setLoadState] = useState('SQLite 연결 확인 중');
 
   const loadRequestState = async () => {
     if (!window.api?.getMasterData || !window.api?.getMessageTemplates || !window.api?.getSendPackages) {
-      setRequestState(fallbackState);
-      setLoadState('브라우저 미리보기');
+      setRequestState(emptyState);
+      setLoadState('SQLite 조회는 Electron 데스크톱 앱에서만 사용할 수 있습니다.');
       return;
     }
 
@@ -85,7 +77,7 @@ export default function RequestDashboardPage() {
       });
       setLoadState('SQLite 연결됨');
     } catch (error) {
-      setRequestState(fallbackState);
+      setRequestState(emptyState);
       setLoadState(`SQLite 확인 필요: ${error.message}`);
     }
   };

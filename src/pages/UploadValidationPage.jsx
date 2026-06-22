@@ -18,7 +18,6 @@ import {
   exportValidationWorkbookToXlsx,
 } from '../utils/spreadsheetExport';
 
-const masterStorageKey = 'excel-workspace:masterData';
 const defaultColumns = ['거래일', '거래처', '품목 코드', '품목명', '수량', '단가', '금액', '검증', '담당자'];
 const emptyMasterData = {
   customers: [],
@@ -98,36 +97,10 @@ function similarity(a, b) {
 }
 
 function readLocalMasterData() {
-  if (window.api?.getMasterData) return emptyMasterData;
-
-  try {
-    const saved = JSON.parse(localStorage.getItem(masterStorageKey));
-    const hasBundledSampleCodes = saved?.products?.some((product) => (
-      ['PAPER-A4-001', 'TONER-BLK-2108', 'USB-HUB-04'].includes(product.productCode)
-    ));
-    if (!hasBundledSampleCodes && saved && typeof saved === 'object') {
-      return { ...emptyMasterData, ...saved };
-    }
-  } catch {
-    // Ignore malformed local master data.
-  }
   return emptyMasterData;
 }
 
 function getLatestRowsFallback() {
-  if (window.api?.getLatestData) return { columns: defaultColumns, rows: [] };
-
-  try {
-    const saved = JSON.parse(localStorage.getItem('excel-workspace:workspaceData'));
-    if (saved?.fileName !== 'sample_sales_1200.xlsx' && Array.isArray(saved?.rows)) {
-      return {
-        columns: Array.isArray(saved.columns) ? saved.columns : defaultColumns,
-        rows: saved.rows,
-      };
-    }
-  } catch {
-    // Ignore malformed local workspace data.
-  }
   return { columns: defaultColumns, rows: [] };
 }
 
@@ -570,10 +543,9 @@ export default function UploadValidationPage() {
           const data = await window.api.getMasterData();
           if (data?.customers?.length || data?.products?.length) {
             nextMasterData = data;
-            localStorage.setItem(masterStorageKey, JSON.stringify(data));
           }
         } catch {
-          // Browser mode or unavailable SQLite can use local master data.
+          // SQLite unavailable: keep the screen empty.
         }
       }
 
@@ -588,7 +560,7 @@ export default function UploadValidationPage() {
             };
           }
         } catch {
-          // Keep local fallback.
+          // SQLite unavailable: keep the screen empty.
         }
       }
 

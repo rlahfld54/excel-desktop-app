@@ -1,6 +1,6 @@
-export const todoStorageKey = 'excel-workspace:closingTodos';
 export const todoChangedEvent = 'excel-workspace:todo-changed';
 export const teamTodoUserId = 'team:general-affairs';
+let todoState = {};
 
 export const priorityMeta = {
   HIGH: {
@@ -24,20 +24,12 @@ export const defaultTodos = [];
 export const defaultTeamTodos = [];
 
 function readStore() {
-  try {
-    return JSON.parse(localStorage.getItem(todoStorageKey)) ?? {};
-  } catch {
-    return {};
-  }
+  return todoState;
 }
 
 function writeStore(store) {
-  try {
-    localStorage.setItem(todoStorageKey, JSON.stringify(store));
-    window.dispatchEvent(new CustomEvent(todoChangedEvent));
-  } catch {
-    // Todo state is helpful but not critical.
-  }
+  todoState = store;
+  window.dispatchEvent(new CustomEvent(todoChangedEvent));
 }
 
 function savePersonalStateToDatabase(userId, patch) {
@@ -46,7 +38,7 @@ function savePersonalStateToDatabase(userId, patch) {
     username: userId,
     ...patch,
   }).catch(() => {
-    // The local cache remains usable when SQLite is temporarily unavailable.
+    // SQLite 저장 실패 시 메모리 상태만 유지합니다.
   });
 }
 

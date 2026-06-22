@@ -4,10 +4,10 @@ import { Link } from 'react-router-dom';
 import PageShell from './PageShell';
 import { parseNumber } from '../data/sampleSalesData';
 import { readReportTemplates } from '../data/reportTemplates';
-import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 import { exportStyledReportToXlsx } from '../utils/spreadsheetExport';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
 import { addNotification } from '../utils/appNotifications';
+import { getCurrentMonthSalesRange, queryAllSalesData } from '../utils/sqlSalesData';
 
 const company = {
   name: 'Aster Works',
@@ -69,8 +69,7 @@ function downloadBlob(blob, fileName) {
 
 export default function ReportGeneratorPage() {
   const currentUser = getCurrentUser();
-  const rows = useWorkspaceDataStore((state) => state.rows);
-  const loadLatest = useWorkspaceDataStore((state) => state.loadLatest);
+  const [rows, setRows] = useState([]);
   const [templates] = useState(() => readReportTemplates());
   const [selectedTemplateId, setSelectedTemplateId] = useState(templates[0]?.id);
   const [reportTitle, setReportTitle] = useState('2026년 5월 총무팀 월간 보고서');
@@ -82,10 +81,18 @@ export default function ReportGeneratorPage() {
   const isCustomerClosingTemplate = selectedTemplate?.id === 'customer-closing-send';
 
   useEffect(() => {
-    loadLatest().catch(() => {
-      // Browser-only development keeps the workspace store fallback data.
-    });
-  }, [loadLatest]);
+    let active = true;
+    queryAllSalesData(getCurrentMonthSalesRange())
+      .then((result) => {
+        if (active) setRows(result.rows);
+      })
+      .catch(() => {
+        if (active) setRows([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const summary = useMemo(() => [
     { label: '총 매출액', value: toCurrency(metrics.totalSales), detail: '월간 거래 기준' },

@@ -1,5 +1,5 @@
-export const notificationStorageKey = 'excel-workspace:notifications';
 export const notificationChangedEvent = 'excel-workspace:notifications-changed';
+let notificationCache = [];
 
 function normalizeNotification(notification) {
   return {
@@ -16,16 +16,11 @@ function normalizeNotification(notification) {
 }
 
 function readStoredNotifications() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(notificationStorageKey));
-    return Array.isArray(saved) ? saved.map(normalizeNotification) : [];
-  } catch {
-    return [];
-  }
+  return notificationCache;
 }
 
 function writeStoredNotifications(notifications) {
-  localStorage.setItem(notificationStorageKey, JSON.stringify(notifications.map(normalizeNotification).slice(0, 80)));
+  notificationCache = notifications.map(normalizeNotification).slice(0, 80);
   window.dispatchEvent(new CustomEvent(notificationChangedEvent));
 }
 

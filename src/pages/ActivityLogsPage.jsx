@@ -22,6 +22,7 @@ export default function ActivityLogsPage() {
   const [filter, setFilter] = useState('전체');
   const [selectedUserId, setSelectedUserId] = useState(session.userId);
   const [userMessage, setUserMessage] = useState('');
+  const [isSavingUsers, setIsSavingUsers] = useState(false);
 
   useEffect(() => {
     if (!isAdmin || !window.api?.listUsers) return;
@@ -94,6 +95,30 @@ export default function ActivityLogsPage() {
     }
   };
 
+  const saveAllUsers = async () => {
+    if (!window.api?.updateUserAccount || users.length === 0) return;
+
+    setIsSavingUsers(true);
+    setUserMessage('');
+    try {
+      await Promise.all(users.map((user) => window.api.updateUserAccount({
+        username: user.id,
+        displayName: user.name,
+        role: user.role,
+        departmentName: user.department,
+        status: user.status,
+      })));
+      await reloadUsers();
+      appendLog('INFO', '사용자 정보 일괄 저장', `${users.length}개 계정`);
+      setUserMessage(`사용자 ${users.length}명의 변경사항을 저장했습니다.`);
+    } catch (error) {
+      setUserMessage(error.message);
+      await reloadUsers();
+    } finally {
+      setIsSavingUsers(false);
+    }
+  };
+
   const deleteUser = async (user) => {
     if (user.id === currentUser.id) {
       setUserMessage('현재 로그인한 본인 계정은 보안 설정에서 탈퇴해 주세요.');
@@ -144,7 +169,7 @@ export default function ActivityLogsPage() {
       </div>
 
       <div className="grid grid-cols-12 gap-5">
-        <section className={`col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 ${isAdmin ? 'xl:col-span-7' : ''}`}>
+        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">활동 로그</h2>
             <select className="form-select h-9" value={filter} onChange={(event) => setFilter(event.target.value)}>
@@ -175,14 +200,24 @@ export default function ActivityLogsPage() {
           </div>
         </section>
 
-        {isAdmin && <aside className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-5">
-          <header className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
+        {isAdmin && <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">사용자 관리</h2>
-            <span className="text-xs text-gray-500 dark:text-gray-400">선택: {selectedUser?.id}</span>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <span className="text-xs text-gray-500 dark:text-gray-400">선택: {selectedUser?.id}</span>
+              <button
+                className="btn btn-primary h-9 px-4 text-sm"
+                type="button"
+                disabled={isSavingUsers || users.length === 0}
+                onClick={saveAllUsers}
+              >
+                {isSavingUsers ? '저장 중...' : '변경사항 저장'}
+              </button>
+            </div>
           </header>
           {userMessage && <p className="border-b border-gray-200 px-4 py-3 text-sm font-semibold text-accent-700 dark:border-gray-700/60 dark:text-accent-300">{userMessage}</p>}
-          <div className="max-h-[440px] overflow-auto no-scrollbar">
-            <table className="min-w-[760px] w-full border-separate border-spacing-0 text-sm">
+          <div className="max-h-[440px] overflow-auto">
+            <table className="min-w-[860px] w-full border-separate border-spacing-0 text-sm">
               <thead className="sticky top-0 z-10">
                 <tr>
                   {['아이디', '이름', '권한', '부서', '상태', '관리'].map((column) => (
@@ -217,7 +252,7 @@ export default function ActivityLogsPage() {
               </tbody>
             </table>
           </div>
-        </aside>}
+        </section>}
       </div>
     </PageShell>
   );

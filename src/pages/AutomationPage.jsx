@@ -11,16 +11,8 @@ import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 const defaultColumns = ['거래일', '거래처', '품목 코드', '품목명', '수량', '단가', '금액', '검증', '담당자'];
 const referenceCustomers = [];
 const referenceProducts = [];
-const automationRowsStorageKey = 'excel-workspace:automationRows';
-
 function readSavedAutomationRows() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(automationRowsStorageKey));
-    if (Array.isArray(saved?.rows) && saved.rows.length > 0) return saved.rows;
-    return Array.isArray(saved) && saved.length > 0 ? saved : [];
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 function countAppliedRows(rows) {
@@ -28,25 +20,10 @@ function countAppliedRows(rows) {
 }
 
 function readSavedAutomationMeta() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(automationRowsStorageKey));
-    const rows = Array.isArray(saved?.rows) ? saved.rows : Array.isArray(saved) ? saved : [];
-    return {
-      appliedCount: Number(saved?.appliedCount) || countAppliedRows(rows),
-      savedAt: saved?.savedAt ?? null,
-    };
-  } catch {
-    return { appliedCount: 0, savedAt: null };
-  }
+  return { appliedCount: 0, savedAt: null };
 }
 
-function saveAutomationRows(rows, meta = {}) {
-  localStorage.setItem(automationRowsStorageKey, JSON.stringify({
-    rows,
-    appliedCount: Number(meta.appliedCount) || 0,
-    savedAt: meta.savedAt ?? new Date().toISOString(),
-  }));
-}
+function saveAutomationRows() {}
 
 async function saveAutomationRowsToDatabase(rows, results = {}, fileName = 'automation-applied-sales-rows.xlsx') {
   if (!window.api?.saveData) return { ok: false, mode: 'browser-only' };

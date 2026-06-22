@@ -1,12 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
-import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 import { getCurrentUser } from '../utils/authSession';
-import {
-  applyValidationStatus,
-  validateBeforeInsert,
-} from '../utils/preInsertValidation';
+
+const sqlColumns = [
+  '거래일',
+  '거래처',
+  '품목 코드',
+  '품목명',
+  '수량',
+  '단가',
+  '금액',
+  '검증',
+  '담당자',
+];
 
 function statusClass(status) {
   if (status === '정상' || status === '승인 완료') {
@@ -54,11 +61,8 @@ function getCurrentMonthRange() {
 
 export default function DataTablePage() {
   const currentUser = getCurrentUser();
-  const fileName = useWorkspaceDataStore((state) => state.fileName);
-  const columns = useWorkspaceDataStore((state) => state.columns);
-  const rows = useWorkspaceDataStore((state) => state.rows);
-  const setRows = useWorkspaceDataStore((state) => state.setRows);
-  const stageWorkspace = useWorkspaceDataStore((state) => state.stageWorkspace);
+  const [columns, setColumns] = useState(sqlColumns);
+  const [rows, setRows] = useState([]);
   const [params, setParams] = useState(() => ({
     ...getCurrentMonthRange(),
     status: '전체',
@@ -69,15 +73,13 @@ export default function DataTablePage() {
   }));
   const [page, setPage] = useState(1);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [serverTotal, setServerTotal] = useState(rows.length);
+  const [serverTotal, setServerTotal] = useState(0);
+  const [queryMessage, setQueryMessage] = useState('');
+  const [isQuerying, setIsQuerying] = useState(false);
   const [sortConfig, setSortConfig] = useState({
     column: '거래일',
     direction: 'desc',
   });
-
-  useEffect(() => () => {
-    setRows([]);
-  }, [setRows]);
 
   const statusIndex = getStatusIndex(columns);
   const dateIndex = getDateIndex(columns);
@@ -197,27 +199,35 @@ export default function DataTablePage() {
     };
 
     if (window.api?.querySalesData) {
+      setIsQuerying(true);
+      setQueryMessage('');
       try {
         const result = await window.api.querySalesData(searchParams);
         const data = result?.data;
         if (result?.ok && Array.isArray(data?.rows)) {
-          stageWorkspace({
-            fileName: data.fileName ?? fileName,
-            columns: Array.isArray(data.columns) ? data.columns : columns,
-            rows: data.rows,
-            validationIssues: {},
-            rowActions: {},
-          });
+          setColumns(Array.isArray(data.columns) && data.columns.length > 0 ? data.columns : sqlColumns);
+          setRows(data.rows);
           setServerTotal(Number(data.total) || 0);
           setPage(Number(data.page) || nextPage);
           setSelectedIndex(0);
+          setQueryMessage(Number(data.total) > 0
+            ? `${Number(data.total).toLocaleString('ko-KR')}건을 SQLite에서 조회했습니다.`
+            : '선택한 조건에 해당하는 매출 데이터가 없습니다.');
           return;
         }
       } catch (error) {
+        setRows([]);
+        setServerTotal(0);
+        setQueryMessage(`SQLite 조회 실패: ${error.message}`);
         return;
+      } finally {
+        setIsQuerying(false);
       }
     }
 
+    setRows([]);
+    setServerTotal(0);
+    setQueryMessage('설치된 Electron 앱에서 SQLite 조회를 사용할 수 있습니다.');
     setPage(nextPage);
   };
 
@@ -230,25 +240,6 @@ export default function DataTablePage() {
       direction: current.column === column && current.direction === 'desc' ? 'asc' : 'desc',
     }));
     setPage(1);
-  };
-
-  const runValidation = (targetColumns = columns, targetRows = rows, nextFileName = fileName) => {
-    const result = validateBeforeInsert(targetColumns, targetRows);
-    const stamped = applyValidationStatus(targetColumns, targetRows, result);
-    const issues = Object.fromEntries(
-      Object.entries(result.issuesByRow).map(([rowIndex, rowIssues]) => [rowIndex, rowIssues.map((issue) => `${issue.type}: ${issue.message}`)])
-    );
-
-    stageWorkspace({
-      fileName: nextFileName,
-      columns: stamped.columns,
-      rows: stamped.rows,
-      validationIssues: issues,
-      rowActions: {},
-    });
-    setValidation(result);
-    setValidationIssues(issues);
-    setSelectedIndex(0);
   };
 
   return (
@@ -302,10 +293,13 @@ export default function DataTablePage() {
           </label>
           <div className="flex items-end">
             <button className="btn btn-primary w-full whitespace-nowrap" type="button" onClick={handleSearch}>
-              조회
+              {isQuerying ? '조회 중…' : '조회'}
             </button>
           </div>
         </div>
+        {queryMessage && (
+          <p className="mt-3 text-sm font-medium text-gray-600 dark:text-gray-300">{queryMessage}</p>
+        )}
       </section>
 
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800">

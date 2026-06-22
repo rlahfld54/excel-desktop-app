@@ -908,18 +908,16 @@ function getLatestSalesData(database) {
 }
 
 function getFilteredSalesData(database, options = {}) {
-  const upload = database
+  const latestUpload = database
     .prepare(
-      `
-      SELECT upload_id AS uploadId, file_name AS fileName, uploaded_at AS uploadedAt
-      FROM sales_uploads
-      ORDER BY uploaded_at DESC, upload_id DESC
-      LIMIT 1
-    `,
+      `SELECT upload_id AS uploadId, file_name AS fileName, uploaded_at AS uploadedAt
+       FROM sales_uploads
+       ORDER BY uploaded_at DESC, upload_id DESC
+       LIMIT 1`,
     )
     .get();
 
-  if (!upload) {
+  if (!latestUpload) {
     return {
       ok: true,
       data: {
@@ -949,7 +947,6 @@ function getFilteredSalesData(database, options = {}) {
   const page = Math.max(Number(options.page) || 1, 1);
   const offset = (page - 1) * pageSize;
   const params = {
-    uploadId: upload.uploadId,
     startDate: String(options.startDate ?? ""),
     endDate: String(options.endDate ?? ""),
     status: String(options.status ?? "전체"),
@@ -964,7 +961,6 @@ function getFilteredSalesData(database, options = {}) {
     offset,
   };
   const where = [
-    "upload_id = @uploadId",
     "(@startDate = '' OR transaction_date >= @startDate)",
     "(@endDate = '' OR transaction_date <= @endDate)",
     "(@status = '전체' OR validation_status = @status)",
@@ -1021,19 +1017,36 @@ function getFilteredSalesData(database, options = {}) {
     .prepare(
       `SELECT DISTINCT owner_name AS ownerName
        FROM sales
-       WHERE upload_id = @uploadId
+       WHERE (@startDate = '' OR transaction_date >= @startDate)
+         AND (@endDate = '' OR transaction_date <= @endDate)
          AND TRIM(COALESCE(owner_name, '')) <> ''
        ORDER BY owner_name ASC`,
     )
-    .all({ uploadId: upload.uploadId })
+    .all(params)
     .map((row) => row.ownerName);
+  const source = database
+    .prepare(
+      `SELECT
+         COUNT(DISTINCT sales.upload_id) AS uploadCount,
+         MIN(sales.transaction_date) AS firstDate,
+         MAX(sales.transaction_date) AS lastDate,
+         MAX(uploads.file_name) AS fileName,
+         MAX(uploads.uploaded_at) AS savedAt
+       FROM sales
+       JOIN sales_uploads uploads ON uploads.upload_id = sales.upload_id
+       WHERE (@startDate = '' OR sales.transaction_date >= @startDate)
+         AND (@endDate = '' OR sales.transaction_date <= @endDate)`,
+    )
+    .get(params);
 
   return {
     ok: true,
     data: {
-      id: upload.uploadId,
-      fileName: upload.fileName,
-      savedAt: upload.uploadedAt,
+      id: latestUpload.uploadId,
+      fileName: source?.uploadCount > 1
+        ? `${source.firstDate ?? ""}~${source.lastDate ?? ""} 매출 조회`
+        : source?.fileName ?? latestUpload.fileName,
+      savedAt: source?.savedAt ?? latestUpload.uploadedAt,
       columns: [
         "거래일",
         "거래처",
@@ -3241,6 +3254,7 @@ module.exports = {
   closeDatabase,
   changeLocalUserPassword,
   getDatabaseForInternalUse: getDatabase,
+  getFilteredSalesData,
   getDatabasePath,
   getUserTodoState,
   importBootstrapData,

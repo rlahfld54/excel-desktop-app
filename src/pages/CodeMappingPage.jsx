@@ -4,7 +4,6 @@ import { StatusBadge } from '../components/common';
 import PageShell from './PageShell';
 import { addNotification } from '../utils/appNotifications';
 
-const masterStorageKey = 'excel-workspace:masterData';
 const emptyMasterData = {
   customers: [],
   products: [],
@@ -69,23 +68,6 @@ function DataTable({ title, columns, rows, emptyText }) {
       </div>
     </section>
   );
-}
-
-function getInitialMasterData() {
-  if (window.api?.getMasterData) return emptyMasterData;
-
-  try {
-    const saved = JSON.parse(localStorage.getItem(masterStorageKey));
-    const hasBundledSampleCodes = saved?.products?.some((product) => (
-      ['PAPER-A4-001', 'TONER-BLK-2108', 'USB-HUB-04'].includes(product.productCode)
-    ));
-    if (!hasBundledSampleCodes && saved && typeof saved === 'object') {
-      return { ...emptyMasterData, ...saved };
-    }
-  } catch {
-    // ignore malformed local data
-  }
-  return emptyMasterData;
 }
 
 export default function CodeMappingPage() {

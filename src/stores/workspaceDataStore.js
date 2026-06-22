@@ -11,7 +11,6 @@ const defaultColumns = [
   "검증",
   "담당자",
 ];
-const storageKey = "excel-workspace:workspaceData";
 const appliedStatuses = new Set(["수정 반영", "중복 검토", "검토 필요"]);
 
 function countAppliedRows(rows) {
@@ -19,50 +18,6 @@ function countAppliedRows(rows) {
 }
 
 function readLocalWorkspaceData() {
-  if (window.api?.getLatestData) {
-    return {
-      fileName: "",
-      columns: defaultColumns,
-      rows: [],
-      rowActions: {},
-      validationIssues: {},
-      savedAt: null,
-      appliedCount: 0,
-      sourceMode: "sqlite-loading",
-      isDirty: false,
-    };
-  }
-
-  try {
-    const saved = JSON.parse(localStorage.getItem(storageKey));
-    const isBundledSample =
-      saved?.fileName === "sample_sales_1200.xlsx" ||
-      saved?.sourceMode === "sample";
-    if (
-      !isBundledSample &&
-      Array.isArray(saved?.rows) &&
-      saved.rows.length > 0
-    ) {
-      return {
-        fileName: saved.fileName ?? "workspace-data.xlsx",
-        columns:
-          Array.isArray(saved.columns) && saved.columns.length > 0
-            ? saved.columns
-            : defaultColumns,
-        rows: saved.rows,
-        rowActions: saved.rowActions ?? {},
-        validationIssues: saved.validationIssues ?? {},
-        savedAt: saved.savedAt ?? null,
-        appliedCount:
-          Number(saved.appliedCount) || countAppliedRows(saved.rows),
-        sourceMode: "browser-storage",
-        isDirty: false,
-      };
-    }
-  } catch {
-    // Ignore malformed local fallback data and start with an empty workspace.
-  }
-
   return {
     fileName: "",
     columns: defaultColumns,
@@ -74,29 +29,6 @@ function readLocalWorkspaceData() {
     sourceMode: "empty",
     isDirty: false,
   };
-}
-
-function writeLocalWorkspaceData({
-  fileName,
-  columns,
-  rows,
-  rowActions,
-  validationIssues,
-  savedAt,
-  appliedCount,
-}) {
-  localStorage.setItem(
-    storageKey,
-    JSON.stringify({
-      fileName,
-      columns,
-      rows,
-      rowActions,
-      validationIssues,
-      savedAt,
-      appliedCount,
-    }),
-  );
 }
 
 function buildValidationIssues(results = {}) {
@@ -253,14 +185,43 @@ export const useWorkspaceDataStore = create((set, get) => ({
     set({ isLoading: true, error: "" });
 
     try {
-      let latest = await readLatestFromDatabase();
+      const latest = await readLatestFromDatabase();
 
-      if (!latest) latest = readLocalWorkspaceData();
+      if (!latest && window.api?.getLatestData) {
+        const empty = {
+          fileName: "",
+          columns: defaultColumns,
+          rows: [],
+          rowActions: {},
+          validationIssues: {},
+          savedAt: null,
+          appliedCount: 0,
+          sourceMode: "sqlite-empty",
+          isDirty: false,
+        };
+        set({ ...empty, isLoading: false });
+        return empty;
+      }
 
-      writeLocalWorkspaceData(latest);
-      set({ ...latest, isLoading: false });
-      return latest;
+      const resolved = latest ?? readLocalWorkspaceData();
+      set({ ...resolved, isLoading: false });
+      return resolved;
     } catch (error) {
+      if (window.api?.getLatestData) {
+        const empty = {
+          fileName: "",
+          columns: defaultColumns,
+          rows: [],
+          rowActions: {},
+          validationIssues: {},
+          savedAt: null,
+          appliedCount: 0,
+          sourceMode: "sqlite-error",
+          isDirty: false,
+        };
+        set({ ...empty, isLoading: false, error: error.message });
+        return empty;
+      }
       const fallback = readLocalWorkspaceData();
       set({ ...fallback, isLoading: false, error: error.message });
       return fallback;
@@ -291,7 +252,6 @@ export const useWorkspaceDataStore = create((set, get) => ({
       isDirty: false,
     };
 
-    writeLocalWorkspaceData(localData);
     const databaseResult = await saveRowsToDatabase({
       columns,
       rows,
@@ -319,7 +279,6 @@ export const useWorkspaceDataStore = create((set, get) => ({
   },
 
   resetWorkspace: () => {
-    localStorage.removeItem(storageKey);
     const emptyWorkspace = {
       fileName: "",
       columns: defaultColumns,

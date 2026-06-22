@@ -39,6 +39,12 @@ import SecurityPage from './pages/SecurityPage';
 import TaskHistoryPage from './pages/TaskHistoryPage';
 import SystemStatusPage from './pages/SystemStatusPage';
 import CacheManagerPage from './pages/CacheManagerPage';
+import {
+  AccountSettingsHubPage,
+  StorageSettingsHubPage,
+  UserSettingsHubPage,
+  SystemSettingsHubPage,
+} from './pages/SettingsHubPage';
 import NotFoundPage from './pages/NotFoundPage';
 import { getCurrentUser, hasActiveSession } from './utils/authSession';
 import { saveUsers } from './utils/authSession';
@@ -69,6 +75,10 @@ const routeComponents = {
   TaskHistoryPage,
   SystemStatusPage,
   CacheManagerPage,
+  AccountSettingsHubPage,
+  StorageSettingsHubPage,
+  UserSettingsHubPage,
+  SystemSettingsHubPage,
 };
 
 function ProtectedRoute({ children, allowedRoles }) {

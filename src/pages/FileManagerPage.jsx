@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 
-const folderStorageKey = 'excel-workspace:folderPlan';
 const currentYear = 2026;
 const reportTypes = ['월간 매출', '거래처 오류', '중복 검사', '백업 검증', '요청 발송'];
 const baseFolders = [
@@ -36,12 +35,6 @@ function createFolderPlan(year = currentYear) {
 }
 
 function readFolderPlan() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(folderStorageKey));
-    if (saved?.length) return saved;
-  } catch {
-    // ignore malformed local data
-  }
   return createFolderPlan();
 }
 
@@ -80,13 +73,10 @@ export default function FileManagerPage() {
   const buildPlan = () => {
     const nextFolders = createFolderPlan(Number(selectedYear));
     setFolders(nextFolders);
-    localStorage.setItem(folderStorageKey, JSON.stringify(nextFolders));
     setStateText(`${selectedYear}년 기준 폴더 계획을 다시 만들었습니다.`);
   };
 
   const saveFolderPlan = async () => {
-    localStorage.setItem(folderStorageKey, JSON.stringify(folders));
-
     if (window.api?.saveAppSettings) {
       try {
         const settingsResult = await window.api.getAppSettings?.();
@@ -97,12 +87,12 @@ export default function FileManagerPage() {
         setStateText('폴더 계획을 Electron 설정에 저장했습니다. 실제 생성은 Electron 연결 단계에서 처리합니다.');
         return;
       } catch (error) {
-        setStateText(`브라우저 저장은 완료, Electron 설정 저장은 실패: ${error.message}`);
+        setStateText(`Electron 설정 저장 실패: ${error.message}`);
         return;
       }
     }
 
-    setStateText('브라우저 개발 모드라 폴더 계획을 localStorage에 저장했습니다.');
+    setStateText('Electron 앱에서만 폴더 계획을 저장할 수 있습니다.');
   };
 
   const addCustomFolder = () => {
