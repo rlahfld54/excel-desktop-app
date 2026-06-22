@@ -1,32 +1,13 @@
+import { normalizeDateValue } from './queryValidation';
+
 function isBlank(value) {
   return String(value ?? '').trim() === '';
-}
-
-function parseDateValue(value) {
-  const text = String(value ?? '').trim();
-  if (!text) return null;
-
-  const normalized = text
-    .replace(/[.\/]/g, '-')
-    .replace(/\s+.*/, '');
-
-  const compactMatch = normalized.match(/^(\d{4})(\d{2})(\d{2})$/);
-  if (compactMatch) {
-    return `${compactMatch[1]}-${compactMatch[2]}-${compactMatch[3]}`;
-  }
-
-  const dashedMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (dashedMatch) {
-    return `${dashedMatch[1]}-${dashedMatch[2].padStart(2, '0')}-${dashedMatch[3].padStart(2, '0')}`;
-  }
-
-  return null;
 }
 
 function buildColumnProfile(columns, rows, columnIndex) {
   const values = rows.map((row) => row[columnIndex]);
   const filledValues = values.filter((value) => !isBlank(value));
-  const dateMatches = filledValues.filter((value) => parseDateValue(value));
+  const dateMatches = filledValues.filter((value) => normalizeDateValue(value));
   const uniqueCount = new Set(filledValues.map((value) => String(value))).size;
   const emptyCount = values.length - filledValues.length;
   const header = columns[columnIndex] ?? `Column ${columnIndex + 1}`;
@@ -83,7 +64,7 @@ export function applyUploadPreflight({ parsed, includedIndexes, dateIndexes }) {
     columns: indexMap.map((item) => item.column),
     rows: parsed.rows.map((row) => indexMap.map((item) => {
       const value = row[item.index] ?? '';
-      return dateSet.has(item.index) ? parseDateValue(value) ?? value : value;
+      return dateSet.has(item.index) ? normalizeDateValue(value) ?? value : value;
     })),
   };
 }

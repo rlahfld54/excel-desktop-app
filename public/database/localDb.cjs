@@ -908,6 +908,34 @@ function getLatestSalesData(database) {
 }
 
 function getFilteredSalesData(database, options = {}) {
+  const isValidDateValue = (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const [year, month, day] = value.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return (
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day
+    );
+  };
+  const startDate = String(options.startDate ?? "");
+  const endDate = String(options.endDate ?? "");
+  const customerSearch = String(options.customer ?? "").trim();
+  const productSearch = String(options.product ?? "").trim();
+
+  if (!startDate || !isValidDateValue(startDate)) {
+    throw new Error("시작일은 YYYY-MM-DD 형식의 실제 날짜여야 합니다.");
+  }
+  if (!endDate || !isValidDateValue(endDate)) {
+    throw new Error("마지막일은 YYYY-MM-DD 형식의 실제 날짜여야 합니다.");
+  }
+  if (startDate > endDate) {
+    throw new Error("마지막일은 시작일보다 빠를 수 없습니다.");
+  }
+  if (customerSearch.length > 100 || productSearch.length > 100) {
+    throw new Error("검색어는 100자 이하로 입력해 주세요.");
+  }
+
   const latestUpload = database
     .prepare(
       `SELECT upload_id AS uploadId, file_name AS fileName, uploaded_at AS uploadedAt
@@ -947,15 +975,11 @@ function getFilteredSalesData(database, options = {}) {
   const page = Math.max(Number(options.page) || 1, 1);
   const offset = (page - 1) * pageSize;
   const params = {
-    startDate: String(options.startDate ?? ""),
-    endDate: String(options.endDate ?? ""),
+    startDate,
+    endDate,
     status: String(options.status ?? "전체"),
-    customer: `%${String(options.customer ?? "")
-      .trim()
-      .toLowerCase()}%`,
-    product: `%${String(options.product ?? "")
-      .trim()
-      .toLowerCase()}%`,
+    customer: `%${customerSearch.toLowerCase()}%`,
+    product: `%${productSearch.toLowerCase()}%`,
     owner: String(options.owner ?? "전체"),
     limit: pageSize,
     offset,

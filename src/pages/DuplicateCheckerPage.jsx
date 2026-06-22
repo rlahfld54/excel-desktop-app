@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import { StatusBadge } from '../components/common';
 import PageShell from './PageShell';
-import { findDuplicateGroups } from '../data/sampleSalesData';
+import { findDuplicateGroups } from '../utils/rowAnalysis';
 import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 
 function MetricCard({ label, value, detail }) {

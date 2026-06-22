@@ -1,18 +1,8 @@
-function formatDate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
+import { getCurrentMonthRange } from './dataFormat';
 
 export function getCurrentMonthSalesRange() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  return {
-    startDate: formatDate(new Date(year, month, 1)),
-    endDate: formatDate(new Date(year, month + 1, 0)),
-  };
+  const { startDate, endDate } = getCurrentMonthRange();
+  return { startDate, endDate };
 }
 
 export async function queryAllSalesData(options = {}) {

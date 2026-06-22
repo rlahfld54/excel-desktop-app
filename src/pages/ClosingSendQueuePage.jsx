@@ -3,9 +3,12 @@ import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, rgb } from 'pdf-lib';
 
 import PageShell from './PageShell';
+import { DateRangeFields } from '../components/common';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
 import { addNotification } from '../utils/appNotifications';
 import { getBusinessCard, makeSignatureText } from '../utils/businessCard';
+import { validateDateRange } from '../utils/queryValidation';
+import { getCurrentMonthRange, isWithinDateRange } from '../utils/dataFormat';
 
 const closingDays = ['10일', '25일', '30일'];
 const temporaryRecipientEmail = 'rlahfld54@naver.com';
@@ -27,35 +30,12 @@ function getTargetDate(target, month) {
   return `${month}-${day}`;
 }
 
-function isInDateRange(value, startDate, endDate) {
-  if (startDate && value < startDate) return false;
-  if (endDate && value > endDate) return false;
-  return true;
-}
-
 function matchesTargetFilters(target, params) {
   const targetDate = getTargetDate(target, params.month);
-  const matchesDate = isInDateRange(targetDate, params.startDate, params.endDate);
+  const matchesDate = isWithinDateRange(targetDate, params.startDate, params.endDate);
   const matchesManager = params.manager === '전체' || target.manager === params.manager;
   const matchesDeadline = params.deadline === '전체' || target.deadline === params.deadline;
   return matchesDate && matchesManager && matchesDeadline;
-}
-
-function getCurrentMonthRange() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  const format = (date) => {
-    const dateMonth = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${date.getFullYear()}-${dateMonth}-${day}`;
-  };
-
-  return {
-    month: `${year}-${String(month + 1).padStart(2, '0')}`,
-    startDate: format(new Date(year, month, 1)),
-    endDate: format(new Date(year, month + 1, 0)),
-  };
 }
 
 function getUserEmail(user) {
@@ -1069,6 +1049,7 @@ export default function ClosingSendQueuePage() {
     pageSize: 10,
   }));
   const [isLoading, setIsLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
   const [isGenerated, setIsGenerated] = useState(false);
   const [isGeneratingFiles, setIsGeneratingFiles] = useState(false);
   const [isSendingTestMail, setIsSendingTestMail] = useState(false);
@@ -1208,6 +1189,7 @@ export default function ClosingSendQueuePage() {
       month: key === 'startDate' && value ? value.slice(0, 7) : current.month,
       page: 1,
     }));
+    setFieldErrors((current) => ({ ...current, [key]: '' }));
     setGeneratedFileGroups([]);
     setIsGenerated(false);
     setMailDraftStatus('조회 기간이 바뀌었습니다. 첨부 파일을 다시 생성하세요.');
@@ -1226,6 +1208,13 @@ export default function ClosingSendQueuePage() {
 
   const handleSearch = async () => {
     if (isLoading) return;
+    const errors = validateDateRange(params);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setStatusText('조회 기간을 확인해 주세요.');
+      return;
+    }
+    setFieldErrors({});
 
     setIsLoading(true);
     setStatusText('SQLite에서 발송 대상 업체를 조회하는 중입니다.');
@@ -1682,24 +1671,14 @@ export default function ClosingSendQueuePage() {
 
       <section className="mb-4 shrink-0 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_140px_120px_auto] xl:items-end">
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">시작일</span>
-            <input
-              className="form-input w-full"
-              type="date"
-              value={params.startDate}
-              onChange={(event) => updateDateRange('startDate', event.target.value)}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">종료일</span>
-            <input
-              className="form-input w-full"
-              type="date"
-              value={params.endDate}
-              onChange={(event) => updateDateRange('endDate', event.target.value)}
-            />
-          </label>
+          <DateRangeFields
+            startDate={params.startDate}
+            endDate={params.endDate}
+            endLabel="종료일"
+            errors={fieldErrors}
+            onStartDateChange={(value) => updateDateRange('startDate', value)}
+            onEndDateChange={(value) => updateDateRange('endDate', value)}
+          />
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">담당자</span>
             <select className="form-select w-full" value={params.manager} onChange={(event) => updateQueryFilter('manager', event.target.value)}>

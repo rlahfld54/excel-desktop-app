@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, StatusBadge } from '../components/common';
+import { DateRangeFields, Modal, StatusBadge } from '../components/common';
 import PageShell from './PageShell';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
 import { addNotification } from '../utils/appNotifications';
 import { saveClosingWorkspaceRows } from '../utils/closingWorkspaceStore';
+import { validateDateRange } from '../utils/queryValidation';
+import { getCurrentMonthRange, isWithinDateRange } from '../utils/dataFormat';
 
 const closingDays = ['10일', '25일', '30일'];
 const reasonOptions = ['회신 대기', '금액 조율', '내부 검토', '기타'];
@@ -68,29 +70,6 @@ function withDerivedFields(row) {
 function getClosingDate(row, month) {
   const day = String(parseInt(row.deadline, 10) || 1).padStart(2, '0');
   return `${month}-${day}`;
-}
-
-function isWithinDateRange(value, startDate, endDate) {
-  if (startDate && value < startDate) return false;
-  if (endDate && value > endDate) return false;
-  return true;
-}
-
-function getCurrentMonthRange() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  const format = (date) => {
-    const dateMonth = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${date.getFullYear()}-${dateMonth}-${day}`;
-  };
-
-  return {
-    month: `${year}-${String(month + 1).padStart(2, '0')}`,
-    startDate: format(new Date(year, month, 1)),
-    endDate: format(new Date(year, month + 1, 0)),
-  };
 }
 
 async function readClosingRowsFromDatabase(options) {
@@ -260,6 +239,7 @@ export default function ClosingWorkspacePage() {
     query: '',
   }));
   const [isLoading, setIsLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [activeOwners, setActiveOwners] = useState(() => (
     [currentUser.name || currentUser.id].filter(Boolean)
@@ -373,9 +353,16 @@ export default function ClosingWorkspacePage() {
       [key]: value,
       month: key === 'startDate' && value ? value.slice(0, 7) : current.month,
     }));
+    setFieldErrors((current) => ({ ...current, [key]: '' }));
   };
 
   const handleSearch = async () => {
+    const errors = validateDateRange(params);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
     setIsLoading(true);
     addNotification({
       title: '마감 워크스페이스 조회 시작',
@@ -447,24 +434,13 @@ export default function ClosingWorkspacePage() {
       <div>
       <section className="mb-3 shrink-0 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="grid gap-3 xl:grid-cols-[136px_136px_120px_104px_minmax(260px,1fr)_auto] xl:items-end">
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">시작일</span>
-            <input
-              className="form-input w-full"
-              type="date"
-              value={params.startDate}
-              onChange={(event) => updateDateFilter('startDate', event.target.value)}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">마지막일</span>
-            <input
-              className="form-input w-full"
-              type="date"
-              value={params.endDate}
-              onChange={(event) => updateDateFilter('endDate', event.target.value)}
-            />
-          </label>
+          <DateRangeFields
+            startDate={params.startDate}
+            endDate={params.endDate}
+            errors={fieldErrors}
+            onStartDateChange={(value) => updateDateFilter('startDate', value)}
+            onEndDateChange={(value) => updateDateFilter('endDate', value)}
+          />
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">담당자</span>
             <select className="form-select w-full" value={params.owner} onChange={(event) => setParams((current) => ({ ...current, owner: event.target.value }))}>

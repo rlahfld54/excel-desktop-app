@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { getCurrentUser } from '../utils/authSession';
+import { isWithinDateRange } from '../utils/dataFormat';
 
 const statusActions = [
   { status: 'SENT', label: '발송 완료' },
@@ -53,12 +54,6 @@ function monthToDate(month) {
   return `${month || '1900-01'}-01`;
 }
 
-function isInDateRange(value, startDate, endDate) {
-  if (startDate && value < startDate) return false;
-  if (endDate && value > endDate) return false;
-  return true;
-}
-
 export default function SendHistoryPage() {
   const currentUser = getCurrentUser();
   const [items, setItems] = useState([]);
@@ -72,7 +67,7 @@ export default function SendHistoryPage() {
   const [updateState, setUpdateState] = useState('');
 
   const filteredItems = useMemo(() => (
-    items.filter((item) => isInDateRange(monthToDate(item.closingMonth), params.startDate, params.endDate))
+    items.filter((item) => isWithinDateRange(monthToDate(item.closingMonth), params.startDate, params.endDate))
   ), [items, params.endDate, params.startDate]);
 
   const selectedItem = useMemo(

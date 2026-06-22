@@ -2,10 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
-import {
-  findDuplicateGroups,
-  parseNumber,
-} from '../data/sampleSalesData';
+import { findDuplicateGroups } from '../utils/rowAnalysis';
+import { parseNumber } from '../utils/dataFormat';
 import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 
 const defaultColumns = ['거래일', '거래처', '품목 코드', '품목명', '수량', '단가', '금액', '검증', '담당자'];

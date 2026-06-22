@@ -168,7 +168,7 @@ function PageShell({ title, description, children }) {
       observer.disconnect();
       cleanups.forEach((cleanup) => cleanup?.());
     };
-  }, [contentNode, children]);
+  }, [contentNode]);
 
   if (isEmbedded) {
     return (

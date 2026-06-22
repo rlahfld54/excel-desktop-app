@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
+import { DateRangeFields, FormField } from '../components/common';
 import { getCurrentUser } from '../utils/authSession';
+import { getCurrentMonthRange } from '../utils/dataFormat';
+import { validateDateRange, validateSearchLength } from '../utils/queryValidation';
 
 const sqlColumns = [
   '거래일',
@@ -41,22 +44,14 @@ function getColumnIndex(columns, aliases) {
   return columns.findIndex((column) => aliases.includes(column));
 }
 
-function formatDateInputValue(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
+function validateQueryParams(params) {
+  const errors = validateDateRange(params);
+  const customerError = validateSearchLength(params.customer, '거래처');
+  const productError = validateSearchLength(params.product, '품목');
+  if (customerError) errors.customer = customerError;
+  if (productError) errors.product = productError;
 
-function getCurrentMonthRange() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-
-  return {
-    startDate: formatDateInputValue(new Date(year, month, 1)),
-    endDate: formatDateInputValue(new Date(year, month + 1, 0)),
-  };
+  return errors;
 }
 
 export default function DataTablePage() {
@@ -75,7 +70,8 @@ export default function DataTablePage() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [serverTotal, setServerTotal] = useState(0);
   const [queryMessage, setQueryMessage] = useState('');
-  const [isQuerying, setIsQuerying] = useState(false);
+  const [queryAction, setQueryAction] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [sortConfig, setSortConfig] = useState({
     column: '거래일',
     direction: 'desc',
@@ -188,10 +184,25 @@ export default function DataTablePage() {
       ...current,
       ...nextValues,
     }));
+    setFieldErrors((current) => {
+      const next = { ...current };
+      Object.keys(nextValues).forEach((key) => {
+        delete next[key];
+      });
+      return next;
+    });
     setPage(1);
   };
 
-  const fetchPage = async (targetPage) => {
+  const fetchPage = async (targetPage, action = 'page') => {
+    const errors = validateQueryParams(params);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setQueryMessage('조회 조건을 확인해 주세요.');
+      return;
+    }
+    setFieldErrors({});
+
     const nextPage = Math.min(Math.max(targetPage, 1), totalPages);
     const searchParams = {
       ...params,
@@ -199,8 +210,8 @@ export default function DataTablePage() {
     };
 
     if (window.api?.querySalesData) {
-      setIsQuerying(true);
-      setQueryMessage('');
+      setQueryAction(action);
+      if (action === 'search') setQueryMessage('');
       try {
         const result = await window.api.querySalesData(searchParams);
         const data = result?.data;
@@ -221,7 +232,7 @@ export default function DataTablePage() {
         setQueryMessage(`SQLite 조회 실패: ${error.message}`);
         return;
       } finally {
-        setIsQuerying(false);
+        setQueryAction('');
       }
     }
 
@@ -231,9 +242,9 @@ export default function DataTablePage() {
     setPage(nextPage);
   };
 
-  const handleSearch = () => fetchPage(1);
-  const handlePrevPage = () => fetchPage(page - 1);
-  const handleNextPage = () => fetchPage(page + 1);
+  const handleSearch = () => fetchPage(1, 'search');
+  const handlePrevPage = () => fetchPage(page - 1, 'page');
+  const handleNextPage = () => fetchPage(page + 1, 'page');
   const handleSort = (column) => {
     setSortConfig((current) => ({
       column,
@@ -247,44 +258,35 @@ export default function DataTablePage() {
       <div className="flex h-[calc(100vh-14rem)] flex-col">
       <section className="mb-3 shrink-0 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[136px_136px_minmax(170px,1fr)_minmax(170px,1fr)_150px_auto] xl:items-end">
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">시작일</span>
+          <DateRangeFields
+            startDate={params.startDate}
+            endDate={params.endDate}
+            errors={fieldErrors}
+            onStartDateChange={(value) => updateParams({ startDate: value })}
+            onEndDateChange={(value) => updateParams({ endDate: value })}
+          />
+          <FormField label="거래처" error={fieldErrors.customer}>
             <input
-              className="form-input w-full"
-              type="date"
-              value={params.startDate}
-              onChange={(event) => updateParams({ startDate: event.target.value })}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">마지막일</span>
-            <input
-              className="form-input w-full"
-              type="date"
-              value={params.endDate}
-              onChange={(event) => updateParams({ endDate: event.target.value })}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">거래처</span>
-            <input
-              className="form-input w-full"
+              className={`form-input w-full ${fieldErrors.customer ? 'border-rose-400 focus:border-rose-500' : ''}`}
               placeholder="거래처명 검색"
               type="search"
+              maxLength={100}
               value={params.customer}
+              aria-invalid={Boolean(fieldErrors.customer)}
               onChange={(event) => updateParams({ customer: event.target.value })}
             />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">품목</span>
+          </FormField>
+          <FormField label="품목" error={fieldErrors.product}>
             <input
-              className="form-input w-full"
+              className={`form-input w-full ${fieldErrors.product ? 'border-rose-400 focus:border-rose-500' : ''}`}
               placeholder="품목 코드 또는 품목명"
               type="search"
+              maxLength={100}
               value={params.product}
+              aria-invalid={Boolean(fieldErrors.product)}
               onChange={(event) => updateParams({ product: event.target.value })}
             />
-          </label>
+          </FormField>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">담당자</span>
             <select className="form-select w-full" value={params.owner} onChange={(event) => updateParams({ owner: event.target.value })}>
@@ -292,8 +294,8 @@ export default function DataTablePage() {
             </select>
           </label>
           <div className="flex items-end">
-            <button className="btn btn-primary w-full whitespace-nowrap" type="button" onClick={handleSearch}>
-              {isQuerying ? '조회 중…' : '조회'}
+            <button className="btn btn-primary w-full whitespace-nowrap" type="button" disabled={Boolean(queryAction)} onClick={handleSearch}>
+              {queryAction === 'search' ? '조회 중…' : '조회'}
             </button>
           </div>
         </div>
@@ -302,7 +304,7 @@ export default function DataTablePage() {
         )}
       </section>
 
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800" data-table-tools="false">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
           <div>
             <h2 className="font-bold text-gray-900 dark:text-gray-100">원본 데이터</h2>
@@ -312,9 +314,9 @@ export default function DataTablePage() {
           </div>
           {totalRows > params.pageSize && (
             <div className="flex items-center gap-2">
-              <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={page <= 1} onClick={handlePrevPage}>이전</button>
+              <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={page <= 1 || queryAction === 'page'} onClick={handlePrevPage}>이전</button>
               <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">{page} / {totalPages}</span>
-              <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={page >= totalPages} onClick={handleNextPage}>다음</button>
+              <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={page >= totalPages || queryAction === 'page'} onClick={handleNextPage}>다음</button>
             </div>
           )}
         </header>

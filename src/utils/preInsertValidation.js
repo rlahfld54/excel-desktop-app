@@ -1,4 +1,4 @@
-import { parseNumber } from '../data/sampleSalesData';
+import { parseNumber } from './dataFormat';
 
 export const blockingValidationTypes = [
   '거래처명 누락',

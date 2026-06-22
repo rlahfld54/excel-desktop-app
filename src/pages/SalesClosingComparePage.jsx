@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { addActivityLog } from '../utils/authSession';
-import { parseNumber } from '../data/sampleSalesData';
+import { parseNumber } from '../utils/dataFormat';
 import { useWorkspaceDataStore } from '../stores/workspaceDataStore';
 
 const closingDays = [10, 25, 30];

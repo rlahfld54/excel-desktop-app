@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import PageShell from './PageShell';
-import { parseNumber } from '../data/sampleSalesData';
 import { getCurrentUser } from '../utils/authSession';
+import { parseNumber } from '../utils/dataFormat';
 import { priorityMeta, readTeamTodos, todoChangedEvent } from '../utils/todoSchedule';
 import { getCurrentMonthSalesRange, queryAllSalesData } from '../utils/sqlSalesData';
 

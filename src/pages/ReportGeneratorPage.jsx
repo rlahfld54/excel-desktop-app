@@ -2,12 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import PageShell from './PageShell';
-import { parseNumber } from '../data/sampleSalesData';
 import { readReportTemplates } from '../data/reportTemplates';
 import { exportStyledReportToXlsx } from '../utils/spreadsheetExport';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
 import { addNotification } from '../utils/appNotifications';
 import { getCurrentMonthSalesRange, queryAllSalesData } from '../utils/sqlSalesData';
+import { parseNumber } from '../utils/dataFormat';
 
 const company = {
   name: 'Aster Works',

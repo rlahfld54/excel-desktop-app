@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
 import { getCurrentUser } from '../utils/authSession';
+import { isWithinDateRange } from '../utils/dataFormat';
 
 function statusClass(status) {
   if (['READY', 'CREATED', 'COMPLETED'].includes(status)) {
@@ -80,12 +81,6 @@ function monthToDate(month) {
   return `${month || '1900-01'}-01`;
 }
 
-function isInDateRange(value, startDate, endDate) {
-  if (startDate && value < startDate) return false;
-  if (endDate && value > endDate) return false;
-  return true;
-}
-
 function ChecklistItem({ label, detail, status }) {
   return (
     <div className="flex items-start justify-between gap-3 rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
@@ -114,7 +109,7 @@ export default function SendPackagesPage() {
   const [isPreparing, setIsPreparing] = useState(false);
 
   const filteredPackages = useMemo(() => (
-    packages.filter((sendPackage) => isInDateRange(monthToDate(sendPackage.closingMonth), params.startDate, params.endDate))
+    packages.filter((sendPackage) => isWithinDateRange(monthToDate(sendPackage.closingMonth), params.startDate, params.endDate))
   ), [packages, params.endDate, params.startDate]);
 
   const selectedPackage = useMemo(
