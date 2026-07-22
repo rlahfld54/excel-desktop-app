@@ -2358,6 +2358,17 @@ function initializeDatabase(app) {
   };
 }
 
+function exportWorkspaceForCloud(database) {
+  const uploadKey = (id) => `local-upload-${id}`;
+  return {
+    customers: database.prepare(`SELECT customer_code AS "customerCode", customer_name AS "customerName", business_number AS "businessNumber", tax_status AS "taxStatus", status, memo, closing_json AS "closingJson" FROM customers`).all().map((row) => ({ ...row, closingJson: fromJson(row.closingJson, null) })),
+    products: database.prepare(`SELECT product_code AS "productCode", product_name AS "productName", unit, unit_price AS "unitPrice", currency, status, memo FROM products`).all(),
+    salesUploads: database.prepare(`SELECT upload_id AS id, file_name AS "fileName", closing_month AS "closingMonth", uploaded_department_code AS "uploadedDepartmentCode", uploaded_at AS "uploadedAt", status, memo FROM sales_uploads`).all().map((row) => ({ ...row, uploadKey: uploadKey(row.id) })),
+    sales: database.prepare(`SELECT upload_id AS "uploadId", row_no AS "rowNo", transaction_date AS "transactionDate", raw_customer_name AS "rawCustomerName", raw_product_name AS "rawProductName", customer_code AS "customerCode", product_code AS "productCode", quantity, unit_price AS "unitPrice", sales_amount AS "salesAmount", validation_status AS "validationStatus", review_status AS "reviewStatus", owner_name AS "ownerName" FROM sales`).all().map((row) => ({ ...row, uploadKey: uploadKey(row.uploadId) })),
+    contacts: database.prepare(`SELECT c.customer_code AS "customerCode", COALESCE(u.customer_name, c.customer_code, '미지정') AS "customerName", u.business_number AS "businessNumber", c.department_name AS "departmentName", c.recipient_name AS "recipientName", c.recipient_email AS "recipientEmail", c.recipient_phone AS "recipientPhone", c.preferred_channel AS "preferredChannel", c.status, c.memo FROM contacts c LEFT JOIN customers u ON u.customer_code=c.customer_code`).all(),
+  };
+}
+
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
   const hash = crypto.scryptSync(String(password), salt, 64).toString("hex");
   return `scrypt:${salt}:${hash}`;
@@ -3032,6 +3043,11 @@ function registerDatabaseIpc(ipcMain, app) {
       packages: updateSendPackageItemStatus(database, payload),
     };
   });
+
+  ipcMain.handle("sync:export-workspace", () => ({
+    ok: true,
+    payload: exportWorkspaceForCloud(getDatabase(app)),
+  }));
 
   ipcMain.handle("closing-send-history:record", (_, payload) => {
     const database = getDatabase(app);

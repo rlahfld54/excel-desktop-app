@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 
 import { FormField, StatusBadge } from '../components/common';
+import { isSharedApiEnabled } from '../config/cloud';
+import { sharedDataService } from '../services/sharedDataService';
 import PageShell from './PageShell';
 
 
@@ -91,6 +93,18 @@ function normalizeContact(contact) {
   };
 }
 
+function matchesContactFilters(contact, params) {
+  const includes = (value, query) => String(value ?? '').toLowerCase().includes(String(query ?? '').trim().toLowerCase());
+  return (
+    (!params.customer || includes(contact.customerName, params.customer) || includes(contact.customerCode, params.customer))
+    && (!params.contact || includes(contact.recipientName, params.contact))
+    && (!params.email || includes(contact.recipientEmail, params.email))
+    && (!params.phone || includes(contact.recipientPhone, params.phone))
+    && (params.channel === 'ALL' || contact.preferredChannel === params.channel)
+    && (params.status === 'ALL' || contact.status === params.status)
+  );
+}
+
 
 
 
@@ -167,6 +181,7 @@ function ContactForm({ draft = emptyDraft, mode, onChange, onSubmit, onCancel })
 }
 
 export default function ContactListPage() {
+  const usesSharedData = isSharedApiEnabled();
   const [contacts, setContacts] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [draft, setDraft] = useState(emptyDraft);
@@ -184,6 +199,7 @@ export default function ContactListPage() {
   const [notice, setNotice] = useState('조회 버튼을 눌러 SQLite 담당자 데이터를 불러오세요.');
   const [isSearching, setIsSearching] = useState(false);
   const [isPaging, setIsPaging] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [serverTotal, setServerTotal] = useState(0);
 
   const selectedContact = useMemo(
@@ -203,7 +219,7 @@ export default function ContactListPage() {
 
   const handleSearch = async (targetPage = 1, mode = 'search') => {
     const isPageChange = mode === 'page';
-    if (!window.api?.queryContacts || isSearching || isPaging) {
+    if ((!usesSharedData && !window.api?.queryContacts) || isSearching || isPaging) {
       if (!window.api?.queryContacts) setNotice('SQLite 조회는 Electron 데스크톱 앱에서만 사용할 수 있습니다.');
       return;
     }
@@ -214,6 +230,22 @@ export default function ContactListPage() {
       setIsSearching(true);
     }
     try {
+      if (usesSharedData) {
+        const result = await sharedDataService.listContacts();
+        if (!result?.ok) throw new Error(result?.message || 'AWS 거래처 데이터를 불러오지 못했습니다.');
+        const allContacts = (result.data?.contacts ?? []).map(normalizeContact).filter((contact) => matchesContactFilters(contact, params));
+        const start = (targetPage - 1) * params.pageSize;
+        const nextContacts = allContacts.slice(start, start + params.pageSize);
+        setContacts(nextContacts);
+        setSelectedId(nextContacts[0]?.contactId ?? '');
+        setDraft(emptyDraft);
+        setFormMode('create');
+        setServerTotal(allContacts.length);
+        setParams((current) => ({ ...current, page: targetPage }));
+        setNotice(`AWS RDS에서 담당자 ${allContacts.length.toLocaleString('ko-KR')}명을 조회했습니다.`);
+        return;
+      }
+
       const result = await window.api.queryContacts({
         ...params,
         page: targetPage,
@@ -281,8 +313,9 @@ export default function ContactListPage() {
     setNotice(`${contact.customerName} 담당자 정보를 선택했습니다.`);
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+    if (isSaving) return;
 
     const nextContact = normalizeContact({
       ...draft,
@@ -303,32 +336,61 @@ export default function ContactListPage() {
       return;
     }
 
-    setContacts((current) => {
-      if (formMode === 'edit') {
-        return current.map((contact) => (contact.contactId === nextContact.contactId ? nextContact : contact));
+    setIsSaving(true);
+    try {
+      let savedContact = nextContact;
+      if (usesSharedData) {
+        const result = formMode === 'edit'
+          ? await sharedDataService.updateContact(nextContact.contactId, nextContact)
+          : await sharedDataService.createContact(nextContact);
+        if (!result?.ok) throw new Error(result?.message || 'AWS 저장에 실패했습니다.');
+        savedContact = normalizeContact(result.data?.contact);
       }
-      return [nextContact, ...current];
-    });
-    setSelectedId(nextContact.contactId);
-    setDraft(nextContact);
-    setFormMode('edit');
-    setNotice(formMode === 'edit' ? '담당자 정보가 수정되었습니다.' : '새 거래처 담당자가 등록되었습니다.');
+
+      setContacts((current) => {
+        if (formMode === 'edit') return current.map((contact) => (contact.contactId === savedContact.contactId ? savedContact : contact));
+        return [savedContact, ...current];
+      });
+      setSelectedId(savedContact.contactId);
+      setDraft(savedContact);
+      setFormMode('edit');
+      setServerTotal((current) => formMode === 'edit' ? current : current + 1);
+      setNotice(usesSharedData
+        ? (formMode === 'edit' ? 'AWS RDS의 담당자 정보가 수정되었습니다.' : 'AWS RDS에 새 담당자가 등록되었습니다.')
+        : (formMode === 'edit' ? '담당자 정보가 수정되었습니다.' : '새 거래처 담당자가 등록되었습니다.'));
+    } catch (error) {
+      setNotice(`저장 실패: ${error?.message || '알 수 없는 오류'}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleDelete = (contact = selectedContact) => {
+  const handleDelete = async (contact = selectedContact) => {
     if (!contact) return;
     const confirmed = window.confirm(`${contact.customerName} ${contact.recipientName} 담당자를 삭제할까요?`);
     if (!confirmed) return;
 
-    setContacts((current) => {
-      const nextContacts = current.filter((item) => item.contactId !== contact.contactId);
-      const nextSelected = nextContacts[0]?.contactId ?? '';
-      setSelectedId(nextSelected);
-      setDraft(nextContacts[0] ? normalizeContact(nextContacts[0]) : emptyDraft);
-      setFormMode(nextContacts[0] ? 'edit' : 'create');
-      return nextContacts;
-    });
-    setNotice('담당자 정보가 삭제되었습니다.');
+    setIsSaving(true);
+    try {
+      if (usesSharedData) {
+        const result = await sharedDataService.deleteContact(contact.contactId);
+        if (!result?.ok) throw new Error(result?.message || 'AWS 삭제에 실패했습니다.');
+      }
+      setContacts((current) => {
+        const nextContacts = current.filter((item) => item.contactId !== contact.contactId);
+        const nextSelected = nextContacts[0]?.contactId ?? '';
+        setSelectedId(nextSelected);
+        setDraft(nextContacts[0] ? normalizeContact(nextContacts[0]) : emptyDraft);
+        setFormMode(nextContacts[0] ? 'edit' : 'create');
+        return nextContacts;
+      });
+      setServerTotal((current) => Math.max(current - 1, 0));
+      setNotice(usesSharedData ? 'AWS RDS의 담당자 정보가 삭제되었습니다.' : '담당자 정보가 삭제되었습니다.');
+    } catch (error) {
+      setNotice(`삭제 실패: ${error?.message || '알 수 없는 오류'}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
 

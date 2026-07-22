@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import Logo from '../images/logo.svg';
+import { isSharedApiEnabled } from '../config/cloud';
+import { signupWithSharedApi } from '../services/authApiService';
 import { saveUsers } from '../utils/authSession';
 import { initializePersonalTodos } from '../utils/todoSchedule';
 
@@ -16,6 +18,7 @@ export default function SignupPage() {
   });
   const [message, setMessage] = useState('');
   const [isBusy, setIsBusy] = useState(false);
+  const usesSharedSignup = isSharedApiEnabled();
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -25,18 +28,22 @@ export default function SignupPage() {
       setMessage('비밀번호 확인이 일치하지 않습니다.');
       return;
     }
-    if (!window.api?.registerUser) {
+    if (!usesSharedSignup && !window.api?.registerUser) {
       setMessage('설치된 데스크톱 앱에서 회원가입해 주세요.');
       return;
     }
 
     setIsBusy(true);
     try {
-      const result = await window.api.registerUser(form);
+      const result = usesSharedSignup
+        ? await signupWithSharedApi(form)
+        : await window.api.registerUser(form);
       if (!result?.ok) throw new Error(result?.message || '계정을 만들지 못했습니다.');
-      const usersResult = await window.api.listUsers();
-      saveUsers(usersResult.users ?? []);
-      initializePersonalTodos(result.user.id);
+      if (!usesSharedSignup) {
+        const usersResult = await window.api.listUsers();
+        saveUsers(usersResult.users ?? []);
+        initializePersonalTodos(result.user.id);
+      }
       navigate('/login', { replace: true });
     } catch (error) {
       setMessage(error.message);
@@ -64,7 +71,9 @@ export default function SignupPage() {
         <section className="rounded-3xl border border-white/80 bg-white/95 p-7 shadow-xl dark:border-gray-800 dark:bg-gray-950/95 sm:p-9">
           <h1 className="text-3xl font-bold">회원가입</h1>
           <p className="mt-3 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            이 PC의 SQLite에 업무 계정을 등록합니다. 추가 가입자는 기본 조회 권한으로 생성되며 관리자가 이후 권한을 변경할 수 있습니다.
+            {usesSharedSignup
+              ? '공유 서버에 업무 계정을 등록합니다. 추가 가입자는 기본 조회 권한으로 생성됩니다.'
+              : '이 PC의 SQLite에 업무 계정을 등록합니다. 추가 가입자는 기본 조회 권한으로 생성되며 관리자가 이후 권한을 변경할 수 있습니다.'}
           </p>
 
           <form className="mt-7 grid gap-4 sm:grid-cols-2" onSubmit={handleSubmit}>

@@ -1,0 +1,11 @@
+{
+  "name": "excel-shared-api-lambda",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Lambda API for Excel Desktop shared login",
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.16.3"
+  }
+}

@@ -18,4 +18,5 @@ export const sharedDataService = {
 
   createBackup: (backup) => requestSharedApi('/backups', { method: 'POST', body: backup }),
   listBackups: (options) => requestSharedApi('/backups', options),
+  importWorkspace: (payload) => requestSharedApi('/migration/import', { method: 'POST', body: payload }),
 };

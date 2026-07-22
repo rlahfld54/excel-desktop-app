@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import Logo from '../images/logo.svg';
+import { isSharedApiEnabled } from '../config/cloud';
+import { loginWithSharedApi } from '../services/authApiService';
 import { addActivityLog, saveSession, saveUsers } from '../utils/authSession';
 import { hydratePersonalTodos } from '../utils/todoSchedule';
 
@@ -12,9 +14,11 @@ export default function LoginPage() {
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const usesSharedLogin = isSharedApiEnabled();
 
   useEffect(() => {
     async function loadUsers() {
+      if (usesSharedLogin) return;
       if (!window.api?.listUsers) return;
       const result = await window.api.listUsers();
       const activeUsers = (result.users ?? []).filter((user) => user.status !== 'INACTIVE');
@@ -23,35 +27,58 @@ export default function LoginPage() {
       setUserId(activeUsers[0]?.id ?? '');
     }
     loadUsers().catch((error) => setError(error.message));
-  }, []);
+  }, [usesSharedLogin]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
 
-    if (!window.api?.authenticateUser) {
-      setError('설치된 데스크톱 앱에서 로그인해 주세요.');
+    if (!userId.trim() || !password) {
+      setError('아이디와 비밀번호를 입력해 주세요.');
       return;
     }
 
-    const result = await window.api.authenticateUser({ username: userId, password });
+    const result = usesSharedLogin
+      ? await loginWithSharedApi({ username: userId.trim(), password })
+      : await authenticateLocalUser(userId, password);
+
     if (!result?.ok) {
       addActivityLog('WARN', '로그인 실패', userId || 'unknown', userId || 'unknown');
-      setError(result?.message || '사용자 또는 비밀번호를 확인해주세요.');
+      setError(result?.message || '아이디 또는 비밀번호가 틀렸습니다.');
       return;
     }
 
     const selectedUser = result.user;
     await hydratePersonalTodos(selectedUser.id);
-    saveUsers(users.map((user) => user.id === selectedUser.id ? selectedUser : user));
+    const nextUsers = mergeAuthenticatedUser(users, selectedUser);
+    saveUsers(nextUsers);
     saveSession({
       userId: selectedUser.id,
       role: selectedUser.role,
       autoLogin: true,
+      accessToken: result.token,
+      user: selectedUser,
     });
     addActivityLog('INFO', '로그인', selectedUser.id, selectedUser.id);
     navigate(location.state?.from || '/dashboard', { replace: true });
   };
+
+  async function authenticateLocalUser(username, userPassword) {
+    if (!window.api?.authenticateUser) {
+      return {
+        ok: false,
+        message: '설치된 데스크톱 앱에서 로그인해 주세요.',
+      };
+    }
+
+    return window.api.authenticateUser({ username, password: userPassword });
+  }
+
+  function mergeAuthenticatedUser(currentUsers, selectedUser) {
+    const exists = currentUsers.some((user) => user.id === selectedUser.id);
+    if (!exists) return [selectedUser, ...currentUsers];
+    return currentUsers.map((user) => user.id === selectedUser.id ? selectedUser : user);
+  }
 
   return (
     <main className="min-h-screen overflow-hidden bg-white text-gray-950 dark:bg-gray-950 dark:text-gray-100">
@@ -86,7 +113,7 @@ export default function LoginPage() {
                   로그인
                 </h1>
                 <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                  초기 설정에서 만든 계정으로 로그인하세요.
+                  {usesSharedLogin ? '서버 계정으로 로그인하세요.' : '초기 설정에서 만든 계정으로 로그인하세요.'}
                 </p>
               </div>
 
@@ -95,18 +122,29 @@ export default function LoginPage() {
                   <label className="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-200" htmlFor="userId">
                     사용자
                   </label>
-                  <select
-                    className="form-select h-12 w-full rounded-md border-gray-200 bg-white px-3 text-base shadow-xs focus:border-teal-500 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
-                    id="userId"
-                    value={userId}
-                    onChange={(event) => setUserId(event.target.value)}
-                  >
-                    {users.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.name} / {user.role}
-                      </option>
-                    ))}
-                  </select>
+                  {usesSharedLogin ? (
+                    <input
+                      className="form-input h-12 w-full rounded-md border-gray-200 bg-white px-3 text-base shadow-xs focus:border-teal-500 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
+                      id="userId"
+                      value={userId}
+                      onChange={(event) => setUserId(event.target.value)}
+                      placeholder="아이디"
+                      autoComplete="username"
+                    />
+                  ) : (
+                    <select
+                      className="form-select h-12 w-full rounded-md border-gray-200 bg-white px-3 text-base shadow-xs focus:border-teal-500 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
+                      id="userId"
+                      value={userId}
+                      onChange={(event) => setUserId(event.target.value)}
+                    >
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.name} / {user.role}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div>

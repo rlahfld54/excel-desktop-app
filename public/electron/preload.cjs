@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("api", {
   getPersonalTodoState: (payload) => ipcRenderer.invoke("todos:get-personal", payload),
   savePersonalTodoState: (payload) => ipcRenderer.invoke("todos:save-personal", payload),
   importBootstrapData: (payload) => ipcRenderer.invoke("sync:import-bootstrap", payload),
+  exportWorkspaceForCloud: () => ipcRenderer.invoke("sync:export-workspace"),
   addEvent: (event) => ipcRenderer.invoke("events:add", event),
   getEvents: () => ipcRenderer.invoke("events:list"),
   listNotifications: (options) => ipcRenderer.invoke("notifications:list", options),

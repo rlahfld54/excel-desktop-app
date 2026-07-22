@@ -1,4 +1,5 @@
 node_modules
+aws/lambda/*.zip
 .DS_Store
 dist
 release

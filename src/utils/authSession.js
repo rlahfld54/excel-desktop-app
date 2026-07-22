@@ -33,8 +33,10 @@ export function createAdminSession() {
 
 export function createUserSession(user) {
   return {
-    userId: user.id,
-    role: user.role,
+    userId: user?.id ?? '',
+    role: user?.role ?? 'VIEWER',
+    accessToken: user?.accessToken,
+    user,
     autoLogin: true,
     loggedInAt: new Date().toISOString(),
   };
@@ -79,12 +81,13 @@ export function hasActiveSession() {
   if (!saved?.userId || !saved?.role) return false;
 
   const user = getUsers().find((item) => item.id === saved.userId);
-  return Boolean(user && user.status !== 'INACTIVE');
+  const sessionUser = saved.user?.id === saved.userId ? saved.user : null;
+  return Boolean((user || sessionUser || saved.accessToken) && user?.status !== 'INACTIVE' && sessionUser?.status !== 'INACTIVE');
 }
 
 export function saveSession(session) {
   const users = getUsers();
-  const requestedUser = users.find((user) => user.id === session?.userId) ?? users[0];
+  const requestedUser = users.find((user) => user.id === session?.userId) ?? session?.user ?? users[0];
   const nextSession = {
     ...createUserSession(requestedUser),
     ...session,
@@ -102,7 +105,7 @@ export function clearSession() {
 export function getCurrentUser() {
   const session = getSession();
   const users = getUsers();
-  const user = users.find((item) => item.id === session?.userId) ?? {
+  const user = users.find((item) => item.id === session?.userId) ?? session?.user ?? {
     id: '',
     name: '사용자',
     role: 'VIEWER',

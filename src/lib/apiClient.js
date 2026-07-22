@@ -1,4 +1,5 @@
 import { cloudConfig, isSharedApiEnabled } from '../config/cloud';
+import { getSession } from '../utils/authSession';
 
 function buildUrl(path, query) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -18,6 +19,7 @@ export async function requestSharedApi(path, {
   body,
   headers,
   signal,
+  auth = true,
 } = {}) {
   if (!isSharedApiEnabled()) {
     return {
@@ -35,6 +37,7 @@ export async function requestSharedApi(path, {
   }
 
   try {
+    const accessToken = auth ? getSession()?.accessToken : '';
     const response = await fetch(buildUrl(path, query), {
       method,
       signal: controller.signal,
@@ -42,6 +45,7 @@ export async function requestSharedApi(path, {
         Accept: 'application/json',
         ...(body ? { 'Content-Type': 'application/json' } : {}),
         ...(cloudConfig.apiKey ? { 'x-api-key': cloudConfig.apiKey } : {}),
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...headers,
       },
       body: body ? JSON.stringify(body) : undefined,

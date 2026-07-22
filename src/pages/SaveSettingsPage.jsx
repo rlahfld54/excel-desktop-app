@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import PageShell from './PageShell';
+import { isSharedApiEnabled } from '../config/cloud';
+import { sharedDataService } from '../services/sharedDataService';
 import { notifyUser } from '../utils/notifications';
 
 const fallbackSettings = {
@@ -182,6 +184,28 @@ export default function SaveSettingsPage() {
     }
   };
 
+  const handleCloudMigration = async () => {
+    if (!window.api?.exportWorkspaceForCloud || !isSharedApiEnabled()) {
+      setSaveState('AWS API 주소가 설정된 Electron 앱에서만 기존 데이터 이관을 실행할 수 있습니다.');
+      return;
+    }
+    if (!window.confirm('로컬 SQLite의 고객, 제품, 매출 업로드, 매출 행, 연락처를 AWS RDS로 이관할까요? 같은 키의 데이터는 AWS에서 최신 값으로 갱신됩니다.')) return;
+    setIsCloudBusy(true);
+    setSaveState('');
+    try {
+      const exported = await window.api.exportWorkspaceForCloud();
+      if (!exported?.ok) throw new Error('로컬 SQLite 데이터를 읽지 못했습니다.');
+      const result = await sharedDataService.importWorkspace(exported.payload);
+      if (!result?.ok) throw new Error(result?.message || 'AWS 이관에 실패했습니다.');
+      const summary = result.data?.summary ?? {};
+      setSaveState(`AWS RDS 이관 완료: 고객 ${summary.customers ?? 0}건 · 제품 ${summary.products ?? 0}건 · 업로드 ${summary.salesUploads ?? 0}건 · 매출 ${summary.sales ?? 0}건 · 연락처 ${summary.contacts ?? 0}건`);
+    } catch (error) {
+      setSaveState(`AWS 이관 실패: ${error.message}`);
+    } finally {
+      setIsCloudBusy(false);
+    }
+  };
+
   return (
     <PageShell title="저장 설정" description="이 PC 사양에 맞춰 SQLite, 내보내기, 백업, 임시 파일 경로와 보관 정책을 관리합니다.">
       <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
@@ -199,6 +223,9 @@ export default function SaveSettingsPage() {
             </button>
             <button className="btn btn-primary" type="button" onClick={handleSave}>
               설정 저장
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={handleCloudMigration} disabled={isCloudBusy}>
+              {isCloudBusy ? 'AWS 이관 중...' : '기존 데이터 AWS 이관'}
             </button>
           </div>
         </div>

@@ -7,6 +7,7 @@ This project is currently a desktop-first Electron app with local SQLite. For a 
 - Electron app stays installed on each PC.
 - Shared data is read through API Gateway HTTP API and Lambda.
 - PostgreSQL on RDS stores shared business records.
+- Login is verified only by the API server. The Electron/React screen never connects directly to RDS.
 - S3 stores end-of-day backup files.
 - The app checks for shared changes every 60 seconds.
 
@@ -29,20 +30,38 @@ Do not commit `.env.local`.
 
 Start with only the data that must be shared by multiple users.
 
-1. contacts
-2. closing_companies
-3. todo_items
-4. app_events
-5. backup_history
+1. users
+2. contacts
+3. closing_companies
+4. todo_items
+5. app_events
+6. backup_history
 
 The first PostgreSQL draft is in `aws/schema.sql`.
 
 Keep local settings, UI preferences, temporary upload previews, and local backup manifests on the PC.
 
+## Login API Rule
+
+Use a backend API for authentication. Do not read the RDS user table from the Electron/React renderer or preload layer.
+
+```text
+Electron/React login screen
+  -> POST /auth/login
+API server
+  -> SELECT user by username from RDS
+  -> bcrypt.compare(password, password_hash)
+  -> return JWT and safe user profile
+```
+
+Store only `password_hash` in PostgreSQL. Never store plain-text passwords.
+
 ## API Endpoints To Build
 
 ```text
 GET    /health
+POST   /auth/signup
+POST   /auth/login
 GET    /contacts
 POST   /contacts
 PATCH  /contacts/{contactId}
@@ -56,6 +75,8 @@ DELETE /todos/{todoId}
 GET    /backups
 POST   /backups
 ```
+
+All routes except `/health`, `/auth/signup`, and `/auth/login` require an `Authorization: Bearer <JWT>` header. The initial Lambda implementation is in `aws/lambda/index.js`.
 
 ## Migration Notes
 
