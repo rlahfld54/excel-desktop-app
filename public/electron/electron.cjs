@@ -656,6 +656,25 @@ function registerIpcHandlers() {
     return { ok: true, fileName: path.basename(filePath), sizeBytes: bytes.length, base64: bytes.toString("base64") };
   });
 
+  ipcMain.handle("files:download-cloud", async (_, payload = {}) => {
+    const downloadUrl = new URL(String(payload.url || ""));
+    if (downloadUrl.protocol !== "https:" || !downloadUrl.hostname.endsWith("amazonaws.com")) {
+      return { ok: false, message: "허용되지 않은 다운로드 주소입니다." };
+    }
+    const fileName = path.basename(String(payload.fileName || "download"));
+    const extension = path.extname(fileName).slice(1).toLowerCase();
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "AWS 보관 파일 다운로드",
+      defaultPath: path.join(app.getPath("downloads"), fileName),
+      filters: extension ? [{ name: `${extension.toUpperCase()} 파일`, extensions: [extension] }] : undefined,
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    const response = await fetch(downloadUrl);
+    if (!response.ok) return { ok: false, message: `S3 다운로드 실패 (${response.status})` };
+    await fs.writeFile(filePath, Buffer.from(await response.arrayBuffer()));
+    return { ok: true, filePath };
+  });
+
   ipcMain.handle("notifications:show", async (_, payload) => {
     if (!Notification?.isSupported?.()) {
       return { ok: false, mode: "unsupported" };

@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld("api", {
   chooseDirectory: (options) => ipcRenderer.invoke("app-settings:choose-directory", options),
   chooseFile: (options) => ipcRenderer.invoke("app-settings:choose-file", options),
   readFileBase64: (filePath) => ipcRenderer.invoke("files:read-base64", filePath),
+  downloadCloudFile: (payload) => ipcRenderer.invoke("files:download-cloud", payload),
   showNotification: (payload) => ipcRenderer.invoke("notifications:show", payload),
   sendGmailTest: (payload) => ipcRenderer.invoke("gmail:send-test", payload),
   sendClosingEmails: (payload) => ipcRenderer.invoke("gmail:send-closing", payload),

@@ -423,6 +423,8 @@ ON email_history(package_id, status);
   );
   ensureColumn(db, "sales", "transaction_date", "TEXT");
   ensureColumn(db, "sales", "owner_name", "TEXT");
+  ensureColumn(db, "sales_uploads", "cloud_upload_key", "TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_uploads_cloud_key ON sales_uploads(cloud_upload_key) WHERE cloud_upload_key IS NOT NULL");
   ensureColumn(db, "email_history", "created_by", "TEXT");
   ensureColumn(db, "users", "title", "TEXT");
   ensureColumn(db, "users", "email", "TEXT");
@@ -2410,7 +2412,7 @@ function exportWorkspaceForCloud(database) {
   return {
     customers: database.prepare(`SELECT customer_code AS "customerCode", customer_name AS "customerName", business_number AS "businessNumber", tax_status AS "taxStatus", status, memo, closing_json AS "closingJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM customers`).all().map((row) => ({ ...row, closingJson: fromJson(row.closingJson, null) })),
     products: database.prepare(`SELECT product_code AS "productCode", product_name AS "productName", unit, unit_price AS "unitPrice", currency, status, memo, created_at AS "createdAt", updated_at AS "updatedAt" FROM products`).all(),
-    salesUploads: database.prepare(`SELECT upload_id AS id, file_name AS "fileName", closing_month AS "closingMonth", uploaded_department_code AS "uploadedDepartmentCode", uploaded_at AS "uploadedAt", status, memo FROM sales_uploads`).all().map((row) => ({ ...row, uploadKey: uploadKey(row.id) })),
+    salesUploads: database.prepare(`SELECT upload_id AS id, cloud_upload_key AS "cloudUploadKey", file_name AS "fileName", closing_month AS "closingMonth", uploaded_department_code AS "uploadedDepartmentCode", uploaded_at AS "uploadedAt", status, memo FROM sales_uploads`).all().map((row) => ({ ...row, uploadKey: row.cloudUploadKey || uploadKey(row.id) })),
     sales: database.prepare(`SELECT upload_id AS "uploadId", row_no AS "rowNo", transaction_date AS "transactionDate", raw_customer_name AS "rawCustomerName", raw_product_name AS "rawProductName", customer_code AS "customerCode", product_code AS "productCode", quantity, unit_price AS "unitPrice", sales_amount AS "salesAmount", validation_status AS "validationStatus", review_status AS "reviewStatus", owner_name AS "ownerName" FROM sales`).all().map((row) => ({ ...row, uploadKey: uploadKey(row.uploadId) })),
     contacts: database.prepare(`SELECT c.customer_code AS "customerCode", COALESCE(u.customer_name, c.customer_code, '미지정') AS "customerName", u.business_number AS "businessNumber", c.department_name AS "departmentName", c.recipient_name AS "recipientName", c.recipient_email AS "recipientEmail", c.recipient_phone AS "recipientPhone", c.preferred_channel AS "preferredChannel", c.status, c.memo, c.created_at AS "createdAt", c.updated_at AS "updatedAt" FROM contacts c LEFT JOIN customers u ON u.customer_code=c.customer_code`).all(),
     closingStatuses: database.prepare(`SELECT closing_month AS "closingMonth", customer_code AS "customerCode", owner_name AS "ownerName", deadline, contact_confirmed AS "contactConfirmed", amount_confirmed AS "amountConfirmed", confirmed_amount AS "confirmedAmount", tax_issued AS "taxIssued", tax_matched AS "taxMatched", request_ready AS "requestReady", request_sent AS "requestSent", closing_sheet_sent AS "closingSheetSent", reason, memo, history_json AS "historyJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM closing_status`).all().map((row) => ({ ...row, historyJson: fromJson(row.historyJson, []) })),
@@ -2435,6 +2437,8 @@ function applyCloudWorkspace(database, payload = {}) {
   const products = Array.isArray(payload.products) ? payload.products : [];
   const contacts = Array.isArray(payload.contacts) ? payload.contacts : [];
   const closingStatuses = Array.isArray(payload.closingStatuses) ? payload.closingStatuses : [];
+  const salesUploads = Array.isArray(payload.salesUploads) ? payload.salesUploads : [];
+  const sales = Array.isArray(payload.sales) ? payload.sales : [];
   const upsertCustomer = database.prepare(`
     INSERT INTO customers (customer_code, customer_name, business_number, tax_status, status, memo, closing_json, created_at, updated_at)
     VALUES (@customerCode, @customerName, @businessNumber, @taxStatus, @status, @memo, @closingJson, COALESCE(@createdAt, CURRENT_TIMESTAMP), COALESCE(@updatedAt, CURRENT_TIMESTAMP))
@@ -2469,6 +2473,21 @@ function applyCloudWorkspace(database, payload = {}) {
     INSERT INTO closing_status (closing_month,customer_code,owner_name,deadline,contact_confirmed,amount_confirmed,confirmed_amount,tax_issued,tax_matched,request_ready,request_sent,closing_sheet_sent,reason,memo,history_json,created_at,updated_at)
     VALUES (@closingMonth,@customerCode,@ownerName,@deadline,@contactConfirmed,@amountConfirmed,@confirmedAmount,@taxIssued,@taxMatched,@requestReady,@requestSent,@closingSheetSent,@reason,@memo,@historyJson,COALESCE(@createdAt,CURRENT_TIMESTAMP),COALESCE(@updatedAt,CURRENT_TIMESTAMP))
     ON CONFLICT(closing_month,customer_code) DO UPDATE SET owner_name=excluded.owner_name,deadline=excluded.deadline,contact_confirmed=excluded.contact_confirmed,amount_confirmed=excluded.amount_confirmed,confirmed_amount=excluded.confirmed_amount,tax_issued=excluded.tax_issued,tax_matched=excluded.tax_matched,request_ready=excluded.request_ready,request_sent=excluded.request_sent,closing_sheet_sent=excluded.closing_sheet_sent,reason=excluded.reason,memo=excluded.memo,history_json=excluded.history_json,updated_at=excluded.updated_at
+  `);
+  const findUpload = database.prepare('SELECT upload_id AS uploadId FROM sales_uploads WHERE cloud_upload_key = ?');
+  const insertUpload = database.prepare(`
+    INSERT INTO sales_uploads (cloud_upload_key,file_name,closing_month,uploaded_department_code,uploaded_at,status,memo)
+    VALUES (@uploadKey,@fileName,@closingMonth,@uploadedDepartmentCode,COALESCE(@uploadedAt,CURRENT_TIMESTAMP),@status,@memo)
+  `);
+  const updateUpload = database.prepare(`
+    UPDATE sales_uploads SET file_name=@fileName, closing_month=@closingMonth,
+      uploaded_department_code=@uploadedDepartmentCode, uploaded_at=COALESCE(@uploadedAt,uploaded_at),
+      status=@status, memo=@memo WHERE upload_id=@uploadId
+  `);
+  const deleteSalesForUpload = database.prepare('DELETE FROM sales WHERE upload_id = ?');
+  const insertSale = database.prepare(`
+    INSERT INTO sales (upload_id,row_no,transaction_date,raw_customer_name,raw_product_name,customer_code,product_code,quantity,unit_price,sales_amount,validation_status,review_status,owner_name)
+    VALUES (@uploadId,@rowNo,@transactionDate,@rawCustomerName,@rawProductName,@customerCode,@productCode,@quantity,@unitPrice,@salesAmount,@validationStatus,@reviewStatus,@ownerName)
   `);
 
   database.transaction(() => {
@@ -2505,9 +2524,39 @@ function applyCloudWorkspace(database, payload = {}) {
       requestReady: row.requestReady ? 1 : 0, requestSent: row.requestSent ? 1 : 0, closingSheetSent: row.closingSheetSent ? 1 : 0,
       reason: row.reason || '회신 대기', memo: row.memo ?? null, historyJson: toJson(row.historyJson ?? []), createdAt: row.createdAt ?? null, updatedAt: row.updatedAt ?? null,
     }));
+    const uploadIds = new Map();
+    salesUploads.forEach((row) => {
+      if (!row.uploadKey) return;
+      const values = {
+        uploadKey: String(row.uploadKey), fileName: row.fileName || '업로드 데이터',
+        closingMonth: row.closingMonth || '', uploadedDepartmentCode: row.uploadedDepartmentCode ?? null,
+        uploadedAt: row.uploadedAt ?? null, status: row.status || 'UPLOADED', memo: row.memo ?? null,
+      };
+      const existing = findUpload.get(values.uploadKey);
+      if (existing) {
+        updateUpload.run({ ...values, uploadId: existing.uploadId });
+        uploadIds.set(values.uploadKey, existing.uploadId);
+      } else {
+        uploadIds.set(values.uploadKey, Number(insertUpload.run(values).lastInsertRowid));
+      }
+    });
+    // AWS의 업로드 키별 행 목록을 기준으로 교체한다. 새 PC에서 기존 매출 행이
+    // 중복되는 것을 막고, 중앙 RDS의 같은 파일 상태를 그대로 재현한다.
+    uploadIds.forEach((uploadId) => deleteSalesForUpload.run(uploadId));
+    sales.forEach((row) => {
+      const uploadId = uploadIds.get(String(row.uploadKey || ''));
+      if (!uploadId) return;
+      insertSale.run({
+        uploadId, rowNo: Number(row.rowNo || 0), transactionDate: row.transactionDate ?? null,
+        rawCustomerName: row.rawCustomerName ?? null, rawProductName: row.rawProductName ?? null,
+        customerCode: row.customerCode ?? null, productCode: row.productCode ?? null,
+        quantity: row.quantity ?? null, unitPrice: row.unitPrice ?? null, salesAmount: row.salesAmount ?? null,
+        validationStatus: row.validationStatus || 'PENDING', reviewStatus: row.reviewStatus || 'WAITING', ownerName: row.ownerName ?? null,
+      });
+    });
   })();
 
-  return { customers: customers.length, products: products.length, contacts: contacts.length, closingStatuses: closingStatuses.length };
+  return { customers: customers.length, products: products.length, contacts: contacts.length, closingStatuses: closingStatuses.length, salesUploads: salesUploads.length, sales: sales.length };
 }
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
@@ -2606,6 +2655,8 @@ function authenticateLocalUser(database, payload = {}) {
 
 function updateLocalUser(database, payload = {}) {
   const username = String(payload.username ?? "").trim();
+  if (!username) throw new Error("사용자 아이디가 필요합니다.");
+
   const current = database.prepare(`
     SELECT username, role, status
     FROM users

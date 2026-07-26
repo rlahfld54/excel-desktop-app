@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import Logo from '../images/logo.svg';
 import { isSharedApiEnabled } from '../config/cloud';
 import { loginWithSharedApi } from '../services/authApiService';
+import { sharedDataService } from '../services/sharedDataService';
 import { addActivityLog, getOfflineProfile, saveOfflineProfile, saveSession, saveUsers } from '../utils/authSession';
 import { hydratePersonalTodos } from '../utils/todoSchedule';
 
@@ -55,7 +56,12 @@ export default function LoginPage() {
       return;
     }
 
-    const selectedUser = result.user;
+    // 로그인 입력값은 서버 계정명과 같으므로, 숫자 DB PK와 혼동하지 않도록
+    // 로컬/오프라인 프로필에는 명시적으로 사용자명을 보존한다.
+    const selectedUser = {
+      ...result.user,
+      username: result.user?.username || userId.trim(),
+    };
     if (usesSharedLogin) saveOfflineProfile(selectedUser);
     await hydratePersonalTodos(selectedUser.id);
     const nextUsers = mergeAuthenticatedUser(users, selectedUser);
@@ -67,6 +73,14 @@ export default function LoginPage() {
       accessToken: result.token,
       user: selectedUser,
     });
+    // 새 PC도 기존 AWS 기준정보를 먼저 받아야 로컬 SQLite가 같은 업무 데이터를
+    // 보여 준다. 실패해도 로그인 자체는 막지 않아 오프라인 작업은 가능하다.
+    if (usesSharedLogin && window.api?.applyCloudWorkspace) {
+      const cloudWorkspace = await sharedDataService.downloadWorkspace();
+      if (cloudWorkspace.ok) {
+        await window.api.applyCloudWorkspace(cloudWorkspace.data?.snapshot ?? {});
+      }
+    }
     addActivityLog('INFO', '로그인', selectedUser.id, selectedUser.id);
     navigate(location.state?.from || '/dashboard', { replace: true });
   };

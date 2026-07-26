@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import Logo from '../images/logo.svg';
+import { cloudConfig, isSharedApiEnabled } from '../config/cloud';
 import { saveUsers } from '../utils/authSession';
 import { initializePersonalTodos } from '../utils/todoSchedule';
 
@@ -50,7 +51,7 @@ export default function SetupPage() {
     passwordConfirm: '',
   });
   const [cloud, setCloud] = useState({
-    apiBaseUrl: '',
+    apiBaseUrl: cloudConfig.apiBaseUrl,
     accessToken: '',
   });
 
@@ -72,6 +73,7 @@ export default function SetupPage() {
 
   const databaseCounts = useMemo(() => status?.database?.coreCounts ?? {}, [status]);
   const hasExistingUser = Number(databaseCounts.users) > 0;
+  const usesSharedLogin = isSharedApiEnabled();
 
   const handleRegister = async () => {
     setMessage('');
@@ -168,7 +170,7 @@ export default function SetupPage() {
                     </div>
                   ))}
                 </div>
-                <button className="btn btn-primary mt-8 h-12 px-8" type="button" onClick={() => setStep(hasExistingUser ? 2 : 1)}>
+                <button className="btn btn-primary mt-8 h-12 px-8" type="button" onClick={() => setStep(usesSharedLogin || hasExistingUser ? 2 : 1)}>
                   설정 시작
                 </button>
               </div>
@@ -214,10 +216,11 @@ export default function SetupPage() {
                 <p className="text-sm font-bold text-teal-700 dark:text-accent-300">AWS DATA</p>
                 <h1 className="mt-3 text-3xl font-bold">중앙 데이터를 지금 받을까요?</h1>
                 <p className="mt-3 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                  AWS API가 준비되어 있다면 거래처·제품·연락처를 요청해 로컬 SQLite에 저장합니다.
-                  연결하지 않아도 앱은 로컬 모드로 정상 사용할 수 있습니다.
+                  {usesSharedLogin
+                    ? '이 앱은 AWS 로그인 방식을 사용합니다. 설정을 마친 뒤 기존 AWS 계정으로 로그인하면 중앙 데이터를 내려받아 이 PC의 SQLite에 저장합니다.'
+                    : 'AWS 연결 없이도 로컬 SQLite로 정상 사용할 수 있습니다.'}
                 </p>
-                <div className="mt-7 space-y-4 rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-900">
+                {!usesSharedLogin && <div className="mt-7 space-y-4 rounded-2xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-900">
                   <label className="block">
                     <span className="mb-2 block text-sm font-semibold">AWS API 주소</span>
                     <input className="form-input w-full" value={cloud.apiBaseUrl} onChange={(event) => setCloud({ ...cloud, apiBaseUrl: event.target.value })} placeholder="https://api.example.com" />
@@ -234,7 +237,7 @@ export default function SetupPage() {
                       거래처 {cloudImported.customers}건 · 제품 {cloudImported.products}건 · 연락처 {cloudImported.contacts}건 저장 완료
                     </p>
                   )}
-                </div>
+                </div>}
                 <div className="mt-7 flex flex-wrap gap-3">
                   <button className="btn btn-primary h-12 px-8" type="button" disabled={isBusy} onClick={handleComplete}>
                     {cloudImported ? '동기화하고 계속' : '지금은 로컬로 시작'}

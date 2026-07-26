@@ -60,7 +60,11 @@ export default function CloudMigrationPage() {
   const downloadFile = async (file) => {
     const result = await sharedDataService.downloadCloudFile(file.objectKey);
     if (!result.ok) return setMessage(`다운로드 링크 생성 실패: ${result.message}`);
-    window.open(result.data.downloadUrl, '_blank', 'noopener,noreferrer');
+    if (!window.api?.downloadCloudFile) return setMessage('Electron 앱에서만 파일을 다운로드할 수 있습니다.');
+    const saved = await window.api.downloadCloudFile({ url: result.data.downloadUrl, fileName: file.fileName });
+    if (saved?.canceled) return;
+    if (!saved?.ok) return setMessage(`다운로드 실패: ${saved?.message || '알 수 없는 오류'}`);
+    setMessage(`다운로드 완료: ${file.fileName}`);
   };
 
   return <PageShell title="AWS 양방향 동기화" description="인터넷이 없을 때는 로컬 SQLite로 일하고, 연결되면 AWS RDS와 최신 데이터를 맞춥니다.">

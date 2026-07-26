@@ -63,7 +63,7 @@ export default function UserPreferencesPage() {
   }, [currentUser.email, currentUser.name]);
 
   const profileRows = useMemo(() => [
-    ['아이디', currentUser.id],
+    ['아이디', currentUser.username || currentUser.id],
     ['권한', currentUser.role],
     ['부서', currentUser.department || '-'],
     ['직책', currentUser.title || '-'],
@@ -95,7 +95,9 @@ export default function UserPreferencesPage() {
     if (window.api?.updateUserAccount) {
       try {
         await window.api.updateUserAccount({
-          username: currentUser.id,
+          // AWS 로그인 사용자의 id는 숫자 user_id일 수 있지만, 로컬 SQLite는
+          // username으로 사용자를 찾는다. 로컬 계정명으로 갱신해야 한다.
+          username: currentUser.username || currentUser.id,
           displayName: form.name,
           role: currentUser.role,
           departmentName: form.department,
@@ -196,7 +198,7 @@ export default function UserPreferencesPage() {
           <h2 className="font-semibold text-gray-900 dark:text-gray-100">기본 정보</h2>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <FormField label="아이디" labelClassName="uppercase text-gray-400 dark:text-gray-500">
-              <input className="form-input w-full bg-gray-50 dark:bg-gray-900/30" value={currentUser.id} disabled />
+              <input className="form-input w-full bg-gray-50 dark:bg-gray-900/30" value={currentUser.username || currentUser.id} disabled />
             </FormField>
             <FormField label="이름" labelClassName="uppercase text-gray-400 dark:text-gray-500">
               <input className="form-input w-full" value={form.name} onChange={(event) => handleChange('name', event.target.value)} />

@@ -397,17 +397,21 @@ function isNewerOrSame(candidate, current) {
 }
 
 async function workspaceSnapshot(client = getPool()) {
-  const [customers, products, contacts, closingStatuses] = await Promise.all([
+  const [customers, products, contacts, closingStatuses, salesUploads, sales] = await Promise.all([
     client.query('SELECT * FROM customers ORDER BY customer_code'),
     client.query('SELECT * FROM products ORDER BY product_code'),
     client.query('SELECT * FROM contacts ORDER BY updated_at DESC, contact_id DESC'),
     client.query('SELECT * FROM closing_status ORDER BY closing_month DESC, customer_code'),
+    client.query('SELECT * FROM sales_uploads ORDER BY uploaded_at DESC, upload_key'),
+    client.query('SELECT * FROM sales ORDER BY upload_key, row_no'),
   ]);
   return {
     customers: customers.rows.map(toClientRecord),
     products: products.rows.map(toClientRecord),
     contacts: contacts.rows.map(toClientRecord),
     closingStatuses: closingStatuses.rows.map(toClientRecord),
+    salesUploads: salesUploads.rows.map(toClientRecord),
+    sales: sales.rows.map(toClientRecord),
   };
 }
 
