@@ -15,8 +15,8 @@ export default function LoginPage() {
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [offlineProfile] = useState(() => getOfflineProfile());
-  const [canContinueOffline, setCanContinueOffline] = useState(false);
   const usesSharedLogin = isSharedApiEnabled();
 
   useEffect(() => {
@@ -41,64 +41,94 @@ export default function LoginPage() {
       return;
     }
 
-    const result = usesSharedLogin
-      ? await loginWithSharedApi({ username: userId.trim(), password })
-      : await authenticateLocalUser(userId, password);
+    setIsSubmitting(true);
+    try {
+      const result = usesSharedLogin
+        ? await loginWithSharedApi({ username: userId.trim(), password })
+        : await authenticateLocalUser(userId, password);
 
-    if (!result?.ok) {
-      if (usesSharedLogin && result?.status === 0 && offlineProfile && (!userId.trim() || userId.trim() === offlineProfile.username)) {
-        setCanContinueOffline(true);
-        setError('서버에 연결할 수 없습니다. 이 PC에 저장된 마지막 로그인 사용자로 오프라인 작업을 계속할 수 있습니다.');
+      if (!result?.ok) {
+        if (usesSharedLogin && result?.status === 0 && offlineProfile && userId.trim() === offlineProfile.username) {
+          const local = await authenticateLocalUser(userId.trim(), password);
+          if (local?.ok) {
+            await completeOfflineLogin(offlineProfile);
+            return;
+          }
+          setError('인터넷에 연결할 수 없습니다. 이 PC에 저장된 계정의 비밀번호를 확인해 주세요.');
+          return;
+        }
+        addActivityLog('WARN', '로그인 실패', userId || 'unknown', userId || 'unknown');
+        setError(result?.message || '아이디 또는 비밀번호가 틀렸습니다.');
         return;
       }
-      addActivityLog('WARN', '로그인 실패', userId || 'unknown', userId || 'unknown');
-      setError(result?.message || '아이디 또는 비밀번호가 틀렸습니다.');
-      return;
-    }
 
-    // 로그인 입력값은 서버 계정명과 같으므로, 숫자 DB PK와 혼동하지 않도록
-    // 로컬/오프라인 프로필에는 명시적으로 사용자명을 보존한다.
-    const selectedUser = {
+      // 로그인 입력값은 서버 계정명과 같으므로, 숫자 DB PK와 혼동하지 않도록
+      // 로컬/오프라인 프로필에는 명시적으로 사용자명을 보존한다.
+      const selectedUser = {
       ...result.user,
       username: result.user?.username || userId.trim(),
-    };
-    if (usesSharedLogin) saveOfflineProfile(selectedUser);
-    await hydratePersonalTodos(selectedUser.id);
-    const nextUsers = mergeAuthenticatedUser(users, selectedUser);
-    saveUsers(nextUsers);
-    saveSession({
+      department: result.user?.departmentName || '',
+      };
+    // AWS에 실제로 존재하고 비밀번호가 맞는 경우에만 이 PC SQLite 계정을 만든다.
+      if (usesSharedLogin && window.api?.syncCloudUser) {
+      await window.api.syncCloudUser({
+        username: selectedUser.username,
+        password,
+        displayName: selectedUser.name,
+        role: selectedUser.role,
+        departmentName: selectedUser.departmentName || selectedUser.department,
+        title: selectedUser.title,
+        email: selectedUser.email,
+        phone: selectedUser.phone,
+        status: selectedUser.status,
+      });
+      }
+      if (usesSharedLogin) saveOfflineProfile(selectedUser);
+      await hydratePersonalTodos(selectedUser.id);
+      const nextUsers = mergeAuthenticatedUser(users, selectedUser);
+      saveUsers(nextUsers);
+      saveSession({
       userId: selectedUser.id,
       role: selectedUser.role,
       autoLogin: true,
       accessToken: result.token,
       user: selectedUser,
-    });
+      });
     // 새 PC도 기존 AWS 기준정보를 먼저 받아야 로컬 SQLite가 같은 업무 데이터를
     // 보여 준다. 실패해도 로그인 자체는 막지 않아 오프라인 작업은 가능하다.
-    if (usesSharedLogin && window.api?.applyCloudWorkspace) {
+      if (usesSharedLogin && window.api?.applyCloudWorkspace) {
       const cloudWorkspace = await sharedDataService.downloadWorkspace();
       if (cloudWorkspace.ok) {
         await window.api.applyCloudWorkspace(cloudWorkspace.data?.snapshot ?? {});
       }
+      }
+      if (usesSharedLogin && window.api?.completeSetup) {
+      await window.api.completeSetup({ lastCloudSyncAt: new Date().toISOString() });
+      window.dispatchEvent(new CustomEvent('excel-workspace:setup-completed'));
+      }
+      addActivityLog('INFO', '로그인', selectedUser.id, selectedUser.id);
+      navigate(location.state?.from || '/dashboard', { replace: true });
+    } catch (loginError) {
+      setError(loginError?.message || '로그인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setIsSubmitting(false);
     }
-    addActivityLog('INFO', '로그인', selectedUser.id, selectedUser.id);
-    navigate(location.state?.from || '/dashboard', { replace: true });
   };
 
-  const continueOffline = async () => {
-    if (!offlineProfile) return;
-    saveUsers([offlineProfile]);
+  const completeOfflineLogin = async (profile) => {
+    if (!profile) return;
+    saveUsers([profile]);
     saveSession({
-      userId: offlineProfile.id,
-      role: offlineProfile.role,
+      userId: profile.id,
+      role: profile.role,
       autoLogin: true,
       offline: true,
       accessToken: '',
-      user: offlineProfile,
-      expiresAt: offlineProfile.offlineExpiresAt,
+      user: profile,
+      expiresAt: profile.offlineExpiresAt,
     });
-    await hydratePersonalTodos(offlineProfile.id);
-    addActivityLog('INFO', '오프라인 로그인', offlineProfile.id, offlineProfile.id);
+    await hydratePersonalTodos(profile.id);
+    addActivityLog('INFO', '오프라인 로그인', profile.id, profile.id);
     navigate(location.state?.from || '/dashboard', { replace: true });
   };
 
@@ -167,6 +197,7 @@ export default function LoginPage() {
                       id="userId"
                       value={userId}
                       onChange={(event) => setUserId(event.target.value)}
+                      disabled={isSubmitting}
                       placeholder="아이디"
                       autoComplete="username"
                     />
@@ -176,6 +207,7 @@ export default function LoginPage() {
                       id="userId"
                       value={userId}
                       onChange={(event) => setUserId(event.target.value)}
+                      disabled={isSubmitting}
                     >
                       {users.map((user) => (
                         <option key={user.id} value={user.id}>
@@ -198,6 +230,7 @@ export default function LoginPage() {
                     type="password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
+                    disabled={isSubmitting}
                     placeholder="비밀번호"
                     autoComplete="current-password"
                     autoFocus
@@ -210,21 +243,12 @@ export default function LoginPage() {
                   </div>
                 )}
 
-                {canContinueOffline && (
-                  <button
-                    className="inline-flex h-11 w-full items-center justify-center rounded-md border border-amber-300 bg-amber-50 px-5 text-sm font-bold text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
-                    type="button"
-                    onClick={continueOffline}
-                  >
-                    {offlineProfile?.name || offlineProfile?.username} 계정으로 오프라인 계속
-                  </button>
-                )}
-
                 <button
                   className="inline-flex h-12 w-full items-center justify-center rounded-md bg-teal-700 px-5 text-sm font-bold text-white shadow-sm hover:bg-teal-800 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 dark:bg-accent-400 dark:text-gray-950 dark:hover:bg-accent-300"
                   type="submit"
+                  disabled={isSubmitting}
                 >
-                  로그인
+                  {isSubmitting ? '로그인 중…' : '로그인'}
                 </button>
               </form>
 

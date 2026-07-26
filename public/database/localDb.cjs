@@ -2499,6 +2499,59 @@ function applyCloudWorkspace(database, payload = {}) {
       updated_at = excluded.updated_at
     WHERE excluded.updated_at >= user_todo_state.updated_at
   `);
+  const ensureSystemTodoOwner = database.prepare(`
+    INSERT OR IGNORE INTO users (username, display_name, password_hash, role, department_name, status)
+    VALUES ('team:general-affairs', '공용 일정', NULL, 'VIEWER', '공용', 'ACTIVE')
+  `);
+  const legacyUploadIds = new Map();
+  // RDS의 local_sync_records에는 로컬 SQLite 전용 화면 데이터도 JSON 원본으로
+  // 보관된다. 새 PC에서는 허용된 업무 테이블만 원래 SQLite 테이블에 복원한다.
+  const archiveTables = {
+    validation_issues: 'issue_id',
+    report_templates: 'template_id',
+    reports: 'report_id',
+    message_templates: 'template_id',
+    email_history: 'email_id',
+    workspace_snapshots: 'id',
+    activity_logs: 'log_id',
+    notifications: 'notification_id',
+  };
+  const restoreArchiveRecord = (record) => {
+    const keyColumn = archiveTables[record?.table];
+    if (!keyColumn || !record?.payload || typeof record.payload !== 'object') return;
+    const columns = database.prepare(`PRAGMA table_info(${record.table})`).all().map((column) => column.name);
+    if (!columns.length) return;
+    const row = { ...record.payload };
+    // 로컬 매출 업로드의 숫자 ID는 새 PC에서 달라진다. RDS upload_key로 만든
+    // 매핑을 사용해 검증/메일/보고서 이력의 참조를 새 SQLite ID로 바꾼다.
+    if (['validation_issues', 'email_history', 'reports'].includes(record.table) && row.upload_id != null) {
+      const remappedUploadId = legacyUploadIds.get(Number(row.upload_id));
+      if (record.table === 'validation_issues' && !remappedUploadId) return;
+      row.upload_id = remappedUploadId ?? null;
+    }
+    if (record.table === 'validation_issues') row.row_id = null;
+    if (record.table === 'email_history' && row.contact_id != null) {
+      const contact = row.customer_code && row.recipient_email
+        ? database.prepare('SELECT contact_id AS contactId FROM contacts WHERE customer_code = ? AND recipient_email = ? LIMIT 1').get(row.customer_code, row.recipient_email)
+        : null;
+      row.contact_id = contact?.contactId ?? null;
+    }
+    if (row[keyColumn] == null && record.key != null) {
+      row[keyColumn] = /^\d+$/.test(String(record.key)) ? Number(record.key) : String(record.key);
+    }
+    if (row[keyColumn] == null) return;
+    const presentColumns = columns.filter((column) => row[column] !== undefined);
+    if (!presentColumns.includes(keyColumn)) presentColumns.unshift(keyColumn);
+    const existing = database.prepare(`SELECT 1 FROM ${record.table} WHERE ${keyColumn} = ?`).get(row[keyColumn]);
+    if (existing) {
+      const updateColumns = presentColumns.filter((column) => column !== keyColumn);
+      if (updateColumns.length) {
+        database.prepare(`UPDATE ${record.table} SET ${updateColumns.map((column) => `${column} = @${column}`).join(', ')} WHERE ${keyColumn} = @${keyColumn}`).run(row);
+      }
+      return;
+    }
+    database.prepare(`INSERT INTO ${record.table} (${presentColumns.join(', ')}) VALUES (${presentColumns.map((column) => `@${column}`).join(', ')})`).run(row);
+  };
 
   database.transaction(() => {
     customers.forEach((row) => upsertCustomer.run({
@@ -2549,6 +2602,8 @@ function applyCloudWorkspace(database, payload = {}) {
       } else {
         uploadIds.set(values.uploadKey, Number(insertUpload.run(values).lastInsertRowid));
       }
+      const legacyMatch = /^local-upload-(\d+)$/.exec(values.uploadKey);
+      if (legacyMatch) legacyUploadIds.set(Number(legacyMatch[1]), uploadIds.get(values.uploadKey));
     });
     // AWS의 업로드 키별 행 목록을 기준으로 교체한다. 새 PC에서 기존 매출 행이
     // 중복되는 것을 막고, 중앙 RDS의 같은 파일 상태를 그대로 재현한다.
@@ -2564,17 +2619,33 @@ function applyCloudWorkspace(database, payload = {}) {
         validationStatus: row.validationStatus || 'PENDING', reviewStatus: row.reviewStatus || 'WAITING', ownerName: row.ownerName ?? null,
       });
     });
-    archives.forEach((record) => {
-      if (record?.table !== 'user_todo_state') return;
-      const state = record.payload && typeof record.payload === 'object' ? record.payload : {};
-      const username = String(state.username ?? record.key ?? '').trim();
-      if (!username) return;
-      upsertTodoState.run({
-        username,
-        todosJson: typeof state.todos_json === 'string' ? state.todos_json : toJson(state.todos ?? []),
-        historyJson: typeof state.history_json === 'string' ? state.history_json : toJson(state.history ?? []),
-        updatedAt: state.updated_at ?? state.updatedAt ?? record.updatedAt ?? null,
-      });
+    const archiveOrder = {
+      workspace_snapshots: 10,
+      report_templates: 20,
+      message_templates: 30,
+      validation_issues: 40,
+      email_history: 50,
+      reports: 60,
+      activity_logs: 70,
+      notifications: 80,
+      user_todo_state: 90,
+    };
+    [...archives].sort((left, right) => (archiveOrder[left?.table] ?? 999) - (archiveOrder[right?.table] ?? 999)).forEach((record) => {
+      if (record?.table === 'user_todo_state') {
+        const state = record.payload && typeof record.payload === 'object' ? record.payload : {};
+        const username = String(state.username ?? record.key ?? '').trim();
+        if (!username) return;
+        if (username === 'team:general-affairs') ensureSystemTodoOwner.run();
+        if (!database.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) return;
+        upsertTodoState.run({
+          username,
+          todosJson: typeof state.todos_json === 'string' ? state.todos_json : toJson(state.todos ?? []),
+          historyJson: typeof state.history_json === 'string' ? state.history_json : toJson(state.history ?? []),
+          updatedAt: state.updated_at ?? state.updatedAt ?? record.updatedAt ?? null,
+        });
+        return;
+      }
+      restoreArchiveRecord(record);
     });
   })();
 
@@ -2611,6 +2682,7 @@ function listLocalUsers(database) {
       phone,
       status
     FROM users
+    WHERE username <> 'team:general-affairs'
     ORDER BY user_id
   `).all();
 }
@@ -2644,6 +2716,41 @@ function registerLocalUser(database, payload = {}) {
     departmentName: departmentName || "미지정",
   });
 
+  return listLocalUsers(database).find((user) => user.id === username);
+}
+
+// AWS 인증이 성공한 계정만 이 PC의 SQLite에 복제한다. 비밀번호는 입력값을
+// 해시로만 저장하며, 이후 24시간 오프라인 로그인 확인에 사용한다.
+function syncCloudUser(database, payload = {}) {
+  const username = String(payload.username ?? '').trim();
+  const password = String(payload.password ?? '');
+  if (username.length < 2 || password.length < 6) throw new Error('AWS 인증 계정 정보가 올바르지 않습니다.');
+  const cloudRole = String(payload.role ?? 'VIEWER').toUpperCase();
+  const role = ['ADMIN', 'MANAGER', 'VIEWER'].includes(cloudRole) ? cloudRole : 'VIEWER';
+  const values = {
+    username,
+    displayName: String(payload.displayName ?? payload.name ?? username).trim() || username,
+    passwordHash: hashPassword(password),
+    role,
+    departmentName: String(payload.departmentName ?? '').trim() || '미지정',
+    title: String(payload.title ?? '').trim(),
+    email: String(payload.email ?? '').trim(),
+    phone: String(payload.phone ?? '').trim(),
+    status: String(payload.status ?? 'ACTIVE').toUpperCase() === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
+  };
+  const existing = database.prepare('SELECT username FROM users WHERE username = ?').get(username);
+  if (existing) {
+    database.prepare(`
+      UPDATE users SET display_name=@displayName, password_hash=@passwordHash, role=@role,
+        department_name=@departmentName, title=@title, email=@email, phone=@phone,
+        status=@status, updated_at=CURRENT_TIMESTAMP WHERE username=@username
+    `).run(values);
+  } else {
+    database.prepare(`
+      INSERT INTO users (username,display_name,password_hash,role,department_name,title,email,phone,status)
+      VALUES (@username,@displayName,@passwordHash,@role,@departmentName,@title,@email,@phone,@status)
+    `).run(values);
+  }
   return listLocalUsers(database).find((user) => user.id === username);
 }
 
@@ -2928,6 +3035,11 @@ function registerDatabaseIpc(ipcMain, app) {
   ipcMain.handle("users:register", (_, payload) => ({
     ok: true,
     user: registerLocalUser(getDatabase(app), payload),
+  }));
+
+  ipcMain.handle("users:sync-cloud", (_, payload) => ({
+    ok: true,
+    user: syncCloudUser(getDatabase(app), payload),
   }));
 
   ipcMain.handle("users:authenticate", (_, payload) =>
@@ -3526,6 +3638,7 @@ module.exports = {
   initializeDatabase,
   listLocalUsers,
   registerLocalUser,
+  syncCloudUser,
   registerDatabaseIpc,
   saveUserTodoState,
   updateLocalUser,

@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("api", {
   getDatabaseSummary: () => ipcRenderer.invoke("db:summary"),
   listUsers: () => ipcRenderer.invoke("users:list"),
   registerUser: (payload) => ipcRenderer.invoke("users:register", payload),
+  syncCloudUser: (payload) => ipcRenderer.invoke("users:sync-cloud", payload),
   authenticateUser: (payload) => ipcRenderer.invoke("users:authenticate", payload),
   updateUserAccount: (payload) => ipcRenderer.invoke("users:update", payload),
   deleteUserAccount: (payload) => ipcRenderer.invoke("users:delete", payload),

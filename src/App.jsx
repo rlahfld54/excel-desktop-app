@@ -214,8 +214,8 @@ function App() {
     );
   }
 
-  if (!setupState.completed && location.pathname !== '/setup') {
-    return <Navigate to="/setup" replace />;
+  if (!setupState.completed && location.pathname !== '/setup' && location.pathname !== '/login') {
+    return <Navigate to={isSharedApiEnabled() ? '/login' : '/setup'} replace />;
   }
 
   return (

@@ -94,28 +94,9 @@ export default function UserPreferencesPage() {
   };
 
   const handleSave = async () => {
-    // 프로필은 먼저 이 PC의 SQLite에 저장한다. 따라서 AWS가 잠시 끊겨도
-    // 로컬 작업 화면과 오프라인 프로필은 즉시 최신 값으로 유지된다.
-    if (window.api?.updateUserAccount) {
-      try {
-        await window.api.updateUserAccount({
-          username: currentUser.username || currentUser.id,
-          displayName: form.name,
-          role: currentUser.role,
-          departmentName: form.department,
-          title: form.title,
-          email: form.email,
-          phone: form.phone,
-          status: currentUser.status,
-        });
-        const usersResult = await window.api.listUsers();
-        saveUsers(usersResult.users ?? []);
-      } catch (error) {
-        setStateText(`로컬 프로필 저장 실패: ${error.message}`);
-        return;
-      }
-    }
-
+    // 로그인한 AWS 계정(RDS users)을 먼저 갱신한다. 이 PC의 SQLite users에는
+    // 같은 username이 있을 때만 함께 저장하며, 없다고 새 계정을 만들지는 않는다.
+    let nextUser = currentUser;
     if (isSharedApiEnabled()) {
       try {
         const result = await sharedDataService.updateMyProfile({
@@ -127,7 +108,7 @@ export default function UserPreferencesPage() {
         });
         if (!result.ok) throw new Error(result.message || 'AWS 프로필 저장에 실패했습니다.');
         const remoteUser = result.data?.user ?? {};
-        const nextUser = {
+        nextUser = {
           ...currentUser,
           ...remoteUser,
           id: String(remoteUser.userId ?? currentUser.id),
@@ -135,13 +116,34 @@ export default function UserPreferencesPage() {
           department: remoteUser.departmentName ?? form.department,
           title: remoteUser.title ?? form.title,
         };
-        saveUsers([nextUser]);
         saveOfflineProfile(nextUser);
         saveSession({ ...(currentUser.session ?? {}), userId: nextUser.id, role: nextUser.role, user: nextUser });
+      } catch (error) {
+        setStateText(`AWS 프로필 저장 실패: ${error.message}`);
+        return;
+      }
+    }
+
+    if (window.api?.updateUserAccount && nextUser.username) {
+      try {
+        const localUsers = (await window.api.listUsers())?.users ?? [];
+        if (localUsers.some((user) => user.id === nextUser.username)) {
+          await window.api.updateUserAccount({
+            username: nextUser.username,
+            displayName: form.name,
+            role: nextUser.role,
+            departmentName: form.department,
+            title: form.title,
+            email: form.email,
+            phone: form.phone,
+            status: nextUser.status,
+          });
+        }
+        saveUsers([nextUser, ...localUsers.filter((user) => user.id !== nextUser.id)]);
         setCurrentUser(nextUser);
       } catch (error) {
-        setStateText(`로컬에는 저장됐지만 AWS 동기화 실패: ${error.message}`);
-        return;
+        // RDS 저장은 이미 완료된 상태다. 로컬 계정이 없어도 자동 생성하지 않는다.
+        console.warn('로컬 SQLite 프로필 반영 실패:', error);
       }
     }
     if (window.api?.saveAppSettings) {

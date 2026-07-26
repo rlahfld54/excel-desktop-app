@@ -446,7 +446,9 @@ async function workspaceSnapshot(client = getPool()) {
     client.query('SELECT * FROM closing_status ORDER BY closing_month DESC, customer_code'),
     client.query('SELECT * FROM sales_uploads ORDER BY uploaded_at DESC, upload_key'),
     client.query('SELECT * FROM sales ORDER BY upload_key, row_no'),
-    client.query("SELECT record_table, record_key, payload_json, updated_at FROM local_sync_records WHERE record_table = 'user_todo_state' ORDER BY updated_at DESC"),
+    // 일정만이 아니라 로컬 전용으로 보존해 둔 검증·보고서·메일 이력 등도
+    // 새 PC의 SQLite로 다시 복원할 수 있도록 전체 원본을 내려준다.
+    client.query('SELECT record_table, record_key, payload_json, updated_at FROM local_sync_records ORDER BY updated_at DESC'),
   ]);
   return {
     customers: customers.rows.map(toClientRecord),
