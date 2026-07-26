@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import Logo from '../images/logo.svg';
 import { isSharedApiEnabled } from '../config/cloud';
 import { loginWithSharedApi } from '../services/authApiService';
-import { addActivityLog, saveSession, saveUsers } from '../utils/authSession';
+import { addActivityLog, getOfflineProfile, saveOfflineProfile, saveSession, saveUsers } from '../utils/authSession';
 import { hydratePersonalTodos } from '../utils/todoSchedule';
 
 export default function LoginPage() {
@@ -14,6 +14,8 @@ export default function LoginPage() {
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [offlineProfile] = useState(() => getOfflineProfile());
+  const [canContinueOffline, setCanContinueOffline] = useState(false);
   const usesSharedLogin = isSharedApiEnabled();
 
   useEffect(() => {
@@ -43,12 +45,18 @@ export default function LoginPage() {
       : await authenticateLocalUser(userId, password);
 
     if (!result?.ok) {
+      if (usesSharedLogin && result?.status === 0 && offlineProfile && (!userId.trim() || userId.trim() === offlineProfile.username)) {
+        setCanContinueOffline(true);
+        setError('서버에 연결할 수 없습니다. 이 PC에 저장된 마지막 로그인 사용자로 오프라인 작업을 계속할 수 있습니다.');
+        return;
+      }
       addActivityLog('WARN', '로그인 실패', userId || 'unknown', userId || 'unknown');
       setError(result?.message || '아이디 또는 비밀번호가 틀렸습니다.');
       return;
     }
 
     const selectedUser = result.user;
+    if (usesSharedLogin) saveOfflineProfile(selectedUser);
     await hydratePersonalTodos(selectedUser.id);
     const nextUsers = mergeAuthenticatedUser(users, selectedUser);
     saveUsers(nextUsers);
@@ -60,6 +68,23 @@ export default function LoginPage() {
       user: selectedUser,
     });
     addActivityLog('INFO', '로그인', selectedUser.id, selectedUser.id);
+    navigate(location.state?.from || '/dashboard', { replace: true });
+  };
+
+  const continueOffline = async () => {
+    if (!offlineProfile) return;
+    saveUsers([offlineProfile]);
+    saveSession({
+      userId: offlineProfile.id,
+      role: offlineProfile.role,
+      autoLogin: true,
+      offline: true,
+      accessToken: '',
+      user: offlineProfile,
+      expiresAt: offlineProfile.offlineExpiresAt,
+    });
+    await hydratePersonalTodos(offlineProfile.id);
+    addActivityLog('INFO', '오프라인 로그인', offlineProfile.id, offlineProfile.id);
     navigate(location.state?.from || '/dashboard', { replace: true });
   };
 
@@ -169,6 +194,16 @@ export default function LoginPage() {
                   <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
                     {error}
                   </div>
+                )}
+
+                {canContinueOffline && (
+                  <button
+                    className="inline-flex h-11 w-full items-center justify-center rounded-md border border-amber-300 bg-amber-50 px-5 text-sm font-bold text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+                    type="button"
+                    onClick={continueOffline}
+                  >
+                    {offlineProfile?.name || offlineProfile?.username} 계정으로 오프라인 계속
+                  </button>
                 )}
 
                 <button

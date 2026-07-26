@@ -1,5 +1,7 @@
 export const sessionStorageKey = 'excel-workspace:adminSession';
+export const offlineProfileStorageKey = 'excel-workspace:lastOnlineUser';
 export const authChangedEvent = 'excel-workspace:auth-changed';
+export const sessionMaxAgeMs = 24 * 60 * 60 * 1000;
 let usersCache = [];
 let logsCache = [];
 
@@ -72,13 +74,13 @@ export function clearUserCache() {
 
 export function getSession() {
   const saved = readJson(sessionStorageKey, null);
-  if (saved?.userId && saved?.role) return saved;
+  if (saved?.userId && saved?.role && Number(saved.expiresAt) > Date.now()) return saved;
   return null;
 }
 
 export function hasActiveSession() {
-  const saved = readJson(sessionStorageKey, null);
-  if (!saved?.userId || !saved?.role) return false;
+  const saved = getSession();
+  if (!saved) return false;
 
   const user = getUsers().find((item) => item.id === saved.userId);
   const sessionUser = saved.user?.id === saved.userId ? saved.user : null;
@@ -92,6 +94,7 @@ export function saveSession(session) {
     ...createUserSession(requestedUser),
     ...session,
     autoLogin: session?.autoLogin ?? true,
+    expiresAt: session?.expiresAt ?? Date.now() + sessionMaxAgeMs,
   };
   writeJson(sessionStorageKey, nextSession);
   notifyAuthChanged();
@@ -100,6 +103,34 @@ export function saveSession(session) {
 
 export function clearSession() {
   removeJson(sessionStorageKey);
+}
+
+// This is a device-local profile, not a password or access token. It lets a
+// previously authenticated user explicitly continue working offline.
+export function saveOfflineProfile(user) {
+  if (!user?.id) return null;
+  const profile = {
+    id: String(user.id),
+    username: String(user.username ?? user.id),
+    name: user.name ?? user.username ?? '사용자',
+    role: user.role ?? 'USER',
+    department: user.department ?? user.departmentName ?? '미지정',
+    title: user.title ?? (user.role === 'ADMIN' ? '관리자' : '사용자'),
+    email: user.email ?? '',
+    phone: user.phone ?? '',
+    status: user.status ?? 'ACTIVE',
+    lastOnlineAt: new Date().toISOString(),
+    offlineExpiresAt: Date.now() + sessionMaxAgeMs,
+  };
+  writeJson(offlineProfileStorageKey, profile);
+  return profile;
+}
+
+export function getOfflineProfile() {
+  const profile = readJson(offlineProfileStorageKey, null);
+  return profile?.id && profile?.status !== 'INACTIVE' && Number(profile.offlineExpiresAt) > Date.now()
+    ? profile
+    : null;
 }
 
 export function getCurrentUser() {

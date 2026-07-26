@@ -10,6 +10,7 @@ import ActivityLogsPage from './ActivityLogsPage';
 import SystemStatusPage from './SystemStatusPage';
 import CacheManagerPage from './CacheManagerPage';
 import TaskHistoryPage from './TaskHistoryPage';
+import CloudMigrationPage from './CloudMigrationPage';
 import { getCurrentUser } from '../utils/authSession';
 
 const hubConfigs = {
@@ -60,6 +61,13 @@ const hubConfigs = {
         detail: '관리자 설정',
         adminOnly: true,
         Component: SaveSettingsPage,
+      },
+      {
+        key: 'cloud-migration',
+        title: 'AWS 기존 데이터 이관',
+        description: '이 PC SQLite의 고객, 제품, 업로드, 매출, 연락처를 AWS RDS로 복사합니다.',
+        detail: 'AWS RDS',
+        Component: CloudMigrationPage,
       },
     ],
   },

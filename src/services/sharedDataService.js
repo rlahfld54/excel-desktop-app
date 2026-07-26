@@ -19,4 +19,10 @@ export const sharedDataService = {
   createBackup: (backup) => requestSharedApi('/backups', { method: 'POST', body: backup }),
   listBackups: (options) => requestSharedApi('/backups', options),
   importWorkspace: (payload) => requestSharedApi('/migration/import', { method: 'POST', body: payload }),
+  syncWorkspace: (payload) => requestSharedApi('/sync/workspace', { method: 'POST', body: payload }),
+  downloadWorkspace: (options) => requestSharedApi('/sync/workspace', options),
+  listCloudFiles: (options) => requestSharedApi('/files', options),
+  presignCloudFile: (payload) => requestSharedApi('/files/presign', { method: 'POST', body: payload }),
+  completeCloudFile: (payload) => requestSharedApi('/files/complete', { method: 'POST', body: payload }),
+  downloadCloudFile: (key) => requestSharedApi('/files/download-url', { method: 'POST', body: { key } }),
 };

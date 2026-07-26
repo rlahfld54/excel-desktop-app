@@ -650,6 +650,12 @@ function registerIpcHandlers() {
     return { canceled: false, path: filePaths[0] };
   });
 
+  ipcMain.handle("files:read-base64", async (_, filePath) => {
+    if (!filePath || typeof filePath !== "string") return { ok: false, message: "파일 경로가 필요합니다." };
+    const bytes = await fs.readFile(filePath);
+    return { ok: true, fileName: path.basename(filePath), sizeBytes: bytes.length, base64: bytes.toString("base64") };
+  });
+
   ipcMain.handle("notifications:show", async (_, payload) => {
     if (!Notification?.isSupported?.()) {
       return { ok: false, mode: "unsupported" };

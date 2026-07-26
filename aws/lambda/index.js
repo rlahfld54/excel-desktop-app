@@ -1,8 +1,11 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
+const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 let pool;
+let s3;
 
 function requiredEnv(name) {
   const value = process.env[name];
@@ -23,6 +26,11 @@ function getPool() {
     ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false },
   });
   return pool;
+}
+
+function getS3() {
+  if (!s3) s3 = new S3Client({ region: process.env.AWS_REGION || 'ap-northeast-2' });
+  return s3;
 }
 
 function response(statusCode, body) {
@@ -268,6 +276,77 @@ async function backups(method, body, actor) {
   return response(405, { message: 'Method not allowed.' });
 }
 
+function safeFileName(value) {
+  const name = String(value || 'file').split(/[\\/]/).pop().replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
+  return name.slice(0, 180) || 'file';
+}
+
+function encodeRfc5987FileName(value) {
+  return encodeURIComponent(String(value || 'file'))
+    .replace(/['()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+async function cloudFiles(method, path, body, actor) {
+  const bucket = requiredEnv('S3_BUCKET');
+  if (method === 'GET') {
+    const result = await getPool().query('SELECT * FROM cloud_files WHERE uploaded_by = $1 ORDER BY uploaded_at DESC, file_id DESC', [actor]);
+    return response(200, { files: result.rows.map(toClientRecord) });
+  }
+  if (method === 'POST' && path === '/files/presign') {
+    const fileName = safeFileName(body.fileName);
+    const extension = fileName.toLowerCase().split('.').pop();
+    if (!['xlsx', 'xls', 'pdf', 'csv'].includes(extension)) throw httpError(400, '엑셀, CSV, PDF 파일만 업로드할 수 있습니다.');
+    const sizeBytes = Number(body.sizeBytes || 0);
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > 100 * 1024 * 1024) throw httpError(400, '파일 크기는 100MB 이하만 허용됩니다.');
+    const key = `user-files/${actor}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${fileName}`;
+    const command = new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: body.contentType || 'application/octet-stream' });
+    const uploadUrl = await getSignedUrl(getS3(), command, { expiresIn: 900 });
+    return response(200, { uploadUrl, key, fileName, contentType: body.contentType || 'application/octet-stream', expiresIn: 900 });
+  }
+  if (method === 'POST' && path === '/files/complete') {
+    if (!String(body.key || '').startsWith(`user-files/${actor}/`)) throw httpError(403, '파일 소유자가 아닙니다.');
+    const result = await getPool().query(`INSERT INTO cloud_files (object_key,file_name,content_type,size_bytes,uploaded_by) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (object_key) DO UPDATE SET size_bytes=EXCLUDED.size_bytes,status='AVAILABLE' RETURNING *`, [body.key, safeFileName(body.fileName), body.contentType || 'application/octet-stream', Number(body.sizeBytes || 0), actor]);
+    return response(201, { file: toClientRecord(result.rows[0]) });
+  }
+  if (method === 'POST' && path === '/files/download-url') {
+    const result = await getPool().query('SELECT * FROM cloud_files WHERE object_key = $1 AND uploaded_by = $2 AND status = $3', [body.key, actor, 'AVAILABLE']);
+    if (!result.rows[0]) throw httpError(404, '파일을 찾을 수 없습니다.');
+    const file = result.rows[0];
+    const extension = safeFileName(file.file_name).split('.').pop().replace(/[^a-zA-Z0-9]/g, '') || 'bin';
+    const encodedFileName = encodeRfc5987FileName(file.file_name);
+    const contentDisposition = `attachment; filename="download.${extension}"; filename*=UTF-8''${encodedFileName}`;
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: file.object_key,
+      ResponseContentDisposition: contentDisposition,
+    });
+    const downloadUrl = await getSignedUrl(getS3(), command, { expiresIn: 900 });
+    return response(200, { downloadUrl, expiresIn: 900 });
+  }
+  return response(405, { message: 'Method not allowed.' });
+}
+
+async function saveExtendedWorkspace(client, source, actor) {
+  const closingStatuses = Array.isArray(source?.closingStatuses) ? source.closingStatuses : [];
+  for (const row of closingStatuses) {
+    if (!row.closingMonth || !row.customerCode) continue;
+    await client.query(`INSERT INTO closing_status (closing_month,customer_code,owner_name,deadline,contact_confirmed,amount_confirmed,confirmed_amount,tax_issued,tax_matched,request_ready,request_sent,closing_sheet_sent,reason,memo,history_json,created_at,updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,COALESCE($16::timestamptz,now()),COALESCE($17::timestamptz,now()))
+      ON CONFLICT (closing_month,customer_code) DO UPDATE SET owner_name=EXCLUDED.owner_name,deadline=EXCLUDED.deadline,contact_confirmed=EXCLUDED.contact_confirmed,amount_confirmed=EXCLUDED.amount_confirmed,confirmed_amount=EXCLUDED.confirmed_amount,tax_issued=EXCLUDED.tax_issued,tax_matched=EXCLUDED.tax_matched,request_ready=EXCLUDED.request_ready,request_sent=EXCLUDED.request_sent,closing_sheet_sent=EXCLUDED.closing_sheet_sent,reason=EXCLUDED.reason,memo=EXCLUDED.memo,history_json=EXCLUDED.history_json,updated_at=EXCLUDED.updated_at`,
+      [row.closingMonth,row.customerCode,row.ownerName || null,row.deadline || '30일',Boolean(row.contactConfirmed),Boolean(row.amountConfirmed),Number(row.confirmedAmount || 0),Boolean(row.taxIssued),Boolean(row.taxMatched),Boolean(row.requestReady),Boolean(row.requestSent),Boolean(row.closingSheetSent),row.reason || '회신 대기',row.memo || null,JSON.stringify(row.historyJson || []),row.createdAt || null,row.updatedAt || null]);
+  }
+  const archives = Array.isArray(source?.archives) ? source.archives : [];
+  for (const record of archives) {
+    if (!record.table || record.key == null) continue;
+    await client.query(`INSERT INTO local_sync_records (record_table,record_key,payload_json,updated_at,updated_by)
+      VALUES ($1,$2,$3::jsonb,COALESCE($4::timestamptz,now()),$5)
+      ON CONFLICT (record_table,record_key) DO UPDATE SET payload_json=EXCLUDED.payload_json,updated_at=EXCLUDED.updated_at,updated_by=EXCLUDED.updated_by
+      WHERE EXCLUDED.updated_at >= local_sync_records.updated_at`,
+      [record.table,String(record.key),JSON.stringify(record.payload || {}),record.updatedAt || null,actor]);
+  }
+  return { closingStatuses: closingStatuses.length, archives: archives.length };
+}
+
 async function migrateWorkspace(body, actor) {
   const client = await getPool().connect();
   const source = body || {};
@@ -302,10 +381,100 @@ async function migrateWorkspace(body, actor) {
       if (found.rows[0]) await client.query(`UPDATE contacts SET customer_name=$1,business_number=$2,department_name=$3,recipient_phone=$4,preferred_channel=$5,status=$6,memo=$7,updated_by=$8,updated_at=now(),version=version+1 WHERE contact_id=$9`, [row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor,found.rows[0].contact_id]);
       else await client.query(`INSERT INTO contacts (customer_code,customer_name,business_number,department_name,recipient_name,recipient_email,recipient_phone,preferred_channel,status,memo,created_by,updated_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)`, [row.customerCode || null,row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientName,row.recipientEmail || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor]);
     }
+    const extended = await saveExtendedWorkspace(client, source, actor);
     summary.customers=rows('customers').length; summary.products=rows('products').length; summary.salesUploads=rows('salesUploads').length; summary.sales=rows('sales').length; summary.contacts=rows('contacts').length;
+    summary.closingStatuses = extended.closingStatuses; summary.archives = extended.archives;
     await client.query('INSERT INTO cloud_migration_runs (created_by, summary_json) VALUES ($1,$2::jsonb)', [actor, JSON.stringify(summary)]);
     await client.query('COMMIT');
     return response(200,{ok:true,summary});
+  } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+}
+
+function isNewerOrSame(candidate, current) {
+  const candidateTime = Date.parse(candidate || '');
+  const currentTime = Date.parse(current || '');
+  return Number.isFinite(candidateTime) && (!Number.isFinite(currentTime) || candidateTime >= currentTime);
+}
+
+async function workspaceSnapshot(client = getPool()) {
+  const [customers, products, contacts, closingStatuses] = await Promise.all([
+    client.query('SELECT * FROM customers ORDER BY customer_code'),
+    client.query('SELECT * FROM products ORDER BY product_code'),
+    client.query('SELECT * FROM contacts ORDER BY updated_at DESC, contact_id DESC'),
+    client.query('SELECT * FROM closing_status ORDER BY closing_month DESC, customer_code'),
+  ]);
+  return {
+    customers: customers.rows.map(toClientRecord),
+    products: products.rows.map(toClientRecord),
+    contacts: contacts.rows.map(toClientRecord),
+    closingStatuses: closingStatuses.rows.map(toClientRecord),
+  };
+}
+
+// Pull -> merge -> push back a single authoritative snapshot. The timestamp is
+// retained from the writer, so the next PC can make the same deterministic choice.
+async function syncWorkspace(method, body, actor) {
+  if (method === 'GET') return response(200, { ok: true, snapshot: await workspaceSnapshot() });
+  if (method !== 'POST') return response(405, { message: 'Method not allowed.' });
+
+  const client = await getPool().connect();
+  const rows = (key) => Array.isArray(body?.[key]) ? body[key] : [];
+  const summary = { customers: 0, products: 0, contacts: 0 };
+  try {
+    await client.query('BEGIN');
+    for (const row of rows('customers')) {
+      if (!row.customerCode) continue;
+      const existing = await client.query('SELECT updated_at FROM customers WHERE customer_code = $1', [row.customerCode]);
+      if (existing.rows[0] && !isNewerOrSame(row.updatedAt, existing.rows[0].updated_at)) continue;
+      await client.query(`INSERT INTO customers (customer_code,customer_name,business_number,tax_status,status,memo,closing_json,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,COALESCE($8::timestamptz,now()),COALESCE($9::timestamptz,now()))
+        ON CONFLICT (customer_code) DO UPDATE SET customer_name=EXCLUDED.customer_name,business_number=EXCLUDED.business_number,tax_status=EXCLUDED.tax_status,status=EXCLUDED.status,memo=EXCLUDED.memo,closing_json=EXCLUDED.closing_json,updated_at=EXCLUDED.updated_at`,
+      [row.customerCode,row.customerName || row.customerCode,row.businessNumber || null,row.taxStatus || 'UNKNOWN',row.status || 'ACTIVE',row.memo || null,JSON.stringify(row.closingJson || null),row.createdAt || null,row.updatedAt || null]);
+      summary.customers += 1;
+    }
+    for (const row of rows('products')) {
+      if (!row.productCode) continue;
+      const existing = await client.query('SELECT updated_at FROM products WHERE product_code = $1', [row.productCode]);
+      if (existing.rows[0] && !isNewerOrSame(row.updatedAt, existing.rows[0].updated_at)) continue;
+      await client.query(`INSERT INTO products (product_code,product_name,unit,unit_price,currency,status,memo,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8::timestamptz,now()),COALESCE($9::timestamptz,now()))
+        ON CONFLICT (product_code) DO UPDATE SET product_name=EXCLUDED.product_name,unit=EXCLUDED.unit,unit_price=EXCLUDED.unit_price,currency=EXCLUDED.currency,status=EXCLUDED.status,memo=EXCLUDED.memo,updated_at=EXCLUDED.updated_at`,
+      [row.productCode,row.productName || row.productCode,row.unit || 'EA',Number(row.unitPrice || 0),row.currency || 'KRW',row.status || 'ACTIVE',row.memo || null,row.createdAt || null,row.updatedAt || null]);
+      summary.products += 1;
+    }
+    for (const row of rows('salesUploads')) {
+      if (!row.uploadKey || !row.fileName || !row.closingMonth) continue;
+      await client.query(`INSERT INTO sales_uploads (upload_key,file_name,closing_month,uploaded_department_code,uploaded_at,status,memo)
+        VALUES ($1,$2,$3,$4,COALESCE($5::timestamptz,now()),$6,$7)
+        ON CONFLICT (upload_key) DO UPDATE SET file_name=EXCLUDED.file_name,closing_month=EXCLUDED.closing_month,uploaded_department_code=EXCLUDED.uploaded_department_code,status=EXCLUDED.status,memo=EXCLUDED.memo`,
+      [row.uploadKey,row.fileName,row.closingMonth,row.uploadedDepartmentCode || null,row.uploadedAt || null,row.status || 'UPLOADED',row.memo || null]);
+      summary.salesUploads = (summary.salesUploads || 0) + 1;
+    }
+    for (const row of rows('sales')) {
+      if (!row.uploadKey || !row.rowNo) continue;
+      await client.query(`INSERT INTO sales (upload_key,row_no,transaction_date,raw_customer_name,raw_product_name,customer_code,product_code,quantity,unit_price,sales_amount,validation_status,review_status,owner_name)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        ON CONFLICT (upload_key,row_no) DO UPDATE SET transaction_date=EXCLUDED.transaction_date,raw_customer_name=EXCLUDED.raw_customer_name,raw_product_name=EXCLUDED.raw_product_name,customer_code=EXCLUDED.customer_code,product_code=EXCLUDED.product_code,quantity=EXCLUDED.quantity,unit_price=EXCLUDED.unit_price,sales_amount=EXCLUDED.sales_amount,validation_status=EXCLUDED.validation_status,review_status=EXCLUDED.review_status,owner_name=EXCLUDED.owner_name`,
+      [row.uploadKey,row.rowNo,row.transactionDate || null,row.rawCustomerName || null,row.rawProductName || null,row.customerCode || null,row.productCode || null,row.quantity || null,row.unitPrice || null,row.salesAmount || null,row.validationStatus || 'PENDING',row.reviewStatus || 'WAITING',row.ownerName || null]);
+      summary.sales = (summary.sales || 0) + 1;
+    }
+    for (const row of rows('contacts')) {
+      if (!String(row.recipientName || '').trim()) continue;
+      const found = await client.query(`SELECT contact_id,updated_at FROM contacts WHERE COALESCE(customer_code,'')=COALESCE($1,'') AND COALESCE(recipient_email,'')=COALESCE($2,'') AND recipient_name=$3 LIMIT 1`, [row.customerCode || null,row.recipientEmail || null,row.recipientName]);
+      if (found.rows[0] && !isNewerOrSame(row.updatedAt, found.rows[0].updated_at)) continue;
+      if (found.rows[0]) {
+        await client.query(`UPDATE contacts SET customer_name=$1,business_number=$2,department_name=$3,recipient_phone=$4,preferred_channel=$5,status=$6,memo=$7,updated_by=$8,updated_at=COALESCE($9::timestamptz,now()),version=version+1 WHERE contact_id=$10`, [row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor,row.updatedAt || null,found.rows[0].contact_id]);
+      } else {
+        await client.query(`INSERT INTO contacts (customer_code,customer_name,business_number,department_name,recipient_name,recipient_email,recipient_phone,preferred_channel,status,memo,created_by,updated_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,COALESCE($12::timestamptz,now()),COALESCE($13::timestamptz,now()))`, [row.customerCode || null,row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientName,row.recipientEmail || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor,row.createdAt || null,row.updatedAt || null]);
+      }
+      summary.contacts += 1;
+    }
+    const extended = await saveExtendedWorkspace(client, body, actor);
+    summary.closingStatuses = extended.closingStatuses;
+    summary.archives = extended.archives;
+    const snapshot = await workspaceSnapshot(client);
+    await client.query('COMMIT');
+    return response(200, { ok: true, summary, snapshot });
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
 }
 
@@ -326,6 +495,8 @@ exports.handler = async (event) => {
     if (path === '/closing-companies' || path.startsWith('/closing-companies/')) return await closingCompanies(method, path, body, actor, query);
     if (path === '/todos' || path.startsWith('/todos/')) return await todos(method, path, body, actor);
     if (path === '/backups') return await backups(method, body, actor);
+    if (path === '/files' || path === '/files/presign' || path === '/files/complete' || path === '/files/download-url') return await cloudFiles(method, path, body, actor);
+    if (path === '/sync/workspace') return await syncWorkspace(method, body, actor);
     if (method === 'POST' && path === '/migration/import') return await migrateWorkspace(body, actor);
     return response(404, { message: 'Route not found.' });
   } catch (error) {

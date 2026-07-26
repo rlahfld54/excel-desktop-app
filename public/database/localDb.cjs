@@ -1218,7 +1218,9 @@ function migrateLegacyClosingStatus(database) {
     rows.forEach((row) => {
       let data = {};
       try {
-        data = JSON.parse(row.closingJson || "{}");
+        const parsed = JSON.parse(row.closingJson || "{}");
+        // 일부 구버전 데이터는 closing_json 값이 JSON null일 수 있다.
+        data = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
       } catch {
         data = {};
       }
@@ -2358,15 +2360,154 @@ function initializeDatabase(app) {
   };
 }
 
+function saveLocalContact(database, payload = {}) {
+  const contactId = Number(payload.contactId);
+  const row = {
+    customerCode: String(payload.customerCode ?? '').trim() || null,
+    customerName: String(payload.customerName ?? '').trim(),
+    businessNumber: String(payload.businessNumber ?? '').trim() || null,
+    departmentName: String(payload.departmentName ?? '').trim() || null,
+    recipientName: String(payload.recipientName ?? '').trim(),
+    recipientEmail: String(payload.recipientEmail ?? '').trim() || null,
+    recipientPhone: String(payload.recipientPhone ?? '').trim() || null,
+    preferredChannel: payload.preferredChannel || 'EMAIL',
+    status: payload.status || 'ACTIVE',
+    memo: String(payload.memo ?? '').trim() || null,
+  };
+  if (!row.customerName || !row.recipientName) throw new Error('거래처명과 담당자명은 필수입니다.');
+  const write = database.transaction(() => {
+    if (row.customerCode) {
+      database.prepare(`INSERT INTO customers (customer_code,customer_name,business_number,tax_status,status,memo)
+        VALUES (@customerCode,@customerName,@businessNumber,'UNKNOWN','ACTIVE',NULL)
+        ON CONFLICT(customer_code) DO UPDATE SET customer_name=excluded.customer_name,business_number=excluded.business_number,updated_at=CURRENT_TIMESTAMP`).run(row);
+    }
+    if (Number.isInteger(contactId) && contactId > 0) {
+      const result = database.prepare(`UPDATE contacts SET customer_code=@customerCode,department_name=@departmentName,recipient_name=@recipientName,recipient_email=@recipientEmail,recipient_phone=@recipientPhone,preferred_channel=@preferredChannel,status=@status,memo=@memo,updated_at=CURRENT_TIMESTAMP WHERE contact_id=@contactId`).run({ ...row, contactId });
+      if (!result.changes) throw new Error('수정할 담당자를 찾을 수 없습니다.');
+      return contactId;
+    }
+    return Number(database.prepare(`INSERT INTO contacts (customer_code,department_name,recipient_name,recipient_email,recipient_phone,preferred_channel,status,memo) VALUES (@customerCode,@departmentName,@recipientName,@recipientEmail,@recipientPhone,@preferredChannel,@status,@memo)`).run(row).lastInsertRowid);
+  });
+  const savedId = write();
+  return database.prepare(`SELECT contacts.contact_id AS contactId,contacts.customer_code AS customerCode,customers.customer_name AS customerName,customers.business_number AS businessNumber,contacts.department_name AS departmentName,contacts.recipient_name AS recipientName,contacts.recipient_email AS recipientEmail,contacts.recipient_phone AS recipientPhone,contacts.preferred_channel AS preferredChannel,contacts.status,contacts.memo FROM contacts LEFT JOIN customers ON customers.customer_code=contacts.customer_code WHERE contacts.contact_id=?`).get(savedId);
+}
+
+function deleteLocalContact(database, contactId) {
+  // 동기화 시 삭제 사실도 AWS로 전달되도록 실제 삭제 대신 비활성화한다.
+  const result = database.prepare("UPDATE contacts SET status = 'INACTIVE', updated_at = CURRENT_TIMESTAMP WHERE contact_id = ?").run(Number(contactId));
+  if (!result.changes) throw new Error('삭제할 담당자를 찾을 수 없습니다.');
+  return { contactId: Number(contactId) };
+}
+
 function exportWorkspaceForCloud(database) {
   const uploadKey = (id) => `local-upload-${id}`;
+  const archive = (tableName, keyColumn, updatedColumn = 'updated_at') => database.prepare(`SELECT * FROM ${tableName}`).all().map((row) => ({
+    table: tableName,
+    key: String(row[keyColumn]),
+    updatedAt: row[updatedColumn] || row.created_at || row.saved_at || null,
+    payload: row,
+  }));
   return {
-    customers: database.prepare(`SELECT customer_code AS "customerCode", customer_name AS "customerName", business_number AS "businessNumber", tax_status AS "taxStatus", status, memo, closing_json AS "closingJson" FROM customers`).all().map((row) => ({ ...row, closingJson: fromJson(row.closingJson, null) })),
-    products: database.prepare(`SELECT product_code AS "productCode", product_name AS "productName", unit, unit_price AS "unitPrice", currency, status, memo FROM products`).all(),
+    customers: database.prepare(`SELECT customer_code AS "customerCode", customer_name AS "customerName", business_number AS "businessNumber", tax_status AS "taxStatus", status, memo, closing_json AS "closingJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM customers`).all().map((row) => ({ ...row, closingJson: fromJson(row.closingJson, null) })),
+    products: database.prepare(`SELECT product_code AS "productCode", product_name AS "productName", unit, unit_price AS "unitPrice", currency, status, memo, created_at AS "createdAt", updated_at AS "updatedAt" FROM products`).all(),
     salesUploads: database.prepare(`SELECT upload_id AS id, file_name AS "fileName", closing_month AS "closingMonth", uploaded_department_code AS "uploadedDepartmentCode", uploaded_at AS "uploadedAt", status, memo FROM sales_uploads`).all().map((row) => ({ ...row, uploadKey: uploadKey(row.id) })),
     sales: database.prepare(`SELECT upload_id AS "uploadId", row_no AS "rowNo", transaction_date AS "transactionDate", raw_customer_name AS "rawCustomerName", raw_product_name AS "rawProductName", customer_code AS "customerCode", product_code AS "productCode", quantity, unit_price AS "unitPrice", sales_amount AS "salesAmount", validation_status AS "validationStatus", review_status AS "reviewStatus", owner_name AS "ownerName" FROM sales`).all().map((row) => ({ ...row, uploadKey: uploadKey(row.uploadId) })),
-    contacts: database.prepare(`SELECT c.customer_code AS "customerCode", COALESCE(u.customer_name, c.customer_code, '미지정') AS "customerName", u.business_number AS "businessNumber", c.department_name AS "departmentName", c.recipient_name AS "recipientName", c.recipient_email AS "recipientEmail", c.recipient_phone AS "recipientPhone", c.preferred_channel AS "preferredChannel", c.status, c.memo FROM contacts c LEFT JOIN customers u ON u.customer_code=c.customer_code`).all(),
+    contacts: database.prepare(`SELECT c.customer_code AS "customerCode", COALESCE(u.customer_name, c.customer_code, '미지정') AS "customerName", u.business_number AS "businessNumber", c.department_name AS "departmentName", c.recipient_name AS "recipientName", c.recipient_email AS "recipientEmail", c.recipient_phone AS "recipientPhone", c.preferred_channel AS "preferredChannel", c.status, c.memo, c.created_at AS "createdAt", c.updated_at AS "updatedAt" FROM contacts c LEFT JOIN customers u ON u.customer_code=c.customer_code`).all(),
+    closingStatuses: database.prepare(`SELECT closing_month AS "closingMonth", customer_code AS "customerCode", owner_name AS "ownerName", deadline, contact_confirmed AS "contactConfirmed", amount_confirmed AS "amountConfirmed", confirmed_amount AS "confirmedAmount", tax_issued AS "taxIssued", tax_matched AS "taxMatched", request_ready AS "requestReady", request_sent AS "requestSent", closing_sheet_sent AS "closingSheetSent", reason, memo, history_json AS "historyJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM closing_status`).all().map((row) => ({ ...row, historyJson: fromJson(row.historyJson, []) })),
+    archives: [
+      ...archive('validation_issues', 'issue_id', 'created_at'),
+      ...archive('report_templates', 'template_id'),
+      ...archive('reports', 'report_id'),
+      ...archive('message_templates', 'template_id'),
+      ...archive('email_history', 'email_id', 'created_at'),
+      ...archive('workspace_snapshots', 'id', 'saved_at'),
+      ...archive('activity_logs', 'log_id', 'created_at'),
+      ...archive('notifications', 'notification_id', 'created_at'),
+      ...archive('user_todo_state', 'username', 'updated_at'),
+    ],
   };
+}
+
+// AWS가 병합한 최신 스냅샷을 로컬 SQLite에 반영한다. PC별 숫자 ID는 달라질 수
+// 있으므로 담당자는 거래처 코드 + 이메일 + 이름 조합으로 같은 레코드를 판단한다.
+function applyCloudWorkspace(database, payload = {}) {
+  const customers = Array.isArray(payload.customers) ? payload.customers : [];
+  const products = Array.isArray(payload.products) ? payload.products : [];
+  const contacts = Array.isArray(payload.contacts) ? payload.contacts : [];
+  const closingStatuses = Array.isArray(payload.closingStatuses) ? payload.closingStatuses : [];
+  const upsertCustomer = database.prepare(`
+    INSERT INTO customers (customer_code, customer_name, business_number, tax_status, status, memo, closing_json, created_at, updated_at)
+    VALUES (@customerCode, @customerName, @businessNumber, @taxStatus, @status, @memo, @closingJson, COALESCE(@createdAt, CURRENT_TIMESTAMP), COALESCE(@updatedAt, CURRENT_TIMESTAMP))
+    ON CONFLICT(customer_code) DO UPDATE SET
+      customer_name = excluded.customer_name, business_number = excluded.business_number,
+      tax_status = excluded.tax_status, status = excluded.status, memo = excluded.memo,
+      closing_json = excluded.closing_json, updated_at = excluded.updated_at
+  `);
+  const upsertProduct = database.prepare(`
+    INSERT INTO products (product_code, product_name, unit, unit_price, currency, status, memo, created_at, updated_at)
+    VALUES (@productCode, @productName, @unit, @unitPrice, @currency, @status, @memo, COALESCE(@createdAt, CURRENT_TIMESTAMP), COALESCE(@updatedAt, CURRENT_TIMESTAMP))
+    ON CONFLICT(product_code) DO UPDATE SET
+      product_name = excluded.product_name, unit = excluded.unit, unit_price = excluded.unit_price,
+      currency = excluded.currency, status = excluded.status, memo = excluded.memo, updated_at = excluded.updated_at
+  `);
+  const findContact = database.prepare(`
+    SELECT contact_id AS contactId FROM contacts
+    WHERE COALESCE(customer_code, '') = COALESCE(@customerCode, '')
+      AND COALESCE(recipient_email, '') = COALESCE(@recipientEmail, '')
+      AND recipient_name = @recipientName LIMIT 1
+  `);
+  const insertContact = database.prepare(`
+    INSERT INTO contacts (customer_code, department_name, recipient_name, recipient_email, recipient_phone, preferred_channel, status, memo, created_at, updated_at)
+    VALUES (@customerCode, @departmentName, @recipientName, @recipientEmail, @recipientPhone, @preferredChannel, @status, @memo, COALESCE(@createdAt, CURRENT_TIMESTAMP), COALESCE(@updatedAt, CURRENT_TIMESTAMP))
+  `);
+  const updateContact = database.prepare(`
+    UPDATE contacts SET department_name=@departmentName, recipient_email=@recipientEmail,
+      recipient_phone=@recipientPhone, preferred_channel=@preferredChannel, status=@status,
+      memo=@memo, updated_at=COALESCE(@updatedAt, CURRENT_TIMESTAMP) WHERE contact_id=@contactId
+  `);
+  const upsertClosingStatus = database.prepare(`
+    INSERT INTO closing_status (closing_month,customer_code,owner_name,deadline,contact_confirmed,amount_confirmed,confirmed_amount,tax_issued,tax_matched,request_ready,request_sent,closing_sheet_sent,reason,memo,history_json,created_at,updated_at)
+    VALUES (@closingMonth,@customerCode,@ownerName,@deadline,@contactConfirmed,@amountConfirmed,@confirmedAmount,@taxIssued,@taxMatched,@requestReady,@requestSent,@closingSheetSent,@reason,@memo,@historyJson,COALESCE(@createdAt,CURRENT_TIMESTAMP),COALESCE(@updatedAt,CURRENT_TIMESTAMP))
+    ON CONFLICT(closing_month,customer_code) DO UPDATE SET owner_name=excluded.owner_name,deadline=excluded.deadline,contact_confirmed=excluded.contact_confirmed,amount_confirmed=excluded.amount_confirmed,confirmed_amount=excluded.confirmed_amount,tax_issued=excluded.tax_issued,tax_matched=excluded.tax_matched,request_ready=excluded.request_ready,request_sent=excluded.request_sent,closing_sheet_sent=excluded.closing_sheet_sent,reason=excluded.reason,memo=excluded.memo,history_json=excluded.history_json,updated_at=excluded.updated_at
+  `);
+
+  database.transaction(() => {
+    customers.forEach((row) => upsertCustomer.run({
+      customerCode: row.customerCode, customerName: row.customerName || row.customerCode,
+      businessNumber: row.businessNumber ?? null, taxStatus: row.taxStatus || 'UNKNOWN',
+      status: row.status || 'ACTIVE', memo: row.memo ?? null, closingJson: toJson(row.closingJson ?? null),
+      createdAt: row.createdAt ?? null, updatedAt: row.updatedAt ?? null,
+    }));
+    products.forEach((row) => upsertProduct.run({
+      productCode: row.productCode, productName: row.productName || row.productCode,
+      unit: row.unit || 'EA', unitPrice: Number(row.unitPrice || 0), currency: row.currency || 'KRW',
+      status: row.status || 'ACTIVE', memo: row.memo ?? null, createdAt: row.createdAt ?? null, updatedAt: row.updatedAt ?? null,
+    }));
+    contacts.forEach((row) => {
+      const normalized = {
+        customerCode: row.customerCode ?? null, departmentName: row.departmentName ?? null,
+        recipientName: row.recipientName ?? '', recipientEmail: row.recipientEmail ?? null,
+        recipientPhone: row.recipientPhone ?? null, preferredChannel: row.preferredChannel || 'EMAIL',
+        status: row.status || 'ACTIVE', memo: row.memo ?? null, createdAt: row.createdAt ?? null, updatedAt: row.updatedAt ?? null,
+      };
+      if (!normalized.recipientName) return;
+      if (normalized.customerCode && !database.prepare('SELECT 1 FROM customers WHERE customer_code = ?').get(normalized.customerCode)) {
+        upsertCustomer.run({ customerCode: normalized.customerCode, customerName: row.customerName || normalized.customerCode, businessNumber: row.businessNumber ?? null, taxStatus: 'UNKNOWN', status: 'ACTIVE', memo: null, closingJson: null, createdAt: normalized.createdAt, updatedAt: normalized.updatedAt });
+      }
+      const existing = findContact.get(normalized);
+      if (existing) updateContact.run({ ...normalized, contactId: existing.contactId });
+      else insertContact.run(normalized);
+    });
+    closingStatuses.forEach((row) => upsertClosingStatus.run({
+      closingMonth: row.closingMonth, customerCode: row.customerCode, ownerName: row.ownerName ?? null,
+      deadline: row.deadline || '30일', contactConfirmed: row.contactConfirmed ? 1 : 0, amountConfirmed: row.amountConfirmed ? 1 : 0,
+      confirmedAmount: Number(row.confirmedAmount || 0), taxIssued: row.taxIssued ? 1 : 0, taxMatched: row.taxMatched ? 1 : 0,
+      requestReady: row.requestReady ? 1 : 0, requestSent: row.requestSent ? 1 : 0, closingSheetSent: row.closingSheetSent ? 1 : 0,
+      reason: row.reason || '회신 대기', memo: row.memo ?? null, historyJson: toJson(row.historyJson ?? []), createdAt: row.createdAt ?? null, updatedAt: row.updatedAt ?? null,
+    }));
+  })();
+
+  return { customers: customers.length, products: products.length, contacts: contacts.length, closingStatuses: closingStatuses.length };
 }
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
@@ -3044,9 +3185,18 @@ function registerDatabaseIpc(ipcMain, app) {
     };
   });
 
+  ipcMain.handle("contacts:save", (_, payload) => ({ ok: true, contact: saveLocalContact(getDatabase(app), payload) }));
+
+  ipcMain.handle("contacts:delete", (_, contactId) => ({ ok: true, deleted: deleteLocalContact(getDatabase(app), contactId) }));
+
   ipcMain.handle("sync:export-workspace", () => ({
     ok: true,
     payload: exportWorkspaceForCloud(getDatabase(app)),
+  }));
+
+  ipcMain.handle("sync:apply-cloud-workspace", (_, payload) => ({
+    ok: true,
+    applied: applyCloudWorkspace(getDatabase(app), payload),
   }));
 
   ipcMain.handle("closing-send-history:record", (_, payload) => {

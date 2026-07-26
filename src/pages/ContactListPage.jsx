@@ -1,8 +1,6 @@
 import React, { useMemo, useState } from 'react';
 
 import { FormField, StatusBadge } from '../components/common';
-import { isSharedApiEnabled } from '../config/cloud';
-import { sharedDataService } from '../services/sharedDataService';
 import PageShell from './PageShell';
 
 
@@ -181,7 +179,6 @@ function ContactForm({ draft = emptyDraft, mode, onChange, onSubmit, onCancel })
 }
 
 export default function ContactListPage() {
-  const usesSharedData = isSharedApiEnabled();
   const [contacts, setContacts] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [draft, setDraft] = useState(emptyDraft);
@@ -219,7 +216,7 @@ export default function ContactListPage() {
 
   const handleSearch = async (targetPage = 1, mode = 'search') => {
     const isPageChange = mode === 'page';
-    if ((!usesSharedData && !window.api?.queryContacts) || isSearching || isPaging) {
+    if (!window.api?.queryContacts || isSearching || isPaging) {
       if (!window.api?.queryContacts) setNotice('SQLite 조회는 Electron 데스크톱 앱에서만 사용할 수 있습니다.');
       return;
     }
@@ -230,22 +227,6 @@ export default function ContactListPage() {
       setIsSearching(true);
     }
     try {
-      if (usesSharedData) {
-        const result = await sharedDataService.listContacts();
-        if (!result?.ok) throw new Error(result?.message || 'AWS 거래처 데이터를 불러오지 못했습니다.');
-        const allContacts = (result.data?.contacts ?? []).map(normalizeContact).filter((contact) => matchesContactFilters(contact, params));
-        const start = (targetPage - 1) * params.pageSize;
-        const nextContacts = allContacts.slice(start, start + params.pageSize);
-        setContacts(nextContacts);
-        setSelectedId(nextContacts[0]?.contactId ?? '');
-        setDraft(emptyDraft);
-        setFormMode('create');
-        setServerTotal(allContacts.length);
-        setParams((current) => ({ ...current, page: targetPage }));
-        setNotice(`AWS RDS에서 담당자 ${allContacts.length.toLocaleString('ko-KR')}명을 조회했습니다.`);
-        return;
-      }
-
       const result = await window.api.queryContacts({
         ...params,
         page: targetPage,
@@ -338,14 +319,10 @@ export default function ContactListPage() {
 
     setIsSaving(true);
     try {
-      let savedContact = nextContact;
-      if (usesSharedData) {
-        const result = formMode === 'edit'
-          ? await sharedDataService.updateContact(nextContact.contactId, nextContact)
-          : await sharedDataService.createContact(nextContact);
-        if (!result?.ok) throw new Error(result?.message || 'AWS 저장에 실패했습니다.');
-        savedContact = normalizeContact(result.data?.contact);
-      }
+      if (!window.api?.saveContact) throw new Error('Electron 데스크톱 앱에서만 저장할 수 있습니다.');
+      const result = await window.api.saveContact(nextContact);
+      if (!result?.ok) throw new Error('SQLite 저장에 실패했습니다.');
+      const savedContact = normalizeContact(result.contact);
 
       setContacts((current) => {
         if (formMode === 'edit') return current.map((contact) => (contact.contactId === savedContact.contactId ? savedContact : contact));
@@ -355,9 +332,7 @@ export default function ContactListPage() {
       setDraft(savedContact);
       setFormMode('edit');
       setServerTotal((current) => formMode === 'edit' ? current : current + 1);
-      setNotice(usesSharedData
-        ? (formMode === 'edit' ? 'AWS RDS의 담당자 정보가 수정되었습니다.' : 'AWS RDS에 새 담당자가 등록되었습니다.')
-        : (formMode === 'edit' ? '담당자 정보가 수정되었습니다.' : '새 거래처 담당자가 등록되었습니다.'));
+      setNotice(`${formMode === 'edit' ? '담당자 정보가 수정되었습니다.' : '새 거래처 담당자가 등록되었습니다.'} 인터넷 연결 시 AWS 양방향 동기화를 실행해 주세요.`);
     } catch (error) {
       setNotice(`저장 실패: ${error?.message || '알 수 없는 오류'}`);
     } finally {
@@ -372,10 +347,9 @@ export default function ContactListPage() {
 
     setIsSaving(true);
     try {
-      if (usesSharedData) {
-        const result = await sharedDataService.deleteContact(contact.contactId);
-        if (!result?.ok) throw new Error(result?.message || 'AWS 삭제에 실패했습니다.');
-      }
+      if (!window.api?.deleteContact) throw new Error('Electron 데스크톱 앱에서만 삭제할 수 있습니다.');
+      const result = await window.api.deleteContact(contact.contactId);
+      if (!result?.ok) throw new Error('SQLite 삭제에 실패했습니다.');
       setContacts((current) => {
         const nextContacts = current.filter((item) => item.contactId !== contact.contactId);
         const nextSelected = nextContacts[0]?.contactId ?? '';
@@ -385,7 +359,7 @@ export default function ContactListPage() {
         return nextContacts;
       });
       setServerTotal((current) => Math.max(current - 1, 0));
-      setNotice(usesSharedData ? 'AWS RDS의 담당자 정보가 삭제되었습니다.' : '담당자 정보가 삭제되었습니다.');
+      setNotice('담당자 정보가 로컬 SQLite에서 삭제되었습니다. AWS에도 반영하려면 동기화를 실행해 주세요.');
     } catch (error) {
       setNotice(`삭제 실패: ${error?.message || '알 수 없는 오류'}`);
     } finally {
