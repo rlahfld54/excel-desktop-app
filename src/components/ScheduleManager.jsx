@@ -5,6 +5,7 @@ import {
   getCalendarDays,
   getTeamTodoSummary,
   getTodayKey,
+  hydrateTeamTodos,
   getTodoSummary,
   priorityMeta,
   readTeamTodoHistory,
@@ -263,9 +264,16 @@ export default function ScheduleManager({ userId }) {
   const isTeamScope = scope === 'TEAM';
 
   useEffect(() => {
-    setItems(isTeamScope ? readTeamTodos() : readTodos(userId));
-    setHistory(isTeamScope ? readTeamTodoHistory() : readTodoHistory(userId));
+    let mounted = true;
+    const loadSchedule = async () => {
+      if (isTeamScope) await hydrateTeamTodos();
+      if (!mounted) return;
+      setItems(isTeamScope ? readTeamTodos() : readTodos(userId));
+      setHistory(isTeamScope ? readTeamTodoHistory() : readTodoHistory(userId));
+    };
+    loadSchedule();
     setEditingDraft(null);
+    return () => { mounted = false; };
   }, [isTeamScope, userId]);
 
   const summary = isTeamScope ? getTeamTodoSummary() : getTodoSummary(userId);

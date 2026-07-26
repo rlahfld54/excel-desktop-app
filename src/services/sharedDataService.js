@@ -2,6 +2,7 @@ import { requestSharedApi } from '../lib/apiClient';
 
 export const sharedDataService = {
   getHealth: (options) => requestSharedApi('/health', options),
+  updateMyProfile: (profile) => requestSharedApi('/users/me', { method: 'PATCH', body: profile }),
 
   listContacts: (options) => requestSharedApi('/contacts', options),
   createContact: (contact) => requestSharedApi('/contacts', { method: 'POST', body: contact }),
@@ -25,4 +26,5 @@ export const sharedDataService = {
   presignCloudFile: (payload) => requestSharedApi('/files/presign', { method: 'POST', body: payload }),
   completeCloudFile: (payload) => requestSharedApi('/files/complete', { method: 'POST', body: payload }),
   downloadCloudFile: (key) => requestSharedApi('/files/download-url', { method: 'POST', body: { key } }),
+  deleteCloudFile: (key) => requestSharedApi('/files', { method: 'DELETE', body: { key } }),
 };

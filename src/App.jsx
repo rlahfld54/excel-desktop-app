@@ -39,6 +39,7 @@ import SecurityPage from './pages/SecurityPage';
 import TaskHistoryPage from './pages/TaskHistoryPage';
 import SystemStatusPage from './pages/SystemStatusPage';
 import CacheManagerPage from './pages/CacheManagerPage';
+import AwsFileStoragePage from './pages/AwsFileStoragePage';
 import {
   AccountSettingsHubPage,
   StorageSettingsHubPage,
@@ -50,6 +51,8 @@ import { getCurrentUser, hasActiveSession } from './utils/authSession';
 import { saveUsers } from './utils/authSession';
 import { getSession } from './utils/authSession';
 import { hydratePersonalTodos } from './utils/todoSchedule';
+import { isSharedApiEnabled } from './config/cloud';
+import { sharedDataService } from './services/sharedDataService';
 import { menuGroups, pageRoutes } from './routesConfig'; // 메뉴 라우터 모음
 
 const routeComponents = {
@@ -75,6 +78,7 @@ const routeComponents = {
   TaskHistoryPage,
   SystemStatusPage,
   CacheManagerPage,
+  AwsFileStoragePage,
   AccountSettingsHubPage,
   StorageSettingsHubPage,
   UserSettingsHubPage,
@@ -106,6 +110,8 @@ function App() {
     loading: Boolean(window.api?.getSetupStatus),
     completed: !window.api?.getSetupStatus,
   });
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
 
   useEffect(() => {
     let mounted = true;
@@ -128,6 +134,53 @@ function App() {
     return () => {
       mounted = false;
       window.removeEventListener('excel-workspace:setup-completed', handleCompleted);
+    };
+  }, []);
+
+  useEffect(() => {
+    const markOnline = () => setIsOnline(true);
+    const markOffline = () => setIsOnline(false);
+    window.addEventListener('online', markOnline);
+    window.addEventListener('offline', markOffline);
+    return () => {
+      window.removeEventListener('online', markOnline);
+      window.removeEventListener('offline', markOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isSharedApiEnabled() || !window.api?.onWorkspaceDataChanged) return undefined;
+    let timer;
+    let syncing = false;
+
+    const syncWorkspace = async () => {
+      timer = undefined;
+      if (syncing || !navigator.onLine || !getSession()?.accessToken) return;
+      if (!window.api?.exportWorkspaceForCloud || !window.api?.applyCloudWorkspace) return;
+      syncing = true;
+      try {
+        const local = await window.api.exportWorkspaceForCloud();
+        const result = await sharedDataService.syncWorkspace(local.payload);
+        if (!result.ok) return;
+        await window.api.applyCloudWorkspace(result.data?.snapshot ?? {});
+        setWorkspaceRevision((revision) => revision + 1);
+        window.dispatchEvent(new CustomEvent('excel-workspace:data-synced'));
+      } finally {
+        syncing = false;
+      }
+    };
+
+    const scheduleSync = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(syncWorkspace, 1200);
+    };
+
+    const unsubscribe = window.api.onWorkspaceDataChanged(scheduleSync);
+    window.addEventListener('online', scheduleSync);
+    return () => {
+      window.clearTimeout(timer);
+      unsubscribe?.();
+      window.removeEventListener('online', scheduleSync);
     };
   }, []);
 
@@ -166,7 +219,14 @@ function App() {
   }
 
   return (
-    <Routes>
+    <>
+      {!isOnline && (
+        <div className="fixed bottom-5 right-5 z-9999 max-w-sm rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-lg dark:border-amber-400/50 dark:bg-amber-500/15 dark:text-amber-100">
+          <p className="font-bold">인터넷 연결이 끊겼습니다</p>
+          <p className="mt-1">현재 변경 사항은 이 PC의 로컬 SQLite에만 저장합니다. 연결이 복구되면 자동 동기화를 다시 시도합니다.</p>
+        </div>
+      )}
+      <Routes key={`workspace-${workspaceRevision}`}>
       <Route exact path="/" element={<WelcomePage />} />
       <Route exact path="/setup" element={<SetupPage />} />
       <Route exact path="/login" element={<LoginPage />} />
@@ -184,7 +244,8 @@ function App() {
       })}
 
       <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+      </Routes>
+    </>
   );
 }
 

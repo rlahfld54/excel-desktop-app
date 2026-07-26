@@ -1,5 +1,11 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+const invokeWorkspaceMutation = async (channel, payload) => {
+  const result = await ipcRenderer.invoke(channel, payload);
+  if (result?.ok !== false) ipcRenderer.send("workspace:changed");
+  return result;
+};
+
 contextBridge.exposeInMainWorld("versions", {
   node: () => process.versions.node,
   chrome: () => process.versions.chrome,
@@ -10,7 +16,7 @@ contextBridge.exposeInMainWorld("versions", {
 
 contextBridge.exposeInMainWorld("api", {
   openFile: () => ipcRenderer.invoke("file:open"),
-  saveData: (data) => ipcRenderer.invoke("data:save", data),
+  saveData: (data) => invokeWorkspaceMutation("data:save", data),
   getLatestData: () => ipcRenderer.invoke("data:latest"),
   querySalesData: (options) => ipcRenderer.invoke("data:query", options),
   getDailySalesTrend: (options) => ipcRenderer.invoke("dashboard:sales-daily", options),
@@ -26,7 +32,7 @@ contextBridge.exposeInMainWorld("api", {
   deleteUserAccount: (payload) => ipcRenderer.invoke("users:delete", payload),
   changeUserPassword: (payload) => ipcRenderer.invoke("users:change-password", payload),
   getPersonalTodoState: (payload) => ipcRenderer.invoke("todos:get-personal", payload),
-  savePersonalTodoState: (payload) => ipcRenderer.invoke("todos:save-personal", payload),
+  savePersonalTodoState: (payload) => invokeWorkspaceMutation("todos:save-personal", payload),
   importBootstrapData: (payload) => ipcRenderer.invoke("sync:import-bootstrap", payload),
   exportWorkspaceForCloud: () => ipcRenderer.invoke("sync:export-workspace"),
   applyCloudWorkspace: (payload) => ipcRenderer.invoke("sync:apply-cloud-workspace", payload),
@@ -39,17 +45,22 @@ contextBridge.exposeInMainWorld("api", {
   getRecentFiles: () => ipcRenderer.invoke("recent-files:get"),
   getMasterData: () => ipcRenderer.invoke("master-data:get"),
   queryContacts: (options) => ipcRenderer.invoke("contacts:query", options),
-  saveContact: (payload) => ipcRenderer.invoke("contacts:save", payload),
-  deleteContact: (contactId) => ipcRenderer.invoke("contacts:delete", contactId),
-  importContacts: (contacts) => ipcRenderer.invoke("contacts:import", contacts),
+  saveContact: (payload) => invokeWorkspaceMutation("contacts:save", payload),
+  deleteContact: (contactId) => invokeWorkspaceMutation("contacts:delete", contactId),
+  importContacts: (contacts) => invokeWorkspaceMutation("contacts:import", contacts),
   getMessageTemplates: () => ipcRenderer.invoke("message-templates:get"),
   getSendPackages: (options) => ipcRenderer.invoke("send-packages:get", options),
   prepareSendPackageAttachments: (payload) => ipcRenderer.invoke("send-packages:prepare-attachments", payload),
-  updateSendPackageItemStatus: (payload) => ipcRenderer.invoke("send-package-items:update-status", payload),
-  recordClosingSendHistory: (payload) => ipcRenderer.invoke("closing-send-history:record", payload),
+  updateSendPackageItemStatus: (payload) => invokeWorkspaceMutation("send-package-items:update-status", payload),
+  recordClosingSendHistory: (payload) => invokeWorkspaceMutation("closing-send-history:record", payload),
   getDepartmentRequests: () => ipcRenderer.invoke("department-requests:list"),
   getClosingCompanies: (options) => ipcRenderer.invoke("closing-companies:list", options),
-  saveClosingCompanies: (payload) => ipcRenderer.invoke("closing-companies:save", payload),
+  saveClosingCompanies: (payload) => invokeWorkspaceMutation("closing-companies:save", payload),
+  onWorkspaceDataChanged: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("workspace:data-changed", listener);
+    return () => ipcRenderer.removeListener("workspace:data-changed", listener);
+  },
   getAppSettings: () => ipcRenderer.invoke("app-settings:get"),
   saveAppSettings: (settings) => ipcRenderer.invoke("app-settings:save", settings),
   getSetupStatus: () => ipcRenderer.invoke("setup:status"),
@@ -57,6 +68,8 @@ contextBridge.exposeInMainWorld("api", {
   downloadCloudData: (payload) => ipcRenderer.invoke("setup:download-cloud-data", payload),
   chooseDirectory: (options) => ipcRenderer.invoke("app-settings:choose-directory", options),
   chooseFile: (options) => ipcRenderer.invoke("app-settings:choose-file", options),
+  chooseFiles: (options) => ipcRenderer.invoke("app-settings:choose-files", options),
+  chooseFolderFiles: (options) => ipcRenderer.invoke("app-settings:choose-folder-files", options),
   readFileBase64: (filePath) => ipcRenderer.invoke("files:read-base64", filePath),
   downloadCloudFile: (payload) => ipcRenderer.invoke("files:download-cloud", payload),
   showNotification: (payload) => ipcRenderer.invoke("notifications:show", payload),

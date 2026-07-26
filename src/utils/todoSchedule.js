@@ -122,6 +122,21 @@ export async function hydratePersonalTodos(userId) {
   return readTodos(userId);
 }
 
+export async function hydrateTeamTodos() {
+  if (!window.api?.getPersonalTodoState) return readTeamTodos();
+  const result = await window.api.getPersonalTodoState({ username: teamTodoUserId });
+  const state = result?.state ?? { todos: [], history: [] };
+  const store = readStore();
+  writeStore({
+    ...store,
+    [teamTodoUserId]: {
+      todos: Array.isArray(state.todos) ? state.todos : [],
+      history: Array.isArray(state.history) ? state.history : [],
+    },
+  });
+  return readTeamTodos();
+}
+
 export function readTeamTodos() {
   const store = readStore();
   const teamTodos = store[teamTodoUserId]?.todos;
@@ -160,6 +175,7 @@ export function saveTeamTodos(todos) {
       todos,
     },
   });
+  savePersonalStateToDatabase(teamTodoUserId, { todos });
 }
 
 export function readTodoHistory(userId) {
@@ -191,6 +207,7 @@ export function saveTeamTodoHistory(history) {
       history: history.slice(0, 300),
     },
   });
+  savePersonalStateToDatabase(teamTodoUserId, { history: history.slice(0, 300) });
 }
 
 export function makeTodoId() {

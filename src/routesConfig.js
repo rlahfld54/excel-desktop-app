@@ -94,6 +94,11 @@ export const menuGroups = [
         component: "StorageSettingsHubPage",
       },
       {
+        label: "AWS 파일 보관함",
+        path: "/settings/aws-files",
+        component: "AwsFileStoragePage",
+      },
+      {
         label: "사용자 관리",
         path: "/settings/users",
         component: "UserSettingsHubPage",

@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
-const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 let pool;
@@ -96,6 +96,7 @@ function safeUser(row) {
     name: row.name || row.username,
     role: row.role,
     departmentName: row.department_name || '',
+    title: row.title || '',
     email: row.email || '',
     phone: row.phone || '',
     status: row.status,
@@ -149,7 +150,7 @@ async function signup(body) {
     const result = await getPool().query(
       `INSERT INTO users (username, password_hash, name, department_name)
        VALUES ($1, $2, $3, $4)
-       RETURNING user_id, username, name, role, department_name, email, phone, status`,
+      RETURNING user_id, username, name, role, department_name, title, email, phone, status`,
       [username, await bcrypt.hash(password, 12), name, departmentName || null],
     );
     return response(201, { user: safeUser(result.rows[0]) });
@@ -164,7 +165,7 @@ async function login(body) {
   const password = String(body.password || '');
   if (!username || !password) throw httpError(400, '아이디와 비밀번호를 입력해 주세요.');
   const result = await getPool().query(
-    `SELECT user_id, username, password_hash, name, role, department_name, email, phone, status
+    `SELECT user_id, username, password_hash, name, role, department_name, title, email, phone, status
      FROM users WHERE username = $1`, [username],
   );
   const user = result.rows[0];
@@ -178,6 +179,27 @@ async function login(body) {
     token: jwt.sign({ sub: profile.userId, username: profile.username, role: profile.role }, requiredEnv('JWT_SECRET'), { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }),
     user: profile,
   });
+}
+
+async function updateMyProfile(body, actor) {
+  const name = String(body.name || body.displayName || '').trim();
+  if (!name) throw httpError(400, '이름을 입력해 주세요.');
+  const result = await getPool().query(
+    `UPDATE users
+     SET name = $1, department_name = $2, title = $3, email = $4, phone = $5, updated_at = now()
+     WHERE user_id = $6
+     RETURNING user_id, username, name, role, department_name, title, email, phone, status`,
+    [
+      name,
+      String(body.departmentName || '').trim() || null,
+      String(body.title || '').trim() || null,
+      String(body.email || '').trim() || null,
+      String(body.phone || '').trim() || null,
+      actor,
+    ],
+  );
+  if (!result.rows[0]) throw httpError(404, '사용자를 찾을 수 없습니다.');
+  return response(200, { user: safeUser(result.rows[0]) });
 }
 
 const contactFields = [
@@ -281,6 +303,15 @@ function safeFileName(value) {
   return name.slice(0, 180) || 'file';
 }
 
+function safeFilePath(value) {
+  const rawParts = String(value || 'file').replace(/\\/g, '/').split('/').filter(Boolean);
+  const safeParts = rawParts
+    .filter((part) => part !== '.' && part !== '..')
+    .map((part) => part.replace(/[^a-zA-Z0-9가-힣._ -]/g, '_').slice(0, 100))
+    .filter(Boolean);
+  return (safeParts.length ? safeParts : ['file']).join('/').slice(0, 500);
+}
+
 function encodeRfc5987FileName(value) {
   return encodeURIComponent(String(value || 'file'))
     .replace(/['()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
@@ -293,19 +324,22 @@ async function cloudFiles(method, path, body, actor) {
     return response(200, { files: result.rows.map(toClientRecord) });
   }
   if (method === 'POST' && path === '/files/presign') {
-    const fileName = safeFileName(body.fileName);
+    const fileName = safeFilePath(body.fileName);
     const extension = fileName.toLowerCase().split('.').pop();
     if (!['xlsx', 'xls', 'pdf', 'csv'].includes(extension)) throw httpError(400, '엑셀, CSV, PDF 파일만 업로드할 수 있습니다.');
     const sizeBytes = Number(body.sizeBytes || 0);
     if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > 100 * 1024 * 1024) throw httpError(400, '파일 크기는 100MB 이하만 허용됩니다.');
-    const key = `user-files/${actor}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${fileName}`;
+    const fileParts = fileName.split('/');
+    const baseName = fileParts.pop();
+    const folderPath = fileParts.length ? `${fileParts.join('/')}/` : '';
+    const key = `user-files/${actor}/${folderPath}${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${baseName}`;
     const command = new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: body.contentType || 'application/octet-stream' });
     const uploadUrl = await getSignedUrl(getS3(), command, { expiresIn: 900 });
     return response(200, { uploadUrl, key, fileName, contentType: body.contentType || 'application/octet-stream', expiresIn: 900 });
   }
   if (method === 'POST' && path === '/files/complete') {
     if (!String(body.key || '').startsWith(`user-files/${actor}/`)) throw httpError(403, '파일 소유자가 아닙니다.');
-    const result = await getPool().query(`INSERT INTO cloud_files (object_key,file_name,content_type,size_bytes,uploaded_by) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (object_key) DO UPDATE SET size_bytes=EXCLUDED.size_bytes,status='AVAILABLE' RETURNING *`, [body.key, safeFileName(body.fileName), body.contentType || 'application/octet-stream', Number(body.sizeBytes || 0), actor]);
+    const result = await getPool().query(`INSERT INTO cloud_files (object_key,file_name,content_type,size_bytes,uploaded_by) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (object_key) DO UPDATE SET size_bytes=EXCLUDED.size_bytes,status='AVAILABLE' RETURNING *`, [body.key, safeFilePath(body.fileName), body.contentType || 'application/octet-stream', Number(body.sizeBytes || 0), actor]);
     return response(201, { file: toClientRecord(result.rows[0]) });
   }
   if (method === 'POST' && path === '/files/download-url') {
@@ -322,6 +356,14 @@ async function cloudFiles(method, path, body, actor) {
     });
     const downloadUrl = await getSignedUrl(getS3(), command, { expiresIn: 900 });
     return response(200, { downloadUrl, expiresIn: 900 });
+  }
+  if (method === 'DELETE' && path === '/files') {
+    const result = await getPool().query('SELECT * FROM cloud_files WHERE object_key = $1 AND uploaded_by = $2 AND status = $3', [body.key, actor, 'AVAILABLE']);
+    const file = result.rows[0];
+    if (!file) throw httpError(404, '파일을 찾을 수 없습니다.');
+    await getS3().send(new DeleteObjectCommand({ Bucket: bucket, Key: file.object_key }));
+    await getPool().query("UPDATE cloud_files SET status = 'DELETED' WHERE file_id = $1", [file.file_id]);
+    return response(200, { deleted: true, key: file.object_key });
   }
   return response(405, { message: 'Method not allowed.' });
 }
@@ -397,13 +439,14 @@ function isNewerOrSame(candidate, current) {
 }
 
 async function workspaceSnapshot(client = getPool()) {
-  const [customers, products, contacts, closingStatuses, salesUploads, sales] = await Promise.all([
+  const [customers, products, contacts, closingStatuses, salesUploads, sales, scheduleStates] = await Promise.all([
     client.query('SELECT * FROM customers ORDER BY customer_code'),
     client.query('SELECT * FROM products ORDER BY product_code'),
     client.query('SELECT * FROM contacts ORDER BY updated_at DESC, contact_id DESC'),
     client.query('SELECT * FROM closing_status ORDER BY closing_month DESC, customer_code'),
     client.query('SELECT * FROM sales_uploads ORDER BY uploaded_at DESC, upload_key'),
     client.query('SELECT * FROM sales ORDER BY upload_key, row_no'),
+    client.query("SELECT record_table, record_key, payload_json, updated_at FROM local_sync_records WHERE record_table = 'user_todo_state' ORDER BY updated_at DESC"),
   ]);
   return {
     customers: customers.rows.map(toClientRecord),
@@ -412,6 +455,12 @@ async function workspaceSnapshot(client = getPool()) {
     closingStatuses: closingStatuses.rows.map(toClientRecord),
     salesUploads: salesUploads.rows.map(toClientRecord),
     sales: sales.rows.map(toClientRecord),
+    archives: scheduleStates.rows.map((row) => ({
+      table: row.record_table,
+      key: row.record_key,
+      payload: row.payload_json,
+      updatedAt: row.updated_at,
+    })),
   };
 }
 
@@ -495,6 +544,7 @@ exports.handler = async (event) => {
 
     const actor = String(authenticate(headers).sub);
     const body = parseBody(event);
+    if (method === 'PATCH' && path === '/users/me') return await updateMyProfile(body, actor);
     if (path === '/contacts' || path.startsWith('/contacts/')) return await contacts(method, path, body, actor);
     if (path === '/closing-companies' || path.startsWith('/closing-companies/')) return await closingCompanies(method, path, body, actor, query);
     if (path === '/todos' || path.startsWith('/todos/')) return await todos(method, path, body, actor);

@@ -170,7 +170,7 @@ export default function SetupPage() {
                     </div>
                   ))}
                 </div>
-                <button className="btn btn-primary mt-8 h-12 px-8" type="button" onClick={() => setStep(usesSharedLogin || hasExistingUser ? 2 : 1)}>
+                <button className="btn btn-primary mt-8 h-12 px-8" type="button" onClick={() => setStep(hasExistingUser ? 2 : 1)}>
                   설정 시작
                 </button>
               </div>
@@ -181,7 +181,7 @@ export default function SetupPage() {
                 <p className="text-sm font-bold text-teal-700 dark:text-accent-300">ADMIN ACCOUNT</p>
                 <h1 className="mt-3 text-3xl font-bold">첫 관리자 계정을 만드세요.</h1>
                 <p className="mt-3 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                  첫 계정은 관리자 권한으로 생성됩니다. 비밀번호는 SQLite에 암호화된 해시로 저장됩니다.
+                  첫 계정은 이 PC의 관리자 계정으로 SQLite에 저장됩니다. AWS 계정과 같은 아이디를 사용하면 온라인·오프라인 전환이 자연스럽습니다.
                 </p>
                 <div className="mt-7 grid gap-4 sm:grid-cols-2">
                   <label className="block">

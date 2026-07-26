@@ -70,7 +70,6 @@ export default function SaveSettingsPage() {
   const [settings, setSettings] = useState(fallbackSettings);
   const [loadState, setLoadState] = useState('브라우저 미리보기');
   const [saveState, setSaveState] = useState('');
-  const [cloudAccessToken, setCloudAccessToken] = useState('');
   const [isCloudBusy, setIsCloudBusy] = useState(false);
   const usesCommonBackupPath = isCommonBackupPath(settings.backupPath);
 
@@ -156,31 +155,6 @@ export default function SaveSettingsPage() {
       setSaveState('저장 경로와 백업 정책을 저장했습니다.');
     } catch (error) {
       setSaveState(`설정 저장 실패: ${error.message}`);
-    }
-  };
-
-  const handleCloudDownload = async () => {
-    if (!window.api?.downloadCloudData) {
-      setSaveState('설치된 데스크톱 앱에서 AWS 동기화를 사용할 수 있습니다.');
-      return;
-    }
-
-    setIsCloudBusy(true);
-    setSaveState('');
-    try {
-      const result = await window.api.downloadCloudData({
-        apiBaseUrl: settings.cloudApiBaseUrl,
-        accessToken: cloudAccessToken,
-      });
-      if (!result?.ok) throw new Error(result?.message || 'AWS 데이터를 내려받지 못했습니다.');
-      const refreshed = await window.api.getAppSettings();
-      setSettings(refreshed.settings);
-      setCloudAccessToken('');
-      setSaveState(`AWS 데이터를 SQLite에 저장했습니다. 거래처 ${result.imported.customers}건, 제품 ${result.imported.products}건, 연락처 ${result.imported.contacts}건`);
-    } catch (error) {
-      setSaveState(`AWS 동기화 실패: ${error.message}`);
-    } finally {
-      setIsCloudBusy(false);
     }
   };
 
@@ -278,29 +252,11 @@ export default function SaveSettingsPage() {
           <SettingRow label="설정 파일" description="저장 설정 JSON 파일 위치">
             <input className="form-input w-full bg-gray-50 text-gray-500 dark:bg-gray-900/40 dark:text-gray-400" value={settings.settingsPath ?? ''} readOnly />
           </SettingRow>
-          <SettingRow label="AWS 데이터 연결" description="요청할 때 중앙 데이터를 내려받아 로컬 SQLite에 저장">
-            <div className="space-y-3">
-              <input
-                className="form-input w-full"
-                value={settings.cloudApiBaseUrl ?? ''}
-                onChange={(event) => updateSetting('cloudApiBaseUrl', event.target.value)}
-                placeholder="https://api.example.com"
-              />
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  className="form-input min-w-0 flex-1"
-                  type="password"
-                  value={cloudAccessToken}
-                  onChange={(event) => setCloudAccessToken(event.target.value)}
-                  placeholder="일회용 접근 토큰 (저장되지 않음)"
-                />
-                <button className="btn btn-primary shrink-0" type="button" disabled={isCloudBusy || !settings.cloudApiBaseUrl} onClick={handleCloudDownload}>
-                  {isCloudBusy ? '받는 중…' : 'AWS 데이터 받기'}
-                </button>
-              </div>
-              <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
-                마지막 동기화: {settings.lastCloudSyncAt ? new Date(settings.lastCloudSyncAt).toLocaleString('ko-KR') : '아직 없음'}
-              </p>
+          <SettingRow label="AWS 자동 동기화" description="AWS 로그인 후 로컬 SQLite와 자동으로 맞춥니다">
+            <div className="rounded-md border border-teal-200 bg-teal-50 px-3 py-3 text-sm text-teal-900 dark:border-teal-500/30 dark:bg-teal-500/10 dark:text-teal-100">
+              <p className="font-semibold">{isSharedApiEnabled() ? '연결 준비됨' : 'AWS 연결 설정 없음'}</p>
+              <p className="mt-1 leading-5">별도 API 주소나 토큰을 입력할 필요가 없습니다. 온라인으로 로그인하면 AWS 데이터를 SQLite에 내려받고, 이후 변경 사항은 온라인일 때 자동 동기화합니다.</p>
+              <p className="mt-2 text-xs">마지막 동기화: {settings.lastCloudSyncAt ? new Date(settings.lastCloudSyncAt).toLocaleString('ko-KR') : '아직 없음'}</p>
             </div>
           </SettingRow>
           <SettingRow label="알림 설정" description="작업 변경, 저장 완료, 오류 발생 시 표시할 알림 방식">

@@ -2439,6 +2439,7 @@ function applyCloudWorkspace(database, payload = {}) {
   const closingStatuses = Array.isArray(payload.closingStatuses) ? payload.closingStatuses : [];
   const salesUploads = Array.isArray(payload.salesUploads) ? payload.salesUploads : [];
   const sales = Array.isArray(payload.sales) ? payload.sales : [];
+  const archives = Array.isArray(payload.archives) ? payload.archives : [];
   const upsertCustomer = database.prepare(`
     INSERT INTO customers (customer_code, customer_name, business_number, tax_status, status, memo, closing_json, created_at, updated_at)
     VALUES (@customerCode, @customerName, @businessNumber, @taxStatus, @status, @memo, @closingJson, COALESCE(@createdAt, CURRENT_TIMESTAMP), COALESCE(@updatedAt, CURRENT_TIMESTAMP))
@@ -2488,6 +2489,15 @@ function applyCloudWorkspace(database, payload = {}) {
   const insertSale = database.prepare(`
     INSERT INTO sales (upload_id,row_no,transaction_date,raw_customer_name,raw_product_name,customer_code,product_code,quantity,unit_price,sales_amount,validation_status,review_status,owner_name)
     VALUES (@uploadId,@rowNo,@transactionDate,@rawCustomerName,@rawProductName,@customerCode,@productCode,@quantity,@unitPrice,@salesAmount,@validationStatus,@reviewStatus,@ownerName)
+  `);
+  const upsertTodoState = database.prepare(`
+    INSERT INTO user_todo_state (username, todos_json, history_json, updated_at)
+    VALUES (@username, @todosJson, @historyJson, COALESCE(@updatedAt, CURRENT_TIMESTAMP))
+    ON CONFLICT(username) DO UPDATE SET
+      todos_json = excluded.todos_json,
+      history_json = excluded.history_json,
+      updated_at = excluded.updated_at
+    WHERE excluded.updated_at >= user_todo_state.updated_at
   `);
 
   database.transaction(() => {
@@ -2554,9 +2564,21 @@ function applyCloudWorkspace(database, payload = {}) {
         validationStatus: row.validationStatus || 'PENDING', reviewStatus: row.reviewStatus || 'WAITING', ownerName: row.ownerName ?? null,
       });
     });
+    archives.forEach((record) => {
+      if (record?.table !== 'user_todo_state') return;
+      const state = record.payload && typeof record.payload === 'object' ? record.payload : {};
+      const username = String(state.username ?? record.key ?? '').trim();
+      if (!username) return;
+      upsertTodoState.run({
+        username,
+        todosJson: typeof state.todos_json === 'string' ? state.todos_json : toJson(state.todos ?? []),
+        historyJson: typeof state.history_json === 'string' ? state.history_json : toJson(state.history ?? []),
+        updatedAt: state.updated_at ?? state.updatedAt ?? record.updatedAt ?? null,
+      });
+    });
   })();
 
-  return { customers: customers.length, products: products.length, contacts: contacts.length, closingStatuses: closingStatuses.length, salesUploads: salesUploads.length, sales: sales.length };
+  return { customers: customers.length, products: products.length, contacts: contacts.length, closingStatuses: closingStatuses.length, salesUploads: salesUploads.length, sales: sales.length, schedules: archives.filter((record) => record?.table === 'user_todo_state').length };
 }
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
@@ -2774,7 +2796,9 @@ function getUserTodoState(database, username) {
 
 function saveUserTodoState(database, payload = {}) {
   const username = String(payload.username ?? "").trim();
-  if (!database.prepare("SELECT 1 FROM users WHERE username = ?").get(username)) {
+  // 총무팀 공용 일정은 개인 계정이 아닌 예약된 SQLite 키로 보관한다.
+  const isTeamSchedule = username === "team:general-affairs";
+  if (!isTeamSchedule && !database.prepare("SELECT 1 FROM users WHERE username = ?").get(username)) {
     throw new Error("투두를 저장할 사용자를 찾을 수 없습니다.");
   }
 

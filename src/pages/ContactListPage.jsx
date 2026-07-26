@@ -332,7 +332,7 @@ export default function ContactListPage() {
       setDraft(savedContact);
       setFormMode('edit');
       setServerTotal((current) => formMode === 'edit' ? current : current + 1);
-      setNotice(`${formMode === 'edit' ? '담당자 정보가 수정되었습니다.' : '새 거래처 담당자가 등록되었습니다.'} 인터넷 연결 시 AWS 양방향 동기화를 실행해 주세요.`);
+      setNotice(`${formMode === 'edit' ? '담당자 정보가 수정되었습니다.' : '새 거래처 담당자가 등록되었습니다.'} SQLite에 즉시 반영됐고, 온라인이면 AWS에도 자동 동기화됩니다.`);
     } catch (error) {
       setNotice(`저장 실패: ${error?.message || '알 수 없는 오류'}`);
     } finally {
@@ -359,7 +359,7 @@ export default function ContactListPage() {
         return nextContacts;
       });
       setServerTotal((current) => Math.max(current - 1, 0));
-      setNotice('담당자 정보가 로컬 SQLite에서 삭제되었습니다. AWS에도 반영하려면 동기화를 실행해 주세요.');
+      setNotice('담당자 정보가 로컬 SQLite에서 삭제되었습니다. 온라인이면 AWS에도 자동 동기화됩니다.');
     } catch (error) {
       setNotice(`삭제 실패: ${error?.message || '알 수 없는 오류'}`);
     } finally {

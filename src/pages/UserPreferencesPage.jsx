@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import { FormField } from '../components/common';
 import PageShell from './PageShell';
-import { addActivityLog, getCurrentUser, saveUsers } from '../utils/authSession';
+import { isSharedApiEnabled } from '../config/cloud';
+import { sharedDataService } from '../services/sharedDataService';
+import { addActivityLog, getCurrentUser, saveOfflineProfile, saveSession, saveUsers } from '../utils/authSession';
 import { getBusinessCard } from '../utils/businessCard';
 
 function makeForm(user) {
@@ -92,11 +94,11 @@ export default function UserPreferencesPage() {
   };
 
   const handleSave = async () => {
+    // 프로필은 먼저 이 PC의 SQLite에 저장한다. 따라서 AWS가 잠시 끊겨도
+    // 로컬 작업 화면과 오프라인 프로필은 즉시 최신 값으로 유지된다.
     if (window.api?.updateUserAccount) {
       try {
         await window.api.updateUserAccount({
-          // AWS 로그인 사용자의 id는 숫자 user_id일 수 있지만, 로컬 SQLite는
-          // username으로 사용자를 찾는다. 로컬 계정명으로 갱신해야 한다.
           username: currentUser.username || currentUser.id,
           displayName: form.name,
           role: currentUser.role,
@@ -109,7 +111,36 @@ export default function UserPreferencesPage() {
         const usersResult = await window.api.listUsers();
         saveUsers(usersResult.users ?? []);
       } catch (error) {
-        setStateText(`프로필 저장 실패: ${error.message}`);
+        setStateText(`로컬 프로필 저장 실패: ${error.message}`);
+        return;
+      }
+    }
+
+    if (isSharedApiEnabled()) {
+      try {
+        const result = await sharedDataService.updateMyProfile({
+          name: form.name,
+          departmentName: form.department,
+          title: form.title,
+          email: form.email,
+          phone: form.phone,
+        });
+        if (!result.ok) throw new Error(result.message || 'AWS 프로필 저장에 실패했습니다.');
+        const remoteUser = result.data?.user ?? {};
+        const nextUser = {
+          ...currentUser,
+          ...remoteUser,
+          id: String(remoteUser.userId ?? currentUser.id),
+          username: remoteUser.username ?? currentUser.username,
+          department: remoteUser.departmentName ?? form.department,
+          title: remoteUser.title ?? form.title,
+        };
+        saveUsers([nextUser]);
+        saveOfflineProfile(nextUser);
+        saveSession({ ...(currentUser.session ?? {}), userId: nextUser.id, role: nextUser.role, user: nextUser });
+        setCurrentUser(nextUser);
+      } catch (error) {
+        setStateText(`로컬에는 저장됐지만 AWS 동기화 실패: ${error.message}`);
         return;
       }
     }

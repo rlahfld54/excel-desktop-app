@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- 기존 RDS users 테이블에도 안전하게 추가된다.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_users_status
 ON users(status, updated_at DESC);
 

@@ -465,6 +465,7 @@ function createWindow() {
 // 4. IPC 기능
 function registerIpcHandlers() {
   ipcMain.handle("ping", () => "pong");
+  ipcMain.on("workspace:changed", (event) => event.sender.send("workspace:data-changed"));
 
   ipcMain.handle("file:open", async () => {
     // 파일 열기
@@ -650,10 +651,55 @@ function registerIpcHandlers() {
     return { canceled: false, path: filePaths[0] };
   });
 
-  ipcMain.handle("files:read-base64", async (_, filePath) => {
+  ipcMain.handle("app-settings:choose-files", async (_, { title, filters }) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: title ?? "파일 선택",
+      properties: ["openFile", "multiSelections"],
+      filters: filters ?? [{ name: "All files", extensions: ["*"] }],
+    });
+    if (canceled || !filePaths?.length) return { canceled: true, paths: [] };
+    return { canceled: false, paths: filePaths };
+  });
+
+  ipcMain.handle("app-settings:choose-folder-files", async (_, { title, extensions = [] } = {}) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: title ?? "업로드할 폴더 선택",
+      properties: ["openDirectory"],
+    });
+    const rootPath = filePaths?.[0];
+    if (canceled || !rootPath) return { canceled: true, files: [], skippedCount: 0 };
+
+    const allowed = new Set(extensions.map((extension) => String(extension).toLowerCase()));
+    const files = [];
+    let skippedCount = 0;
+    const walk = async (currentPath) => {
+      const entries = await fs.readdir(currentPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const entryPath = path.join(currentPath, entry.name);
+        if (entry.isDirectory()) {
+          await walk(entryPath);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        const extension = path.extname(entry.name).slice(1).toLowerCase();
+        if (allowed.size && !allowed.has(extension)) {
+          skippedCount += 1;
+          continue;
+        }
+        const relativePath = path.relative(path.dirname(rootPath), entryPath).split(path.sep).join("/");
+        files.push({ path: entryPath, relativePath });
+      }
+    };
+    await walk(rootPath);
+    return { canceled: false, files, skippedCount };
+  });
+
+  ipcMain.handle("files:read-base64", async (_, payload) => {
+    const filePath = typeof payload === "string" ? payload : payload?.path;
     if (!filePath || typeof filePath !== "string") return { ok: false, message: "파일 경로가 필요합니다." };
     const bytes = await fs.readFile(filePath);
-    return { ok: true, fileName: path.basename(filePath), sizeBytes: bytes.length, base64: bytes.toString("base64") };
+    const fileName = typeof payload === "object" && payload?.relativePath ? String(payload.relativePath) : path.basename(filePath);
+    return { ok: true, fileName, sizeBytes: bytes.length, base64: bytes.toString("base64") };
   });
 
   ipcMain.handle("files:download-cloud", async (_, payload = {}) => {
