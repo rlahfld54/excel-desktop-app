@@ -319,6 +319,12 @@ function encodeRfc5987FileName(value) {
     .replace(/['()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
+const BLOCKED_FILE_EXTENSIONS = new Set(['apk', 'app', 'bat', 'cmd', 'com', 'dll', 'exe', 'jar', 'js', 'jse', 'msi', 'ps1', 'scr', 'sh', 'vbe', 'vbs', 'wsf']);
+
+function fileExtension(value) {
+  return String(value || '').split('.').pop().trim().toLowerCase();
+}
+
 async function cloudFiles(method, path, body, actor) {
   const bucket = requiredEnv('S3_BUCKET');
   if (method === 'GET') {
@@ -327,8 +333,8 @@ async function cloudFiles(method, path, body, actor) {
   }
   if (method === 'POST' && path === '/files/presign') {
     const fileName = safeFilePath(body.fileName);
-    const extension = fileName.toLowerCase().split('.').pop();
-    if (!['xlsx', 'xls', 'pdf', 'csv'].includes(extension)) throw httpError(400, '엑셀, CSV, PDF 파일만 업로드할 수 있습니다.');
+    const extension = fileExtension(fileName);
+    if (BLOCKED_FILE_EXTENSIONS.has(extension)) throw httpError(400, '실행 파일과 스크립트는 AWS 보관함에 업로드할 수 없습니다.');
     const sizeBytes = Number(body.sizeBytes || 0);
     if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > 100 * 1024 * 1024) throw httpError(400, '파일 크기는 100MB 이하만 허용됩니다.');
     const fileParts = fileName.split('/');

@@ -200,37 +200,65 @@ function OwnerRiskSummary({ owners }) {
   );
 }
 
-function TeamRequestBoard({ requests }) {
+function TeamTodoList({ todos }) {
+  const openTodos = todos
+    .filter((todo) => (todo.itemType || 'TODO') === 'TODO' && !todo.done)
+    .sort((left, right) => `${left.dueDate} ${left.priority}`.localeCompare(`${right.dueDate} ${right.priority}`))
+    .slice(0, 6);
+
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="font-bold text-gray-900 dark:text-gray-100">타부서 요청</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">총무팀으로 들어온 요청을 처리 우선순위대로 확인합니다.</p>
+          <h2 className="font-bold text-gray-900 dark:text-gray-100">총무팀 투두리스트</h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">공용 일정에서 아직 완료하지 않은 업무입니다.</p>
         </div>
-        <span className="rounded bg-rose-50 px-2 py-1 text-xs font-bold text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
-          긴급 {requests.filter((request) => request.priority === 'HIGH').length}
-        </span>
+        <Link className="btn btn-secondary" to="/schedule/todos">전체 보기</Link>
       </div>
       <div className="mt-4 space-y-2">
-        {requests.map((request) => {
-          const meta = priorityMeta[request.priority] ?? priorityMeta.LOW;
+        {openTodos.map((todo) => {
+          const meta = priorityMeta[todo.priority] ?? priorityMeta.LOW;
 
           return (
-            <article key={request.id} className={`rounded-md border px-3 py-2 ${meta.className}`}>
+            <article key={todo.id} className={`rounded-md border px-3 py-2 ${meta.className}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded bg-white/70 px-1.5 py-0.5 text-[11px] font-bold dark:bg-gray-900/30">{request.department}</span>
-                    <p className="truncate text-sm font-bold">{request.title}</p>
+                    <span className="rounded bg-white/70 px-1.5 py-0.5 text-[11px] font-bold dark:bg-gray-900/30">{meta.label}</span>
+                    <p className="truncate text-sm font-bold">{todo.title}</p>
                   </div>
-                  <p className="mt-1 text-xs opacity-80">담당 {request.owner} · {request.due}</p>
+                  <p className="mt-1 text-xs opacity-80">기한 {todo.dueDate || '-'}{todo.reminderAt ? ` · ${todo.reminderAt}` : ''}</p>
                 </div>
-                <span className="shrink-0 rounded bg-white/70 px-2 py-1 text-xs font-bold dark:bg-gray-900/30">{request.status}</span>
+                <span className="shrink-0 rounded bg-white/70 px-2 py-1 text-xs font-bold dark:bg-gray-900/30">미완료</span>
               </div>
             </article>
           );
         })}
+        {openTodos.length === 0 && <p className="rounded-md border border-dashed border-gray-300 px-3 py-5 text-center text-sm font-semibold text-gray-500 dark:border-gray-700 dark:text-gray-400">미완료 공용 투두가 없습니다.</p>}
+      </div>
+    </section>
+  );
+}
+
+function QuickActions() {
+  const actions = [
+    ['사장님 보고', '/results/executive-dashboard', '마감 현황과 보고 예외 확인'],
+    ['마감 워크스페이스', '/closing-workspace/overview', '업체별 마감 상태 처리'],
+    ['업로드 전 검증', '/collect/upload-validation', '매출 파일 검증 및 정리'],
+    ['보고서 작성', '/results/report-generator', '월간 보고서 생성'],
+  ];
+
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+      <h2 className="font-bold text-gray-900 dark:text-gray-100">자주 사용하는 곳</h2>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">업무 흐름에서 자주 여는 화면으로 바로 이동합니다.</p>
+      <div className="mt-4 grid gap-2">
+        {actions.map(([label, href, detail]) => (
+          <Link key={href} className="rounded-lg border border-gray-200 px-3 py-3 transition hover:border-teal-300 hover:bg-teal-50 dark:border-gray-700 dark:hover:border-teal-500/50 dark:hover:bg-teal-500/10" to={href}>
+            <p className="font-semibold text-gray-900 dark:text-gray-100">{label}</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{detail}</p>
+          </Link>
+        ))}
       </div>
     </section>
   );
@@ -460,7 +488,7 @@ export default function Dashboard() {
   const roleInfo = getRoleCopy(currentUser.role);
   const [rows, setRows] = useState([]);
   const [teamSchedules, setTeamSchedules] = useState(() => readTeamTodos());
-  const [departmentRequests, setDepartmentRequests] = useState([]);
+  const [salesLoadError, setSalesLoadError] = useState('');
   const scopedRows = rows;
   const [dailySalesTrend, setDailySalesTrend] = useState(null);
   const metrics = useMemo(() => {
@@ -481,30 +509,19 @@ export default function Dashboard() {
     let active = true;
     queryAllSalesData(getCurrentMonthSalesRange())
       .then((result) => {
-        if (active) setRows(result.rows);
+        if (active) {
+          setRows(result.rows);
+          setSalesLoadError('');
+        }
       })
-      .catch(() => {
-        if (active) setRows([]);
+      .catch((error) => {
+        if (active) {
+          setRows([]);
+          setSalesLoadError(error?.message || '이번 달 매출 데이터를 불러오지 못했습니다.');
+        }
       });
     return () => {
       active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadDepartmentRequests() {
-      if (!window.api?.getDepartmentRequests) return;
-      const result = await window.api.getDepartmentRequests();
-      if (!isMounted || !result?.ok || !Array.isArray(result.requests)) return;
-      setDepartmentRequests(result.requests);
-    }
-
-    loadDepartmentRequests().catch(() => setDepartmentRequests([]));
-
-    return () => {
-      isMounted = false;
     };
   }, []);
 
@@ -545,6 +562,8 @@ export default function Dashboard() {
   return (
     <PageShell title={roleInfo.title} description={roleInfo.description}>
 
+      {salesLoadError && <div className="mb-4 rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">대시보드 매출 조회 실패: {salesLoadError}</div>}
+
       {/* <ExecutiveReportContent /> */}
 
       <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -556,12 +575,12 @@ export default function Dashboard() {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <TeamScheduleOverview schedules={teamSchedules} />
-        <TeamRequestBoard requests={departmentRequests} />
+        <TeamTodoList todos={teamSchedules} />
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <DailyChart items={metrics.daily} maxValue={metrics.maxDaily} />
-        <OwnerRiskSummary owners={metrics.ownerCustomers} />
+        <QuickActions />
       </div>
 
     </PageShell>

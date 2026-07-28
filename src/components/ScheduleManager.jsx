@@ -6,16 +6,11 @@ import {
   getTeamTodoSummary,
   getTodayKey,
   hydrateTeamTodos,
-  getTodoSummary,
   priorityMeta,
   readTeamTodoHistory,
   readTeamTodos,
-  readTodoHistory,
-  readTodos,
   saveTeamTodos,
-  saveTodos,
   toggleTeamTodoDone,
-  toggleTodoDone,
 } from '../utils/todoSchedule';
 
 const itemTypeLabels = {
@@ -43,7 +38,7 @@ function makeEmptyDraft({ itemType = 'TODO', dueDate = getTodayKey() } = {}) {
   };
 }
 
-function ItemModal({ draft, isTeamScope, onChange, onClose, onSubmit, onDelete }) {
+function ItemModal({ draft, onChange, onClose, onSubmit, onDelete }) {
   if (!draft) return null;
 
   return (
@@ -55,7 +50,7 @@ function ItemModal({ draft, isTeamScope, onChange, onClose, onSubmit, onDelete }
               {draft.id ? `${itemTypeLabels[draft.itemType]} 수정` : `${itemTypeLabels[draft.itemType]} 추가`}
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {isTeamScope ? '총무팀 공용 데이터에 바로 반영됩니다.' : '내 개인 데이터에 바로 반영됩니다.'}
+              총무팀 공용 데이터에 바로 반영됩니다.
             </p>
           </div>
           <button className="btn btn-secondary" type="button" onClick={onClose}>닫기</button>
@@ -251,8 +246,7 @@ function ItemTable({ title, description, items, emptyText, filter, onFilterChang
   );
 }
 
-export default function ScheduleManager({ userId }) {
-  const [scope, setScope] = useState('TEAM');
+export default function ScheduleManager() {
   const [items, setItems] = useState(() => readTeamTodos());
   const [history, setHistory] = useState(() => readTeamTodoHistory());
   const [editingDraft, setEditingDraft] = useState(null);
@@ -262,22 +256,20 @@ export default function ScheduleManager({ userId }) {
   });
   const [selectedDate, setSelectedDate] = useState(() => getTodayKey());
   const [todoFilter, setTodoFilter] = useState('OPEN');
-  const isTeamScope = scope === 'TEAM';
-
   useEffect(() => {
     let mounted = true;
     const loadSchedule = async () => {
-      if (isTeamScope) await hydrateTeamTodos();
+      await hydrateTeamTodos();
       if (!mounted) return;
-      setItems(isTeamScope ? readTeamTodos() : readTodos(userId));
-      setHistory(isTeamScope ? readTeamTodoHistory() : readTodoHistory(userId));
+      setItems(readTeamTodos());
+      setHistory(readTeamTodoHistory());
     };
     loadSchedule();
     setEditingDraft(null);
     return () => { mounted = false; };
-  }, [isTeamScope, userId]);
+  }, []);
 
-  const summary = isTeamScope ? getTeamTodoSummary() : getTodoSummary(userId);
+  const summary = getTeamTodoSummary();
   const calendarDays = getCalendarDays(calendarMonth.year, calendarMonth.month, items, history);
   const todoItems = items.filter((item) => (item.itemType || 'TODO') === 'TODO');
   const scheduleItems = items.filter((item) => item.itemType === 'SCHEDULE');
@@ -304,15 +296,11 @@ export default function ScheduleManager({ userId }) {
 
   const refreshState = (nextItems) => {
     setItems(nextItems);
-    setHistory(isTeamScope ? readTeamTodoHistory() : readTodoHistory(userId));
+    setHistory(readTeamTodoHistory());
   };
 
   const saveItems = (nextItems) => {
-    if (isTeamScope) {
-      saveTeamTodos(nextItems);
-    } else {
-      saveTodos(userId, nextItems);
-    }
+    saveTeamTodos(nextItems);
     refreshState(nextItems);
   };
 
@@ -343,7 +331,7 @@ export default function ScheduleManager({ userId }) {
             ...editingDraft,
             due: editingDraft.dueDate,
             path: '/schedule/todos',
-            scope: isTeamScope ? 'TEAM' : 'PERSONAL',
+            scope: 'TEAM',
           }),
           ...items,
         ];
@@ -353,9 +341,7 @@ export default function ScheduleManager({ userId }) {
   };
 
   const handleToggle = (itemId, done) => {
-    const nextItems = isTeamScope
-      ? toggleTeamTodoDone(items, itemId, done)
-      : toggleTodoDone(userId, items, itemId, done);
+    const nextItems = toggleTeamTodoDone(items, itemId, done);
     refreshState(nextItems);
   };
 
@@ -383,23 +369,8 @@ export default function ScheduleManager({ userId }) {
           <div>
             <h2 className="font-bold text-gray-900 dark:text-gray-100">일정 범위</h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              개인 업무와 총무팀 공용 업무를 나누고, 일정과 투두는 별도 테이블로 관리합니다.
+              총무팀 공용 일정과 투두를 한 화면에서 관리합니다.
             </p>
-          </div>
-          <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-700 dark:bg-gray-900/40">
-            {[
-              ['TEAM', '총무팀 일정'],
-              ['PERSONAL', '개인 일정'],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                className={`rounded-md px-4 py-2 text-sm font-bold transition ${scope === value ? 'bg-white text-teal-700 shadow-xs dark:bg-gray-800 dark:text-teal-300' : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'}`}
-                type="button"
-                onClick={() => setScope(value)}
-              >
-                {label}
-              </button>
-            ))}
           </div>
         </div>
       </section>
@@ -430,7 +401,7 @@ export default function ScheduleManager({ userId }) {
       <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
-            <h2 className="font-bold text-gray-900 dark:text-gray-100">{isTeamScope ? '총무팀 일정·투두 관리' : '개인 일정·투두 관리'}</h2>
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">총무팀 일정·투두 관리</h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               달력 날짜를 클릭하면 해당 날짜의 과거 일정·투두를 확인할 수 있고, 항목을 클릭하면 수정합니다.
             </p>
@@ -597,7 +568,6 @@ export default function ScheduleManager({ userId }) {
 
       <ItemModal
         draft={editingDraft}
-        isTeamScope={isTeamScope}
         onChange={handleDraftChange}
         onClose={() => setEditingDraft(null)}
         onSubmit={handleSubmit}

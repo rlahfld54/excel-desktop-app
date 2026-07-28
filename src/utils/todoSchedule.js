@@ -20,8 +20,46 @@ export const priorityMeta = {
   },
 };
 
-export const defaultTodos = [];
 export const defaultTeamTodos = [];
+
+function createTeamScheduleSeed(year = new Date().getFullYear()) {
+  const make = (id, itemType, dueDate, title, detail, priority, reminderAt) => ({
+    id: `team-seed-${year}-${id}`,
+    itemType,
+    dueDate: `${year}-${dueDate}`,
+    due: `${year}-${dueDate}`,
+    title,
+    detail,
+    priority,
+    reminderAt,
+    done: false,
+    custom: false,
+    scope: 'TEAM',
+    createdAt: new Date().toISOString(),
+  });
+
+  return [
+    make('month-end-evidence', 'TODO', '07-29', '월말 마감 제출 현황 취합', '각 부서의 마감 자료 제출 여부를 확인하고 미제출 부서에 안내합니다.', 'HIGH', '10:00'),
+    make('july-expense-evidence', 'TODO', '07-31', '7월 법인카드·지출 증빙 확인', '누락된 영수증과 세금계산서 여부를 확인해 월말 정산 목록을 정리합니다.', 'HIGH', '15:00'),
+    make('august-closing', 'SCHEDULE', '08-03', '7월 비용 정산 마감', '취합된 비용 자료를 검토하고 회계 전달용 정산 파일을 확정합니다.', 'HIGH', '09:30'),
+    make('august-stock', 'TODO', '08-07', '사무용 소모품 재고 점검', '복사용지·토너·문구류 재고를 확인하고 부족 품목을 발주 목록에 추가합니다.', 'MEDIUM', '14:00'),
+    make('august-facility', 'SCHEDULE', '08-21', '사내 시설 정기 점검', '회의실 장비, 공용 프린터, 냉난방 설비의 이상 여부를 점검합니다.', 'MEDIUM', '10:00'),
+    make('september-collection', 'TODO', '09-01', '8월 근태·비용 자료 취합', '근태 현황과 부서별 비용 증빙을 취합해 정산 전 누락을 확인합니다.', 'HIGH', '10:00'),
+    make('september-contracts', 'TODO', '09-11', '정기 계약 갱신 대상 확인', '임대·렌탈·정기 서비스 계약의 만료일과 갱신 조건을 확인합니다.', 'MEDIUM', '14:00'),
+    make('september-quarter-review', 'SCHEDULE', '09-25', '3분기 비용 집계 및 보고 일정 확정', '3분기 집행 현황을 정리하고 경영 보고용 자료 준비 일정을 공유합니다.', 'HIGH', '11:00'),
+    make('october-evidence', 'TODO', '10-05', '9월 증빙 누락 확인', '부서별 누락 증빙과 미처리 비용을 확인해 보완 요청합니다.', 'HIGH', '10:00'),
+    make('october-assets', 'TODO', '10-16', '비품·자산 현황 점검', '공용 장비와 주요 비품의 이동·수리·교체 필요 여부를 업데이트합니다.', 'MEDIUM', '15:00'),
+    make('october-planning', 'SCHEDULE', '10-30', '월말 마감 및 11월 소모품 발주', '10월 마감 상태를 점검하고 다음 달 소모품 발주 수량을 확정합니다.', 'HIGH', '13:00'),
+    make('november-review', 'TODO', '11-03', '10월 정산자료 검토', '마감 파일, 세금계산서, 법인카드 사용 내역을 대조해 검토합니다.', 'HIGH', '10:00'),
+    make('november-safety', 'SCHEDULE', '11-13', '동절기 시설 안전 점검', '난방기, 소화기, 전기 설비와 비상물품 상태를 점검합니다.', 'MEDIUM', '14:00'),
+    make('november-budget', 'TODO', '11-24', '연말 예산 집행 현황 취합', '부서별 잔여 예산과 연내 집행 예정 항목을 취합합니다.', 'MEDIUM', '11:00'),
+    make('december-evidence', 'TODO', '12-01', '연말 지출 증빙·세금계산서 정리', '연말 정산 전 누락 증빙과 세금계산서 발행 현황을 최종 확인합니다.', 'HIGH', '09:30'),
+    make('december-inventory', 'SCHEDULE', '12-11', '사무기기·비품 재고 실사', '공용 비품과 장비의 수량·상태를 확인해 다음 연도 관리대장을 갱신합니다.', 'MEDIUM', '10:00'),
+    make('december-contracts', 'TODO', '12-18', '다음 연도 계약 갱신 목록 확정', '정기 계약의 갱신 여부, 담당자, 예산을 확정해 결재 자료를 준비합니다.', 'HIGH', '14:00'),
+    make('december-contact', 'SCHEDULE', '12-23', '연말 휴무·비상연락망 공지', '휴무 기간 담당자와 긴급 연락 체계를 정리해 전사에 안내합니다.', 'MEDIUM', '11:00'),
+    make('december-handover', 'TODO', '12-29', '연말 마감 및 미결 업무 인수인계', '미결 업무, 계약 갱신, 보관 문서를 점검하고 다음 연도 담당자에게 인계합니다.', 'HIGH', '15:00'),
+  ];
+}
 
 function readStore() {
   return todoState;
@@ -33,8 +71,8 @@ function writeStore(store) {
 }
 
 function savePersonalStateToDatabase(userId, patch) {
-  if (!window.api?.savePersonalTodoState || !userId) return;
-  window.api.savePersonalTodoState({
+  if (!window.api?.savePersonalTodoState || !userId) return Promise.resolve();
+  return window.api.savePersonalTodoState({
     username: userId,
     ...patch,
   }).catch((error) => {
@@ -68,63 +106,6 @@ export function getTodayKey() {
   return todayKey();
 }
 
-export function readTodos(userId) {
-  const store = readStore();
-  const userTodos = store[userId]?.todos;
-
-  if (Array.isArray(userTodos)) {
-    return userTodos.map((todo) => normalizeTodo(todo, todo.itemType));
-  }
-
-  return [];
-}
-
-export function initializePersonalTodos(userId) {
-  const store = readStore();
-  const existing = store[userId];
-  const legacyDefaultIds = new Set(defaultTodos.map((todo) => todo.id));
-  const containsOnlyLegacyDefaults = Array.isArray(existing?.todos)
-    && existing.todos.length > 0
-    && existing.todos.every((todo) => legacyDefaultIds.has(todo.id) && !todo.custom);
-
-  if (existing && !containsOnlyLegacyDefaults) return;
-  writeStore({
-    ...store,
-    [userId]: {
-      todos: [],
-      history: [],
-    },
-  });
-  savePersonalStateToDatabase(userId, { todos: [], history: [] });
-}
-
-export function clearPersonalTodoData(userId) {
-  const store = readStore();
-  if (!store[userId]) return;
-  const nextStore = { ...store };
-  delete nextStore[userId];
-  writeStore(nextStore);
-}
-
-export async function hydratePersonalTodos(userId) {
-  if (!userId || !window.api?.getPersonalTodoState) {
-    initializePersonalTodos(userId);
-    return readTodos(userId);
-  }
-
-  const result = await window.api.getPersonalTodoState({ username: userId });
-  const state = result?.state ?? { todos: [], history: [] };
-  const store = readStore();
-  writeStore({
-    ...store,
-    [userId]: {
-      todos: Array.isArray(state.todos) ? state.todos : [],
-      history: Array.isArray(state.history) ? state.history : [],
-    },
-  });
-  return readTodos(userId);
-}
-
 export async function hydrateTeamTodos() {
   if (!window.api?.getPersonalTodoState) return readTeamTodos();
   const result = await window.api.getPersonalTodoState({ username: teamTodoUserId });
@@ -137,6 +118,7 @@ export async function hydrateTeamTodos() {
       history: Array.isArray(state.history) ? state.history : [],
     },
   });
+  await ensureTeamScheduleSeed();
   return readTeamTodos();
 }
 
@@ -157,18 +139,6 @@ export function readTeamTodos() {
   return defaultTeamTodos.map((todo) => normalizeTodo(todo, todo.itemType));
 }
 
-export function saveTodos(userId, todos) {
-  const store = readStore();
-  writeStore({
-    ...store,
-    [userId]: {
-      ...(store[userId] ?? {}),
-      todos,
-    },
-  });
-  savePersonalStateToDatabase(userId, { todos });
-}
-
 export function saveTeamTodos(todos) {
   const store = readStore();
   writeStore({
@@ -178,27 +148,23 @@ export function saveTeamTodos(todos) {
       todos,
     },
   });
-  savePersonalStateToDatabase(teamTodoUserId, { todos });
+  return savePersonalStateToDatabase(teamTodoUserId, { todos });
 }
 
-export function readTodoHistory(userId) {
-  return readStore()[userId]?.history ?? [];
+export async function ensureTeamScheduleSeed() {
+  const store = readStore();
+  const current = Array.isArray(store[teamTodoUserId]?.todos) ? store[teamTodoUserId].todos : [];
+  const existingIds = new Set(current.map((item) => item.id));
+  const additions = createTeamScheduleSeed().filter((item) => !existingIds.has(item.id));
+  if (!additions.length) return current;
+
+  const nextTodos = [...current, ...additions];
+  await saveTeamTodos(nextTodos);
+  return nextTodos;
 }
 
 export function readTeamTodoHistory() {
   return readStore()[teamTodoUserId]?.history ?? [];
-}
-
-export function saveTodoHistory(userId, history) {
-  const store = readStore();
-  writeStore({
-    ...store,
-    [userId]: {
-      ...(store[userId] ?? {}),
-      history: history.slice(0, 300),
-    },
-  });
-  savePersonalStateToDatabase(userId, { history: history.slice(0, 300) });
 }
 
 export function saveTeamTodoHistory(history) {
@@ -231,43 +197,9 @@ export function createTodo(input) {
     path: input.path || '/dashboard',
     createdAt: new Date().toISOString(),
     custom: true,
-    scope: input.scope || 'PERSONAL',
+    scope: 'TEAM',
     itemType: input.itemType || 'TODO',
   };
-}
-
-export function toggleTodoDone(userId, todos, todoId, done) {
-  const now = new Date().toISOString();
-  const nextTodos = todos.map((todo) => (
-    todo.id === todoId
-      ? {
-          ...todo,
-          done,
-          completedAt: done ? now : null,
-        }
-      : todo
-  ));
-  const todo = nextTodos.find((item) => item.id === todoId);
-
-  if (todo) {
-    const history = readTodoHistory(userId);
-    const nextHistory = [
-      {
-        id: `${todoId}-${now}`,
-        todoId,
-        title: todo.title,
-        priority: todo.priority,
-        done,
-        date: todayKey(),
-        changedAt: now,
-      },
-      ...history,
-    ];
-    saveTodoHistory(userId, nextHistory);
-  }
-
-  saveTodos(userId, nextTodos);
-  return nextTodos;
 }
 
 export function toggleTeamTodoDone(todos, todoId, done) {
@@ -303,28 +235,6 @@ export function toggleTeamTodoDone(todos, todoId, done) {
 
   saveTeamTodos(nextTodos);
   return nextTodos;
-}
-
-export function getTodoSummary(userId, date = new Date()) {
-  const todos = readTodos(userId);
-  const todoItems = todos.filter((todo) => (todo.itemType || 'TODO') === 'TODO');
-  const key = todayKey(date);
-  const openTodos = todoItems.filter((todo) => !todo.done);
-  const todayTodos = todos.filter((todo) => todo.dueDate === key);
-  const reminders = todos
-    .filter((todo) => !todo.done && todo.dueDate && todo.reminderAt)
-    .sort((a, b) => `${a.dueDate} ${a.reminderAt}`.localeCompare(`${b.dueDate} ${b.reminderAt}`));
-  const highOpenCount = openTodos.filter((todo) => todo.priority === 'HIGH').length;
-
-  return {
-    todos,
-    openTodos,
-    todayTodos,
-    reminders,
-    highOpenCount,
-    completedCount: todoItems.length - openTodos.length,
-    completionRate: todoItems.length ? Math.round(((todoItems.length - openTodos.length) / todoItems.length) * 100) : 100,
-  };
 }
 
 export function getTeamTodoSummary(date = new Date()) {

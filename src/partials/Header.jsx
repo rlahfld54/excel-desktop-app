@@ -2,13 +2,12 @@ import React, { useEffect, useState } from 'react';
 
 import SearchModal from '../components/ModalSearch';
 import Notifications from '../components/DropdownNotifications';
-import Todo from '../components/DropdownTodo';
 import Help from '../components/DropdownHelp';
 import UserMenu from '../components/DropdownProfile';
 import ThemeToggle from '../components/ThemeToggle';
 import { addNotification, readNotifications } from '../utils/appNotifications';
 import { authChangedEvent, getCurrentUser } from '../utils/authSession';
-import { getTodoSummary, todoChangedEvent } from '../utils/todoSchedule';
+import { getTeamTodoSummary, todoChangedEvent } from '../utils/todoSchedule';
 
 function Header({
   sidebarOpen,
@@ -35,16 +34,16 @@ function Header({
       const now = new Date();
       const today = now.toISOString().slice(0, 10);
       const currentMinutes = now.getHours() * 60 + now.getMinutes();
-      const dismissedKey = `excel-workspace:todoReminderDismissed:${currentUser.id}:${today}`;
+      const dismissedKey = `excel-workspace:teamTodoReminderDismissed:${today}`;
       const dismissed = JSON.parse(localStorage.getItem(dismissedKey) ?? '[]');
-      const dueReminder = getTodoSummary(currentUser.id).reminders.find((todo) => {
+      const dueReminder = getTeamTodoSummary().reminders.find((todo) => {
         if (todo.dueDate !== today || !todo.reminderAt || dismissed.includes(todo.id)) return false;
         const [hour, minute] = todo.reminderAt.split(':').map(Number);
         return currentMinutes >= hour * 60 + minute;
       });
 
       if (dueReminder) {
-        const notifiedKey = `excel-workspace:todoReminderNotified:${currentUser.id}:${today}`;
+          const notifiedKey = `excel-workspace:teamTodoReminderNotified:${today}`;
         const notified = JSON.parse(localStorage.getItem(notifiedKey) ?? '[]');
         const existingNotification = readNotifications().some((notification) => (
           notification.target === '일정관리'
@@ -82,7 +81,7 @@ function Header({
   const rememberReminderDismissed = (reminder) => {
     if (!reminder) return;
     const today = new Date().toISOString().slice(0, 10);
-    const dismissedKey = `excel-workspace:todoReminderDismissed:${currentUser.id}:${today}`;
+    const dismissedKey = `excel-workspace:teamTodoReminderDismissed:${today}`;
     const dismissed = JSON.parse(localStorage.getItem(dismissedKey) ?? '[]');
     localStorage.setItem(dismissedKey, JSON.stringify([...new Set([...dismissed, reminder.id])]));
   };
@@ -156,7 +155,6 @@ function Header({
               </button>
               <SearchModal id="search-modal" searchId="search" modalOpen={searchModalOpen} setModalOpen={setSearchModalOpen} />
             </div>
-            <Todo align="right" />
             <Notifications align="right" />
             <Help align="right" />
             <ThemeToggle />

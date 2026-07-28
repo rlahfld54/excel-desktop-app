@@ -6,7 +6,7 @@ import { isSharedApiEnabled } from '../config/cloud';
 import { loginWithSharedApi } from '../services/authApiService';
 import { sharedDataService } from '../services/sharedDataService';
 import { addActivityLog, getOfflineProfile, saveOfflineProfile, saveSession, saveUsers } from '../utils/authSession';
-import { hydratePersonalTodos, hydrateTeamTodos } from '../utils/todoSchedule';
+import { hydrateTeamTodos } from '../utils/todoSchedule';
 import { useToast } from '../components/common';
 
 export default function LoginPage() {
@@ -95,7 +95,6 @@ export default function LoginPage() {
       });
       }
       if (usesSharedLogin) saveOfflineProfile(selectedUser);
-      await hydratePersonalTodos(selectedUser.id);
       const nextUsers = mergeAuthenticatedUser(users, selectedUser);
       saveUsers(nextUsers);
       saveSession({
@@ -115,7 +114,7 @@ export default function LoginPage() {
       }
       // 클라우드 스냅샷이 SQLite에 적용된 뒤 메모리 일정도 다시 읽어야
       // 첫 화면부터 AWS에 있던 일정/투두가 보인다.
-      await Promise.all([hydratePersonalTodos(selectedUser.id), hydrateTeamTodos()]);
+      await hydrateTeamTodos();
       if (usesSharedLogin && window.api?.completeSetup) {
       await window.api.completeSetup({ lastCloudSyncAt: new Date().toISOString() });
       window.dispatchEvent(new CustomEvent('excel-workspace:setup-completed'));
@@ -143,7 +142,6 @@ export default function LoginPage() {
       user: profile,
       expiresAt: profile.offlineExpiresAt,
     });
-    await hydratePersonalTodos(profile.id);
     addActivityLog('INFO', '오프라인 로그인', profile.id, profile.id);
     navigate(location.state?.from || '/dashboard', { replace: true });
   };

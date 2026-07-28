@@ -532,6 +532,16 @@ export default function UploadValidationPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
+    const handleCloudSynced = () => {
+      setStatusText((current) => current.includes('매출 테이블에 저장') || current.includes('AWS 동기화 대기')
+        ? '매출 데이터의 AWS 동기화까지 완료했습니다.'
+        : current);
+    };
+    window.addEventListener('excel-workspace:data-synced', handleCloudSynced);
+    return () => window.removeEventListener('excel-workspace:data-synced', handleCloudSynced);
+  }, []);
+
+  useEffect(() => {
     let active = true;
 
     async function loadReferenceSources() {
@@ -697,7 +707,7 @@ export default function UploadValidationPage() {
 
       addActivityLog('INFO', '업로드 검증 데이터 저장', `${draft.fileName} / ${stamped.rows.length}건`);
       setStatusText(
-        `${stamped.rows.length.toLocaleString('ko-KR')}건을 매출 테이블에 저장했습니다.`
+        `${stamped.rows.length.toLocaleString('ko-KR')}건을 매출 테이블에 저장했습니다. AWS 동기화를 대기합니다.`
         + (nextValidation.reviewCount > 0 ? ` 담당자 재확인 ${nextValidation.reviewCount.toLocaleString('ko-KR')}건도 함께 기록했습니다.` : '')
       );
     } catch (error) {

@@ -5,7 +5,6 @@ import Logo from '../images/logo.svg';
 import { isSharedApiEnabled } from '../config/cloud';
 import { signupWithSharedApi } from '../services/authApiService';
 import { saveUsers } from '../utils/authSession';
-import { initializePersonalTodos } from '../utils/todoSchedule';
 import { getPasswordChecks, isPasswordValid, passwordHelpText } from '../utils/passwordPolicy';
 import { useToast } from '../components/common';
 
@@ -54,7 +53,6 @@ export default function SignupPage() {
       if (!usesSharedSignup) {
         const usersResult = await window.api.listUsers();
         saveUsers(usersResult.users ?? []);
-        initializePersonalTodos(result.user.id);
       }
       showToast({ type: 'success', title: '계정이 생성되었습니다', message: '이제 만든 아이디와 비밀번호로 로그인하세요.' });
       navigate('/login', { replace: true });

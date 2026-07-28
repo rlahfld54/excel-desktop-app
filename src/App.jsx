@@ -49,7 +49,7 @@ import NotFoundPage from './pages/NotFoundPage';
 import { getCurrentUser, hasActiveSession } from './utils/authSession';
 import { saveUsers } from './utils/authSession';
 import { getSession } from './utils/authSession';
-import { hydratePersonalTodos, hydrateTeamTodos } from './utils/todoSchedule';
+import { hydrateTeamTodos } from './utils/todoSchedule';
 import { isSharedApiEnabled } from './config/cloud';
 import { sharedDataService } from './services/sharedDataService';
 import { useToast } from './components/common';
@@ -123,7 +123,7 @@ function App() {
         const usersResult = await window.api.listUsers?.();
         if (usersResult?.ok) saveUsers(usersResult.users ?? []);
         const session = getSession();
-        if (session?.userId) await Promise.all([hydratePersonalTodos(session.userId), hydrateTeamTodos()]);
+        if (session?.userId) await hydrateTeamTodos();
         if (mounted) setSetupState({ loading: false, completed: Boolean(result.completed) });
       } catch {
         if (mounted) setSetupState({ loading: false, completed: false });
@@ -180,15 +180,17 @@ function App() {
       try {
         const local = await window.api.exportWorkspaceForCloud();
         const result = await sharedDataService.syncWorkspace(local.payload);
-        if (!result.ok) return;
+        if (!result.ok) throw new Error(result.message || 'AWS 동기화 요청이 거부되었습니다.');
         await window.api.applyCloudWorkspace(result.data?.snapshot ?? {});
-        const session = getSession();
-        await Promise.all([
-          session?.userId ? hydratePersonalTodos(session.userId) : Promise.resolve(),
-          hydrateTeamTodos(),
-        ]);
+        await hydrateTeamTodos();
         setWorkspaceRevision((revision) => revision + 1);
         window.dispatchEvent(new CustomEvent('excel-workspace:data-synced'));
+      } catch (error) {
+        showToast({
+          type: 'error',
+          title: 'AWS 동기화에 실패했습니다',
+          message: error?.message || '변경 내용은 이 PC SQLite에 남아 있습니다. 인터넷 연결과 AWS 설정을 확인해 주세요.',
+        });
       } finally {
         syncing = false;
       }

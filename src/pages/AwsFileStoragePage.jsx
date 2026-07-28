@@ -4,7 +4,15 @@ import PageShell from './PageShell';
 import { isSharedApiEnabled } from '../config/cloud';
 import { sharedDataService } from '../services/sharedDataService';
 
-const allowedExtensions = ['xlsx', 'xls', 'csv', 'pdf'];
+const blockedExtensions = new Set(['apk', 'app', 'bat', 'cmd', 'com', 'dll', 'exe', 'jar', 'js', 'jse', 'msi', 'ps1', 'scr', 'sh', 'vbe', 'vbs', 'wsf']);
+
+function extensionOf(fileName = '') {
+  return String(fileName).split('.').pop()?.trim().toLowerCase() || '';
+}
+
+function isAllowedFile(fileName = '') {
+  return !blockedExtensions.has(extensionOf(fileName));
+}
 
 function fileType(fileName = '') {
   return String(fileName).split('.').pop()?.toUpperCase() || 'FILE';
@@ -17,18 +25,33 @@ function fileSize(sizeBytes) {
 }
 
 function contentType(fileName = '') {
-  const extension = fileName.toLowerCase().split('.').pop();
+  const extension = extensionOf(fileName);
   if (extension === 'pdf') return 'application/pdf';
   if (extension === 'csv') return 'text/csv';
   if (extension === 'xls') return 'application/vnd.ms-excel';
-  return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (extension === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (extension === 'doc') return 'application/msword';
+  if (extension === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (extension === 'ppt') return 'application/vnd.ms-powerpoint';
+  if (extension === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  if (extension === 'txt' || extension === 'md') return 'text/plain; charset=utf-8';
+  if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
+  if (extension === 'png') return 'image/png';
+  if (extension === 'gif') return 'image/gif';
+  if (extension === 'webp') return 'image/webp';
+  if (extension === 'svg') return 'image/svg+xml';
+  if (extension === 'mp3') return 'audio/mpeg';
+  if (extension === 'wav') return 'audio/wav';
+  if (extension === 'mp4') return 'video/mp4';
+  if (extension === 'zip') return 'application/zip';
+  return 'application/octet-stream';
 }
 
 export default function AwsFileStoragePage() {
   const [files, setFiles] = useState([]);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('필요한 엑셀·CSV·PDF만 AWS에 보관할 수 있습니다.');
+  const [message, setMessage] = useState('이미지·문서·압축파일·미디어 등 필요한 파일을 AWS에 보관할 수 있습니다. 실행 파일과 스크립트는 제외됩니다.');
 
   const loadFiles = async () => {
     if (!isSharedApiEnabled()) return setMessage('AWS API 주소가 설정되지 않았습니다.');
@@ -47,17 +70,20 @@ export default function AwsFileStoragePage() {
 
   const upload = async () => {
     if (!window.api?.chooseFiles || !window.api?.readFileBase64) return setMessage('Electron 데스크톱 앱에서만 업로드할 수 있습니다.');
-    const picked = await window.api.chooseFiles({ title: 'AWS에 보관할 파일 선택 (여러 개 선택 가능)', filters: [{ name: '엑셀·CSV·PDF', extensions: allowedExtensions }] });
+    const picked = await window.api.chooseFiles({ title: 'AWS에 보관할 파일 선택 (여러 개 선택 가능)', filters: [{ name: '모든 파일', extensions: ['*'] }] });
     if (picked?.canceled || !picked?.paths?.length) return;
+    const selectedPaths = picked.paths.filter(isAllowedFile);
+    const blockedCount = picked.paths.length - selectedPaths.length;
+    if (!selectedPaths.length) return setMessage('실행 파일 또는 스크립트는 AWS 보관함에 업로드할 수 없습니다.');
     setBusy(true);
     try {
       const failed = [];
       let completedCount = 0;
-      for (const filePath of picked.paths) {
+      for (const filePath of selectedPaths) {
         try {
           const local = await window.api.readFileBase64(filePath);
           if (!local?.ok) throw new Error(local?.message || '파일을 읽지 못했습니다.');
-          setMessage(`AWS 업로드 중: ${completedCount + 1}/${picked.paths.length} · ${local.fileName}`);
+          setMessage(`AWS 업로드 중: ${completedCount + 1}/${selectedPaths.length} · ${local.fileName}`);
           const presign = await sharedDataService.presignCloudFile({ fileName: local.fileName, contentType: contentType(local.fileName), sizeBytes: local.sizeBytes });
           if (!presign.ok) throw new Error(presign.message || '업로드 주소 생성에 실패했습니다.');
           const binary = Uint8Array.from(atob(local.base64), (character) => character.charCodeAt(0));
@@ -69,7 +95,8 @@ export default function AwsFileStoragePage() {
         } catch (error) { failed.push(`${filePath.split(/[\\/]/).pop()}: ${error.message}`); }
       }
       await loadFiles();
-      setMessage(failed.length ? `${completedCount}개 업로드 완료 · ${failed.length}개 실패: ${failed.join(' / ')}` : `${completedCount}개 파일을 AWS에 보관했습니다.`);
+      const blockedText = blockedCount ? ` · 보안상 ${blockedCount}개 제외` : '';
+      setMessage(failed.length ? `${completedCount}개 업로드 완료${blockedText} · ${failed.length}개 실패: ${failed.join(' / ')}` : `${completedCount}개 파일을 AWS에 보관했습니다.${blockedText}`);
     } catch (error) {
       setMessage(`업로드 실패: ${error.message}`);
     } finally { setBusy(false); }
@@ -77,18 +104,20 @@ export default function AwsFileStoragePage() {
 
   const uploadFolder = async () => {
     if (!window.api?.chooseFolderFiles || !window.api?.readFileBase64) return setMessage('Electron 데스크톱 앱에서만 폴더 업로드를 할 수 있습니다.');
-    const picked = await window.api.chooseFolderFiles({ title: 'AWS에 보관할 폴더 선택', extensions: allowedExtensions });
+    const picked = await window.api.chooseFolderFiles({ title: 'AWS에 보관할 폴더 선택' });
     if (picked?.canceled) return;
-    if (!picked?.files?.length) return setMessage('선택한 폴더에 업로드 가능한 엑셀·CSV·PDF 파일이 없습니다.');
+    const selectedFiles = (picked?.files ?? []).filter((file) => isAllowedFile(file.relativePath || file.path));
+    const blockedCount = (picked?.files?.length ?? 0) - selectedFiles.length;
+    if (!selectedFiles.length) return setMessage('선택한 폴더에 업로드할 수 있는 파일이 없습니다. 실행 파일과 스크립트는 제외됩니다.');
     setBusy(true);
     try {
       const failed = [];
       let completedCount = 0;
-      for (const selectedFile of picked.files) {
+      for (const selectedFile of selectedFiles) {
         try {
           const local = await window.api.readFileBase64(selectedFile);
           if (!local?.ok) throw new Error(local?.message || '파일을 읽지 못했습니다.');
-          setMessage(`폴더 업로드 중: ${completedCount + 1}/${picked.files.length} · ${local.fileName}`);
+          setMessage(`폴더 업로드 중: ${completedCount + 1}/${selectedFiles.length} · ${local.fileName}`);
           const presign = await sharedDataService.presignCloudFile({ fileName: local.fileName, contentType: contentType(local.fileName), sizeBytes: local.sizeBytes });
           if (!presign.ok) throw new Error(presign.message || '업로드 주소 생성에 실패했습니다.');
           const binary = Uint8Array.from(atob(local.base64), (character) => character.charCodeAt(0));
@@ -100,7 +129,8 @@ export default function AwsFileStoragePage() {
         } catch (error) { failed.push(`${selectedFile.relativePath}: ${error.message}`); }
       }
       await loadFiles();
-      const skippedText = picked.skippedCount ? ` · 지원하지 않는 ${picked.skippedCount}개 파일 건너뜀` : '';
+      const skippedCount = Number(picked.skippedCount || 0) + blockedCount;
+      const skippedText = skippedCount ? ` · 보안상 ${skippedCount}개 파일 제외` : '';
       setMessage(failed.length ? `${completedCount}개 업로드 완료${skippedText} · ${failed.length}개 실패: ${failed.join(' / ')}` : `${completedCount}개 파일을 폴더 구조와 함께 AWS에 보관했습니다.${skippedText}`);
     } catch (error) {
       setMessage(`폴더 업로드 실패: ${error.message}`);
@@ -131,12 +161,12 @@ export default function AwsFileStoragePage() {
   };
 
   return (
-    <PageShell title="AWS 파일 보관함" description="필요한 엑셀·CSV·PDF만 S3에 보관하고 언제든 다운로드하거나 삭제합니다.">
+    <PageShell title="AWS 파일 보관함" description="이미지, 문서, 압축파일 등 필요한 업무 파일을 S3에 보관하고 언제든 다운로드하거나 삭제합니다.">
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="font-bold">내 AWS 보관 파일</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">지원 형식: XLSX, XLS, CSV, PDF · 파일당 최대 100MB · 폴더 업로드 시 하위 폴더 구조도 보존</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">이미지·문서·압축파일·미디어 등 지원 · 파일당 최대 100MB · 폴더 업로드 시 하위 폴더 구조도 보존 · 실행 파일/스크립트 제외</p>
           </div>
           <div className="flex flex-wrap gap-2"><button className="btn btn-secondary" type="button" disabled={busy} onClick={loadFiles}>새로고침</button><button className="btn btn-secondary" type="button" disabled={busy} onClick={uploadFolder}>{busy ? '작업 중…' : '폴더 업로드'}</button><button className="btn btn-primary" type="button" disabled={busy} onClick={upload}>{busy ? '작업 중…' : '파일 업로드'}</button></div>
         </div>

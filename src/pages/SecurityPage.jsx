@@ -11,7 +11,6 @@ import {
   getSession,
   saveSession,
 } from '../utils/authSession';
-import { clearPersonalTodoData } from '../utils/todoSchedule';
 import { getPasswordChecks, isPasswordValid, passwordHelpText } from '../utils/passwordPolicy';
 import { useToast } from '../components/common';
 
@@ -125,7 +124,6 @@ export default function SecurityPage() {
 
     try {
       await window.api.deleteUserAccount({ username: currentUser.id });
-      clearPersonalTodoData(currentUser.id);
       clearSession();
       navigate('/login', { replace: true });
     } catch (error) {

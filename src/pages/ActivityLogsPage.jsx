@@ -11,7 +11,6 @@ import {
   saveLogs,
   saveUsers,
 } from '../utils/authSession';
-import { clearPersonalTodoData } from '../utils/todoSchedule';
 
 export default function ActivityLogsPage() {
   const currentUser = getCurrentUser();
@@ -128,7 +127,6 @@ export default function ActivityLogsPage() {
 
     try {
       await window.api.deleteUserAccount({ username: user.id });
-      clearPersonalTodoData(user.id);
       const nextUsers = await reloadUsers();
       setSelectedUserId(nextUsers[0]?.id ?? '');
       appendLog('WARN', '사용자 탈퇴', user.id);

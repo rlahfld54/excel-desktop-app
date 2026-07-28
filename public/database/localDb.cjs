@@ -1094,56 +1094,54 @@ function getFilteredSalesData(database, options = {}) {
 }
 
 function getDailySalesTrend(database, limit = 45) {
-  const upload = database
-    .prepare(
-      `
-      SELECT upload_id AS uploadId, file_name AS fileName, uploaded_at AS uploadedAt
-      FROM sales_uploads
-      ORDER BY uploaded_at DESC, upload_id DESC
-      LIMIT 1
-    `,
-    )
-    .get();
+  const days = Math.max(Number(limit) || 45, 1);
+  const formatDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+  const start = new Date(end);
+  start.setDate(start.getDate() - (days - 1));
+  const startDate = formatDate(start);
+  const endDate = formatDate(end);
 
-  if (!upload) {
-    return { ok: true, items: [], maxValue: 0, source: null };
-  }
-
-  const items = database
+  // 특정 "최근 업로드"만 보지 않고 SQLite에 저장된 매출 전체를 오늘 기준
+  // 최근 45일로 합산한다. 그래서 여러 엑셀 파일을 올려도 같은 기간의 흐름을
+  // 한 그래프에서 확인할 수 있다.
+  const aggregated = database
     .prepare(
       `
       SELECT
         substr(transaction_date, 1, 10) AS date,
-        substr(transaction_date, 6, 5) AS day,
         COALESCE(SUM(sales_amount), 0) AS amount
       FROM sales
-      WHERE upload_id = @uploadId
-        AND transaction_date IS NOT NULL
+      WHERE transaction_date IS NOT NULL
         AND transaction_date <> ''
+        AND substr(transaction_date, 1, 10) BETWEEN @startDate AND @endDate
       GROUP BY substr(transaction_date, 1, 10)
-      ORDER BY date DESC
-      LIMIT @limit
+      ORDER BY date ASC
     `,
     )
-    .all({
-      uploadId: upload.uploadId,
-      limit: Math.max(Number(limit) || 45, 1),
-    })
-    .reverse()
-    .map((item) => ({
-      date: item.date,
-      day: item.day || item.date,
-      amount: Number(item.amount) || 0,
-    }));
+    .all({ startDate, endDate });
+  const amountByDate = new Map(aggregated.map((item) => [item.date, Number(item.amount) || 0]));
+  const items = Array.from({ length: days }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    const key = formatDate(date);
+    return { date: key, day: key.slice(5), amount: amountByDate.get(key) ?? 0 };
+  });
 
   return {
     ok: true,
     items,
     maxValue: Math.max(0, ...items.map((item) => item.amount)),
     source: {
-      uploadId: upload.uploadId,
-      fileName: upload.fileName,
-      uploadedAt: upload.uploadedAt,
+      startDate,
+      endDate,
+      days,
     },
   };
 }
@@ -2425,7 +2423,8 @@ function exportWorkspaceForCloud(database) {
       ...archive('workspace_snapshots', 'id', 'saved_at'),
       ...archive('activity_logs', 'log_id', 'created_at'),
       ...archive('notifications', 'notification_id', 'created_at'),
-      ...archive('user_todo_state', 'username', 'updated_at'),
+      // 개인 일정 기능은 제거했다. 공용 총무팀 일정만 AWS 동기화 대상이다.
+      ...archive('user_todo_state', 'username', 'updated_at').filter((record) => record.key === 'team:general-affairs'),
     ],
   };
 }

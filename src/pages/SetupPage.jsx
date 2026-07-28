@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import Logo from '../images/logo.svg';
 import { cloudConfig, isSharedApiEnabled } from '../config/cloud';
 import { saveUsers } from '../utils/authSession';
-import { initializePersonalTodos } from '../utils/todoSchedule';
 
 const steps = [
   { title: '환영합니다', detail: '이 PC에서 사용할 환경을 확인합니다.' },
@@ -87,7 +86,6 @@ export default function SetupPage() {
       const result = await window.api.registerUser(account);
       if (!result?.ok) throw new Error(result?.message || '계정을 만들지 못했습니다.');
       setRegisteredUser(result.user);
-      initializePersonalTodos(result.user.id);
       const usersResult = await window.api.listUsers();
       saveUsers(usersResult.users ?? [result.user]);
       setStep(2);
