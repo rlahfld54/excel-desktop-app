@@ -6,6 +6,7 @@ import {
   closingWorkspaceChangedEvent,
   getClosingRowStatus,
   getClosingWelcomeSummary,
+  saveClosingWorkspaceRows,
 } from '../utils/closingWorkspaceStore';
 
 function BrandMark() {
@@ -16,10 +17,10 @@ function BrandMark() {
   );
 }
 
-function MiniChart({ bars }) {
+function MiniChart({ bars, completionRate }) {
   return (
     <div>
-      <div className="grid h-28 grid-cols-4 items-end gap-2 rounded-lg bg-gray-50 px-3 py-3 dark:bg-gray-950/45">
+      <div className="grid h-28 grid-cols-3 items-end gap-2 rounded-lg bg-gray-50 px-3 py-3 dark:bg-gray-950/45">
         {bars.map((bar) => (
           <div key={bar.label} className="flex h-full min-w-0 flex-col items-center justify-end gap-1">
             <div className="flex h-full w-full items-end rounded-sm bg-white dark:bg-gray-900">
@@ -39,7 +40,7 @@ function MiniChart({ bars }) {
         ))}
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-        <p className="rounded-md bg-teal-50 px-2 py-1 font-semibold text-teal-700 dark:bg-teal-500/10 dark:text-teal-300">완료 {bars[3]?.value ?? 0}%</p>
+        <p className="rounded-md bg-teal-50 px-2 py-1 font-semibold text-teal-700 dark:bg-teal-500/10 dark:text-teal-300">완료 {completionRate}%</p>
         <p className="rounded-md bg-sky-50 px-2 py-1 font-semibold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">금액 {bars[1]?.value ?? 0}%</p>
         <p className="rounded-md bg-gray-50 px-2 py-1 font-semibold text-gray-500 dark:bg-gray-950 dark:text-gray-400">실시간</p>
       </div>
@@ -60,6 +61,25 @@ export default function WelcomePage() {
       window.removeEventListener('storage', refreshSummary);
       window.removeEventListener(closingWorkspaceChangedEvent, refreshSummary);
     };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadClosingSummary() {
+      if (!window.api?.getClosingCompanies) return;
+      // 로그인 후 AWS에서 SQLite로 내려받은 최신 업로드를 기준으로 표시한다.
+      // 날짜 조건을 비워 두어 과거 마감 파일도 "오늘의 보드"에서 놓치지 않는다.
+      const result = await window.api.getClosingCompanies({});
+      if (!active || !result?.ok) return;
+      saveClosingWorkspaceRows(result.rows ?? []);
+      setSummary(getClosingWelcomeSummary(result.rows ?? []));
+    }
+
+    loadClosingSummary().catch(() => {
+      // SQLite를 아직 만들기 전인 첫 실행에서는 기본 빈 보드를 보여 준다.
+    });
+    return () => { active = false; };
   }, []);
 
   const metrics = [
@@ -135,7 +155,7 @@ export default function WelcomePage() {
                       <p className="text-sm font-bold">단계 진행률</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">현재 상태</p>
                     </div>
-                    <MiniChart bars={summary.chartBars} />
+                    <MiniChart bars={summary.chartBars} completionRate={summary.passRate} />
                   </div>
                   <div className="min-w-0 rounded-lg border border-gray-100 p-4 dark:border-gray-800">
                     <div className="mb-3 flex items-center justify-between">
@@ -152,8 +172,13 @@ export default function WelcomePage() {
                           <p className="self-center text-xs font-medium text-gray-500 dark:text-gray-400">{row.deadline || '-'}</p>
                         </div>
                       ))}
+                      {summary.latestRows.length === 0 && <p className="rounded-md bg-gray-50 px-3 py-5 text-center text-sm text-gray-500 dark:bg-gray-950/45 dark:text-gray-400">동기화된 마감 대상이 없습니다.</p>}
                     </div>
                   </div>
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-teal-50 px-4 py-3 dark:bg-teal-500/10">
+                  <p className="text-sm font-semibold text-teal-900 dark:text-teal-100">오늘 확인할 업체와 마감 진행 상태를 실제 업무 화면에서 관리하세요.</p>
+                  <Link className="btn btn-primary shrink-0" to="/closing-workspace/overview">마감 보드 열기</Link>
                 </div>
               </div>
             </div>

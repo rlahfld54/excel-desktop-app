@@ -10,7 +10,6 @@ import '@fontsource/noto-sans-kr/korean-500.css';
 import '@fontsource/noto-sans-kr/korean-600.css';
 import '@fontsource/noto-sans-kr/korean-700.css';
 import './css/style.css';
-import './charts/ChartjsConfig';
 
 import Dashboard from './pages/Dashboard';
 import WelcomePage from './pages/WelcomePage';
@@ -53,6 +52,7 @@ import { getSession } from './utils/authSession';
 import { hydratePersonalTodos } from './utils/todoSchedule';
 import { isSharedApiEnabled } from './config/cloud';
 import { sharedDataService } from './services/sharedDataService';
+import { useToast } from './components/common';
 import { menuGroups, pageRoutes } from './routesConfig'; // 메뉴 라우터 모음
 
 const routeComponents = {
@@ -112,6 +112,7 @@ function App() {
   });
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const { showToast } = useToast();
 
   useEffect(() => {
     let mounted = true;
@@ -138,15 +139,21 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const markOnline = () => setIsOnline(true);
-    const markOffline = () => setIsOnline(false);
+    const markOnline = () => {
+      setIsOnline(true);
+      showToast({ type: 'success', title: '인터넷 연결이 복구되었습니다', message: '변경 내용을 AWS와 다시 동기화합니다.' });
+    };
+    const markOffline = () => {
+      setIsOnline(false);
+      showToast({ type: 'warning', title: '오프라인 모드로 전환되었습니다', message: '변경 사항은 이 PC의 SQLite에만 저장됩니다.' });
+    };
     window.addEventListener('online', markOnline);
     window.addEventListener('offline', markOffline);
     return () => {
       window.removeEventListener('online', markOnline);
       window.removeEventListener('offline', markOffline);
     };
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     if (!isSharedApiEnabled() || !window.api?.onWorkspaceDataChanged) return undefined;

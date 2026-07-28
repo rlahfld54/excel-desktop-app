@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { DateRangeFields, Modal, StatusBadge } from '../components/common';
 import PageShell from './PageShell';
 import { addActivityLog, getCurrentUser } from '../utils/authSession';
@@ -234,7 +235,7 @@ export default function ClosingWorkspacePage() {
   const [tab, setTab] = useState('all');
   const [params, setParams] = useState(() => ({
     ...getCurrentMonthRange(),
-    owner: currentUser.name || currentUser.id || '전체',
+    owner: currentUser.role === 'ADMIN' ? '전체' : (currentUser.name || currentUser.id || '전체'),
     deadline: '전체',
     query: '',
   }));
@@ -373,8 +374,14 @@ export default function ClosingWorkspacePage() {
     });
 
     try {
-      const databaseRows = await readClosingRowsFromDatabase(params);
+      let databaseRows = await readClosingRowsFromDatabase(params);
+      // 현재 월의 거래가 없더라도 로그인으로 동기화된 가장 최근 업로드는
+      // 보드에서 확인할 수 있게 한다.
+      if (databaseRows.length === 0 && params.startDate && params.endDate) {
+        databaseRows = await readClosingRowsFromDatabase({});
+      }
       setRows(databaseRows);
+      saveClosingWorkspaceRows(databaseRows);
       setSelectedId(databaseRows[0]?.id ?? '');
       setIsLoading(false);
       addActivityLog('INFO', '마감 워크스페이스 조회', `${params.startDate}~${params.endDate} ${params.owner} ${params.deadline}`, currentUser.id);
@@ -429,6 +436,14 @@ export default function ClosingWorkspacePage() {
     updateRow(selectedRow.id, patch, actionLabel);
   };
 
+  // 보드 진입 즉시 이번 달 마감 현황을 보여 준다. 예전처럼 빈 표에서
+  // 사용자가 먼저 조회 버튼을 찾아야 하는 흐름을 없앤다.
+  useEffect(() => {
+    handleSearch();
+    // 첫 진입 시 기본 조건으로 한 번만 불러온다. 이후에는 사용자가 조건을 바꿔 조회한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <PageShell title="마감 워크스페이스" description="업체별 메일 발송, 마감 진행, 처리 지연, 금액 확정 현황을 한 화면에서 관리합니다.">
       <div>
@@ -471,6 +486,14 @@ export default function ClosingWorkspacePage() {
             </button>
           </div>
         </div>
+      </section>
+
+      <section className="mb-3 flex flex-col gap-3 rounded-lg border border-teal-200 bg-teal-50/70 px-4 py-3 dark:border-teal-500/30 dark:bg-teal-500/10 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-bold text-teal-950 dark:text-teal-100">오늘의 마감 보드</p>
+          <p className="mt-1 text-sm text-teal-800 dark:text-teal-200">업체를 선택해 금액·메모를 갱신하고, 발송이 필요하면 발송 큐에서 메일을 준비하세요.</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2"><Link className="btn btn-secondary" to="/closing-workspace/send-queue">발송 큐 열기</Link><Link className="btn btn-secondary" to="/collect/upload-validation">자료 검증</Link></div>
       </section>
 
       <section className="mb-3 shrink-0 rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
@@ -602,7 +625,7 @@ export default function ClosingWorkspacePage() {
                 {filteredRows.length === 0 && (
                   <tr>
                     <td className="px-4 py-10 text-center text-gray-500 dark:text-gray-400" colSpan={7}>
-                      {rows.length === 0 ? '조회 버튼을 눌러 마감 데이터를 불러오세요.' : '선택한 상태에 해당하는 업체가 없습니다.'}
+                      {rows.length === 0 ? <span>이번 조건에 마감 업체가 없습니다. <Link className="font-bold text-teal-700 underline" to="/collect/upload-validation">자료를 업로드·검증</Link>하면 마감 대상이 생성됩니다.</span> : '선택한 상태에 해당하는 업체가 없습니다.'}
                     </td>
                   </tr>
                 )}

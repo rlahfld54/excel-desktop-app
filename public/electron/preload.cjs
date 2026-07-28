@@ -64,6 +64,8 @@ contextBridge.exposeInMainWorld("api", {
   },
   getAppSettings: () => ipcRenderer.invoke("app-settings:get"),
   saveAppSettings: (settings) => ipcRenderer.invoke("app-settings:save", settings),
+  getCacheSummary: () => ipcRenderer.invoke('cache:summary'),
+  clearAppCaches: () => ipcRenderer.invoke('cache:clear'),
   getSetupStatus: () => ipcRenderer.invoke("setup:status"),
   completeSetup: (payload) => ipcRenderer.invoke("setup:complete", payload),
   downloadCloudData: (payload) => ipcRenderer.invoke("setup:download-cloud-data", payload),

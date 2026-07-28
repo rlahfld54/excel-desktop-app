@@ -2695,7 +2695,9 @@ function registerLocalUser(database, payload = {}) {
 
   if (username.length < 2) throw new Error("아이디를 2자 이상 입력해 주세요.");
   if (displayName.length < 2) throw new Error("이름을 2자 이상 입력해 주세요.");
-  if (password.length < 6) throw new Error("비밀번호를 6자 이상 입력해 주세요.");
+  if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+    throw new Error("비밀번호는 8자 이상이며 영문과 숫자를 포함해야 합니다.");
+  }
   if (database.prepare("SELECT 1 FROM users WHERE username = ?").get(username)) {
     throw new Error("이미 사용 중인 아이디입니다.");
   }
@@ -2724,7 +2726,7 @@ function registerLocalUser(database, payload = {}) {
 function syncCloudUser(database, payload = {}) {
   const username = String(payload.username ?? '').trim();
   const password = String(payload.password ?? '');
-  if (username.length < 2 || password.length < 6) throw new Error('AWS 인증 계정 정보가 올바르지 않습니다.');
+  if (username.length < 2 || password.length < 8) throw new Error('AWS 인증 계정 정보가 올바르지 않습니다.');
   const cloudRole = String(payload.role ?? 'VIEWER').toUpperCase();
   const role = ['ADMIN', 'MANAGER', 'VIEWER'].includes(cloudRole) ? cloudRole : 'VIEWER';
   const values = {
@@ -2873,8 +2875,8 @@ function changeLocalUserPassword(database, payload = {}) {
   }
 
   const nextPassword = String(payload.nextPassword ?? "");
-  if (nextPassword.length < 6) {
-    throw new Error("새 비밀번호는 6자 이상 입력해 주세요.");
+  if (nextPassword.length < 8 || !/[A-Za-z]/.test(nextPassword) || !/\d/.test(nextPassword)) {
+    throw new Error("새 비밀번호는 8자 이상이며 영문과 숫자를 포함해야 합니다.");
   }
 
   database.prepare(`

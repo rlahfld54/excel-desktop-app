@@ -260,6 +260,7 @@ export default function ScheduleManager({ userId }) {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
   });
+  const [selectedDate, setSelectedDate] = useState(() => getTodayKey());
   const [todoFilter, setTodoFilter] = useState('OPEN');
   const isTeamScope = scope === 'TEAM';
 
@@ -283,6 +284,12 @@ export default function ScheduleManager({ userId }) {
   const openTodos = todoItems.filter((item) => !item.done);
   const todayItems = items.filter((item) => item.dueDate === getTodayKey());
   const overdueTodos = todoItems.filter((item) => !item.done && item.dueDate && item.dueDate < getTodayKey());
+  const selectedDayItems = useMemo(() => items
+    .filter((item) => item.dueDate === selectedDate)
+    .sort((a, b) => `${a.reminderAt || '99:99'} ${a.title}`.localeCompare(`${b.reminderAt || '99:99'} ${b.title}`)), [items, selectedDate]);
+  const selectedDayHistory = useMemo(() => history
+    .filter((record) => record.date === selectedDate)
+    .sort((a, b) => String(b.changedAt).localeCompare(String(a.changedAt))), [history, selectedDate]);
 
   const sortedTodos = useMemo(() => {
     const weight = { HIGH: 3, MEDIUM: 2, LOW: 1 };
@@ -425,7 +432,7 @@ export default function ScheduleManager({ userId }) {
           <div className="min-w-0">
             <h2 className="font-bold text-gray-900 dark:text-gray-100">{isTeamScope ? '총무팀 일정·투두 관리' : '개인 일정·투두 관리'}</h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              달력 날짜를 클릭하면 해당 날짜로 일정 등록 모달이 열리고, 달력 항목을 클릭하면 수정합니다.
+              달력 날짜를 클릭하면 해당 날짜의 과거 일정·투두를 확인할 수 있고, 항목을 클릭하면 수정합니다.
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -468,12 +475,12 @@ export default function ScheduleManager({ userId }) {
                 className="min-h-20 border-t border-r border-gray-100 p-1.5 text-left hover:bg-teal-50/50 dark:border-gray-700/60 dark:hover:bg-teal-500/10"
                 role={day ? 'button' : undefined}
                 tabIndex={day ? 0 : undefined}
-                aria-label={day ? `${day.key} 일정 추가` : '빈 날짜'}
-                onClick={() => day && openNewModal('SCHEDULE', day.key)}
+                aria-label={day ? `${day.key} 일정 보기` : '빈 날짜'}
+                onClick={() => day && setSelectedDate(day.key)}
                 onKeyDown={(event) => {
                   if (!day || !['Enter', ' '].includes(event.key)) return;
                   event.preventDefault();
-                  openNewModal('SCHEDULE', day.key);
+                  setSelectedDate(day.key);
                 }}
               >
                 {day && (
@@ -514,6 +521,17 @@ export default function ScheduleManager({ userId }) {
         </section>
 
         <aside className="col-span-12 space-y-5 xl:col-span-6">
+          <section className="rounded-lg border border-sky-200 bg-sky-50/60 p-4 shadow-xs dark:border-sky-500/30 dark:bg-sky-500/10">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><p className="text-xs font-bold uppercase text-sky-700 dark:text-sky-300">선택한 날짜</p><h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">{selectedDate}</h2><p className="mt-1 text-sm text-gray-600 dark:text-gray-300">지난 날짜를 선택해도 당시 일정, 투두, 완료 기록을 확인할 수 있습니다.</p></div>
+              <div className="flex gap-2"><button className="btn btn-secondary h-9" type="button" onClick={() => openNewModal('SCHEDULE', selectedDate)}>일정 추가</button><button className="btn btn-primary h-9" type="button" onClick={() => openNewModal('TODO', selectedDate)}>투두 추가</button></div>
+            </div>
+            <div className="mt-4 space-y-2">
+              {selectedDayItems.map((item) => <button key={item.id} type="button" className="flex w-full items-center justify-between gap-3 rounded-md border border-sky-100 bg-white px-3 py-2 text-left hover:border-sky-300 dark:border-sky-500/20 dark:bg-gray-800" onClick={() => openEditModal(item)}><span className="min-w-0"><span className="mr-2"><TypeBadge type={item.itemType || 'TODO'} /></span><span className={`font-semibold ${item.done ? 'text-gray-400 line-through' : 'text-gray-900 dark:text-gray-100'}`}>{item.title}</span></span><span className="shrink-0 text-xs text-gray-500">{item.reminderAt || (item.done ? '완료' : '종일')}</span></button>)}
+              {selectedDayHistory.map((record) => <p key={record.id} className="rounded-md border border-dashed border-sky-200 px-3 py-2 text-sm text-gray-600 dark:border-sky-500/20 dark:text-gray-300">완료 기록 · {record.title} · {record.done ? '완료' : '완료 해제'}</p>)}
+              {selectedDayItems.length === 0 && selectedDayHistory.length === 0 && <p className="rounded-md border border-dashed border-sky-200 px-3 py-5 text-center text-sm text-gray-500 dark:border-sky-500/30 dark:text-gray-400">이 날짜에 등록되거나 완료 처리된 항목이 없습니다.</p>}
+            </div>
+          </section>
           <ItemTable
             title="투두 테이블"
             description="체크 처리해야 하는 업무만 관리합니다."

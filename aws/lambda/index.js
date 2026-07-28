@@ -144,7 +144,9 @@ async function signup(body) {
   if (!/^[a-zA-Z0-9._-]{3,50}$/.test(username)) {
     throw httpError(400, '아이디는 3~50자의 영문, 숫자, 점, 밑줄, 하이픈만 사용할 수 있습니다.');
   }
-  if (password.length < 8) throw httpError(400, '비밀번호는 8자 이상이어야 합니다.');
+  if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+    throw httpError(400, '비밀번호는 8자 이상이며 영문과 숫자를 포함해야 합니다.');
+  }
   if (!name) throw httpError(400, '이름을 입력해 주세요.');
   try {
     const result = await getPool().query(

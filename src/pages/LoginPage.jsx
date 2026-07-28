@@ -7,6 +7,7 @@ import { loginWithSharedApi } from '../services/authApiService';
 import { sharedDataService } from '../services/sharedDataService';
 import { addActivityLog, getOfflineProfile, saveOfflineProfile, saveSession, saveUsers } from '../utils/authSession';
 import { hydratePersonalTodos } from '../utils/todoSchedule';
+import { useToast } from '../components/common';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -16,6 +17,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const { showToast } = useToast();
   const [offlineProfile] = useState(() => getOfflineProfile());
   const usesSharedLogin = isSharedApiEnabled();
 
@@ -48,13 +51,21 @@ export default function LoginPage() {
         : await authenticateLocalUser(userId, password);
 
       if (!result?.ok) {
-        if (usesSharedLogin && result?.status === 0 && offlineProfile && userId.trim() === offlineProfile.username) {
+        // 인터넷 단절뿐 아니라 Lambda/RDS가 꺼져 API Gateway가 5xx를 반환한 경우도
+        // 이 PC에 남은 24시간 오프라인 인증 정보로 안전하게 계속 작업할 수 있다.
+        const serverUnavailable = result?.status === 0 || Number(result?.status) >= 500;
+        if (usesSharedLogin && serverUnavailable && offlineProfile && userId.trim() === offlineProfile.username) {
           const local = await authenticateLocalUser(userId.trim(), password);
           if (local?.ok) {
             await completeOfflineLogin(offlineProfile);
+            showToast({ type: 'warning', title: '오프라인으로 로그인했습니다', message: '서버에 연결할 수 없어 이 PC의 SQLite 데이터로 작업합니다.' });
             return;
           }
           setError('인터넷에 연결할 수 없습니다. 이 PC에 저장된 계정의 비밀번호를 확인해 주세요.');
+          return;
+        }
+        if (usesSharedLogin && serverUnavailable && !offlineProfile) {
+          setError('서버에 연결할 수 없고, 이 PC에 저장된 24시간 오프라인 인증 정보가 없습니다. 서버 연결 후 한 번 로그인해 주세요.');
           return;
         }
         addActivityLog('WARN', '로그인 실패', userId || 'unknown', userId || 'unknown');
@@ -107,9 +118,11 @@ export default function LoginPage() {
       window.dispatchEvent(new CustomEvent('excel-workspace:setup-completed'));
       }
       addActivityLog('INFO', '로그인', selectedUser.id, selectedUser.id);
+      showToast({ type: 'success', title: '로그인했습니다', message: `${selectedUser.name || selectedUser.username}님, 업무 화면으로 이동합니다.` });
       navigate(location.state?.from || '/dashboard', { replace: true });
     } catch (loginError) {
       setError(loginError?.message || '로그인 처리 중 오류가 발생했습니다.');
+      showToast({ type: 'error', title: '로그인에 실패했습니다', message: loginError?.message || '잠시 후 다시 시도해 주세요.' });
     } finally {
       setIsSubmitting(false);
     }
@@ -224,17 +237,17 @@ export default function LoginPage() {
                       비밀번호
                     </label>
                   </div>
-                  <input
-                    className="form-input h-12 w-full rounded-md border-gray-200 bg-white px-3 font-mono text-base shadow-xs focus:border-teal-500 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
+                  <div className="relative"><input
+                    className="form-input h-12 w-full rounded-md border-gray-200 bg-white px-3 pr-12 font-mono text-base shadow-xs focus:border-teal-500 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
                     id="password"
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     disabled={isSubmitting}
                     placeholder="비밀번호"
                     autoComplete="current-password"
                     autoFocus
-                  />
+                  /><button className="absolute inset-y-0 right-0 px-3 text-xs font-semibold text-gray-500 hover:text-teal-700" type="button" onClick={() => setShowPassword((current) => !current)} disabled={isSubmitting}>{showPassword ? '숨김' : '보기'}</button></div>
                 </div>
 
                 {error && (

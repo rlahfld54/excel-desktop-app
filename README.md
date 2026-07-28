@@ -1,159 +1,104 @@
-# Excel Automation Workspace
+# Excel Desktop App
 
-> 반복적인 Excel 마감 업무를 데이터 검증부터 보고서 작성과 발송까지 연결한 데스크톱 업무 자동화 앱입니다.
+> **오프라인에서도 멈추지 않는 매출 마감·업무 관리 데스크톱 앱**
 
-안녕하세요. 사용자의 실제 업무 흐름을 이해하고, 복잡한 과정을 안정적인 UI로 풀어내는 풀스택 개발자를 목표로 하고 있습니다.
+매출 엑셀 취합, 데이터 검증, 거래처 마감 관리, 보고서·발송 이력, 일정과 백업을 하나의 업무 흐름으로 연결한 Electron 데스크톱 애플리케이션입니다.
+인터넷 연결 시 AWS와 동기화하고, 연결이 끊겨도 PC의 SQLite 데이터베이스를 기준으로 업무를 계속할 수 있도록 설계했습니다.
 
-이 프로젝트는 단순한 관리자 대시보드나 Excel 편집기가 아닙니다. 매출 자료 취합, 오류 검증, 코드 매핑, 거래처 확인, 마감장 생성, 보고서 작성처럼 여러 도구에 흩어진 업무를 하나의 워크스페이스에서 처리할 수 있도록 설계한 **React + Electron 기반 데스크톱 애플리케이션**입니다.
+<!-- 스크린샷을 docs/images 폴더에 넣은 뒤 아래 경로를 실제 파일명으로 바꿔 주세요. -->
+<!-- ![Excel Desktop App 대시보드](docs/images/dashboard.png) -->
 
-<img width="1920" height="1040" alt="포트폴리오 화면" src="https://github.com/user-attachments/assets/dd41883b-13fe-4fb5-a6d6-44eb632591a7" />
-
-## 다운로드
-
-Windows 설치 파일은 GitHub Releases에서 받을 수 있습니다.
-
-[Excel Automation Workspace 다운로드](https://github.com/rlahfld54/excel-desktop-app/releases/tag/v1.0.0)
-
-<p>
-  <img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=111111" alt="React" />
-  <img src="https://img.shields.io/badge/Vite-6-646CFF?style=for-the-badge&logo=vite&logoColor=ffffff" alt="Vite" />
-  <img src="https://img.shields.io/badge/Electron-37-47848F?style=for-the-badge&logo=electron&logoColor=ffffff" alt="Electron" />
-  <img src="https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=ffffff" alt="Tailwind CSS" />
-  <img src="https://img.shields.io/badge/ExcelJS-4.4-217346?style=for-the-badge&logo=microsoftexcel&logoColor=ffffff" alt="ExcelJS" />
-  <img src="https://img.shields.io/badge/SQLite-Local_DB-003B57?style=for-the-badge&logo=sqlite&logoColor=ffffff" alt="SQLite" />
-</p>
-
-
-## 프로젝트 한 줄 소개
-
-Excel 파일 업로드부터 데이터 검증, 마감 진행 관리, 거래처 발송, 보고서 작성과 백업까지 하나의 흐름으로 연결한 로컬 우선 업무 자동화 앱입니다.
-
-## 왜 만들었나요?
-
-이 프로젝트는 단순히 업무를 편하게 만들고 싶다는 생각보다, 실제 현업에서 반복되던 매출 마감 업무와 검수 스트레스에서 출발했습니다.
-
-마감 시즌에는 여러 담당자와 부서에서 작성한 파일이 동시에 들어옵니다. 하지만 사람마다 입력 방식이 달라 다음과 같은 문제가 반복됩니다.
-
-- 거래처명과 품목명의 표기 불일치
-- 날짜 형식과 필수 데이터 누락
-- 중복 데이터 입력
-- 수량·단가·금액 불일치
-- 담당자와 거래처의 확인 상태 누락
-- 보고 직전까지 이어지는 수정 파일 관리
-- 업체별 마감장과 확인 요청 자료의 반복 생성
-
-특히 마지막 검수 단계에서는 데이터를 분석하는 시간보다 **어디가 잘못됐는지 찾고 누구에게 확인해야 하는지 정리하는 일**에 더 많은 시간이 들기도 합니다.
-
-그래서 사람이 모든 행을 반복해서 검사하는 대신, 시스템이 오류 후보와 확인 대상을 정리하고 사용자는 최종 판단에 집중할 수 있는 **마감 업무 전용 작업 공간**을 만들었습니다.
-
-또한 인터넷이나 서버 사용이 제한된 업무 환경에서도 사용할 수 있도록 로컬 PC에서 주요 작업과 데이터를 처리하는 **로컬 우선(Offline First)** 구조를 적용했습니다.
-
-궁극적인 목표는 다음과 같습니다.
-
-> 사람은 최종 판단에 집중하고, 반복되는 검수와 정리 작업은 시스템이 대신하는 환경을 만든다.
-
-## 주요 기능
+## 핵심 기능
 
 | 영역 | 구현 내용 |
 | --- | --- |
-| 마감 워크스페이스 | 업체별 마감 금액, 진행 상태, 담당자, 미확정 사유와 다음 연락 일정을 관리합니다. |
-| 업로드 전 검증 | Excel/XLSX 파일의 필수 항목, 누락값, 중복, 금액 및 단가 불일치를 확인합니다. |
-| 원본 데이터 관리 | 검증한 데이터를 스프레드시트 형태로 조회하고 로컬 데이터베이스에 저장합니다. |
-| 제품·거래처 매핑 | 서로 다르게 입력된 제품명과 거래처명을 기준 코드에 연결합니다. |
-| 담당자 연락처 | 거래처 및 내부 담당자의 연락처와 업무 정보를 관리합니다. |
-| 마감 발송 큐 | 업체별 마감 요청 자료와 문구를 검토하고 발송 대상을 단계별로 처리합니다. |
-| Excel·PDF 생성 | 업체별 마감 요청서를 Excel과 PDF 파일로 생성합니다. |
-| 이메일 발송 | 메일 제목과 본문을 미리 확인하고 Gmail 테스트 메일을 실제로 발송합니다. |
-| 보고서 | 보고서 작성, 템플릿 관리, 경영진용 요약 대시보드를 제공합니다. |
-| 일정 및 이력 | 투두·일정, 최근 작업, 활동 로그와 작업 이력을 관리합니다. |
-| 백업 및 설정 | 로컬 백업·복구, 파일 관리, 저장 및 동기화 관련 설정을 제공합니다. |
-| 권한 관리 | 관리자와 일반 사용자에 따라 접근 가능한 메뉴와 페이지 기능을 구분합니다. |
+| AWS 인증 로그인 | AWS RDS 계정으로 최초 인증합니다. 인증에 성공한 사용자만 로컬 SQLite에 저장합니다. |
+| 오프라인 우선 | 24시간 유효한 로컬 세션과 SQLite 비밀번호 해시 확인으로 인터넷이 끊겨도 업무를 이어갑니다. |
+| 데이터 동기화 | 고객·상품·담당자·매출·마감·일정·검증·보고서·발송 이력을 AWS RDS와 로컬 SQLite에 동기화합니다. |
+| 매출 검증 | XLSX/CSV 업로드 시 누락, 중복, 단가·금액 불일치, 기준정보 매핑 문제를 확인합니다. |
+| 마감 업무 | 거래처별 마감 현황, 담당자, 미확정 사유, 요청·회신·발송 상태를 관리합니다. |
+| 문서 생성 | 업체별 마감 요청 자료를 Excel·PDF로 생성하고 발송 이력을 기록합니다. |
+| 파일 보관 | 필요한 엑셀·CSV·PDF만 S3에 선택 업로드하고, 검색·다운로드·삭제할 수 있습니다. |
+| 백업·복구 | SQLite 로컬 데이터 백업 및 복구, PC별 저장 경로 설정을 지원합니다. |
 
-## 업무 흐름
-
-1. Excel 파일 업로드
-2. 업로드 전 데이터 검증
-3. 제품·거래처 코드 매핑
-4. 원본 데이터 저장
-5. 업체별 마감 진행 관리
-6. 마감장 Excel·PDF 생성
-7. 확인 요청 및 발송 이력 저장
-8. 보고서 작성 및 백업
-
-## 상세 기술
-
-### Frontend
-
-- React 19
-- React Router
-- Tailwind CSS 4
-- AG Grid
-- Chart.js
-- Radix UI
-- Zustand
-
-### Desktop & Data
-
-- Electron
-- Vite
-- ExcelJS
-- SheetJS
-- better-sqlite3
-- PDF-Lib
-- Nodemailer
-- electron-builder
-
-## 개발 포인트
-
-- 템플릿형 카드 대시보드를 실제 마감 업무 중심의 워크스페이스로 재설계
-- Excel 업로드부터 검증, 저장, 보고, 발송까지 이어지는 업무 흐름 구성
-- 비개발자 사무 사용자가 이해하기 쉬운 메뉴와 상태 표현 적용
-- Electron IPC를 활용한 파일 저장, PDF 생성 및 이메일 발송 구현
-- SQLite 기반 로컬 우선 구조로 오프라인 업무 환경 지원
-- 사용자 권한에 따라 메뉴뿐 아니라 실제 페이지 기능도 분리
-- 반복되는 업무 화면을 재사용 가능한 React 컴포넌트로 구성
-- 작업 기록과 발송 이력을 로컬 데이터베이스에 저장
-
-## 프로젝트 구조
+## 시스템 구조
 
 ```text
-src
-├─ components        # 공통 UI 컴포넌트
-├─ data              # 표준 양식과 화면 데이터 정의
-├─ pages             # 업무 메뉴별 페이지
-├─ partials          # Header, Sidebar 등 공통 레이아웃
-├─ stores            # Zustand 기반 작업 상태 관리
-├─ useComponents     # ExcelTable 등 화면 전용 컴포넌트
-├─ utils             # Excel 처리, 내보내기와 공통 유틸리티
-└─ routesConfig.js   # 메뉴 및 권한별 라우팅 설정
-
-public
-├─ database          # SQLite 기반 로컬 데이터 처리
-└─ electron          # Electron main process와 preload
+┌──────────────────────────────┐
+│        Excel Desktop App      │
+│  Electron + React + SQLite   │
+│   오프라인 업무 · 로컬 백업    │
+└───────────────┬──────────────┘
+                │ 온라인일 때 동기화
+┌───────────────▼──────────────┐
+│ API Gateway → Lambda (Node)  │
+│ JWT 인증 · 동기화 API · 파일 API │
+└───────┬───────────────┬──────┘
+        │               │
+┌───────▼───────┐ ┌─────▼────────┐
+│ RDS PostgreSQL │ │      S3       │
+│ 업무·동기화 데이터 │ │ Excel/PDF 보관 │
+└───────────────┘ └──────────────┘
 ```
 
-## 실행 방법
+## 기술 스택
 
-### 개발 환경 실행
+| 구분 | 기술 |
+| --- | --- |
+| Desktop | Electron, electron-builder |
+| Frontend | React 19, React Router, Vite, Tailwind CSS |
+| Local data | SQLite, better-sqlite3 |
+| Excel/PDF | ExcelJS, SheetJS, PDF-Lib |
+| AWS | API Gateway, Lambda, RDS PostgreSQL, S3 |
+| Authentication | JWT, bcrypt |
+
+## 주요 화면
+
+스크린샷은 [`docs/images`](docs/images)에 추가합니다.
+
+| 화면 | 넣을 이미지 | 설명 |
+| --- | --- | --- |
+| 대시보드 | `dashboard.png` | 업무 현황과 핵심 지표 |
+| 매출 검증 | `upload-validation.png` | 엑셀 업로드·오류 검증·저장 |
+| 마감 관리 | `closing-workspace.png` | 업체별 마감 진행 및 발송 흐름 |
+| 동기화/백업 | `storage-backup.png` | 로컬 SQLite와 AWS RDS 동기화 |
+| AWS 파일 보관함 | `aws-files.png` | S3 파일 업로드·검색·다운로드·삭제 |
+
+## 데이터 흐름
+
+1. 사용자가 AWS 계정으로 로그인합니다.
+2. 인증이 성공하면 사용자 프로필과 업무 데이터를 로컬 SQLite에 저장합니다.
+3. 앱은 평소 로컬 SQLite를 기준으로 동작합니다.
+4. 온라인 상태에서 변경 사항은 AWS RDS에 동기화됩니다.
+5. 오프라인 상태에서는 로컬에만 저장하고, 연결이 복구되면 다시 동기화합니다.
+6. 큰 파일은 RDS가 아닌 S3에 선택적으로 보관합니다.
+
+## 로컬 실행
+
+### 요구 사항
+
+- Node.js 22 권장
+- Windows 환경 권장 (Electron 설치 파일 생성 기준)
+- PostgreSQL 또는 pgAdmin 설치 불필요 — 로컬 데이터베이스는 앱이 SQLite 파일로 자동 생성합니다.
 
 ```bash
 npm install
 npm run dev
 ```
 
-브라우저 화면만 확인하려면 다음 명령을 사용합니다.
+브라우저 UI만 확인하려면:
 
 ```bash
 npm run vite
 ```
 
-### 빌드 확인
+빌드 확인:
 
 ```bash
 npm run build
 ```
 
-### Windows 설치 파일 생성
+Windows 설치 파일 생성:
 
 ```bash
 npm run dist
@@ -161,34 +106,46 @@ npm run dist
 
 생성된 설치 파일은 `release` 폴더에서 확인할 수 있습니다.
 
-## 프로젝트 문서
+## AWS 설정
 
-- [브랜드 가이드](docs/brand-guide.md)
-- [MVP 범위](docs/mvp-scope.md)
-- [데이터 규칙](docs/data-rules.md)
-- [화면 역할](docs/screen-map.md)
-- [AI 작업 방식](docs/ai-workflow.md)
+앱 실행에 필요한 API 주소는 `.env.local`에 둡니다. 실제 주소, DB 비밀번호, JWT 비밀값, AWS 자격 증명은 저장소에 올리지 않습니다.
 
-## 이 프로젝트를 통해 보여주고 싶은 점
+```bash
+copy .env.example .env.local
+```
 
-이 프로젝트는 화려한 화면보다 사용자가 매일 겪는 불편을 줄이는 제품을 만드는 데 초점을 두고 있습니다.
+```env
+VITE_SHARED_API_BASE_URL=https://YOUR_API_ID.execute-api.REGION.amazonaws.com
+```
 
-- 실제 업무를 분석해 화면과 기능으로 바꾸는 능력
-- 복잡한 작업을 단계적인 사용자 경험으로 정리하는 능력
-- React와 Electron을 활용한 데스크톱 앱 개발
-- Excel, SQLite, PDF, 이메일을 연결하는 실무형 기능 구현
-- 사용자 관점에서 오류 상황과 작업 흐름을 계속 개선하는 태도
+Lambda 배포용 소스와 RDS 스키마는 [`aws`](aws)에 있습니다.
+
+- [`aws/schema.sql`](aws/schema.sql): RDS PostgreSQL 테이블 정의
+- [`aws/lambda/index.js`](aws/lambda/index.js): 인증·동기화·S3 API
+- [`aws/lambda/build.ps1`](aws/lambda/build.ps1): Lambda ZIP 생성 스크립트
+
+> 공개 저장소에서는 AWS 계정 번호, RDS 엔드포인트, 사용자 계정, 비밀번호, JWT Secret, S3 버킷 정책의 민감한 값을 반드시 제거하세요.
+
+## 프로젝트 구조
+
+```text
+src/                  # React 화면·컴포넌트·서비스
+public/electron/      # Electron main process와 preload IPC
+public/database/      # SQLite 스키마·로컬 데이터 처리
+aws/                  # Lambda API와 RDS 스키마
+docs/images/          # 포트폴리오 스크린샷
+```
+
+## 구현 포인트
+
+- 현업 매출 마감 흐름을 분석해 업로드 → 검증 → 매핑 → 마감 → 발송 → 보고로 연결
+- 로컬 SQLite와 AWS RDS를 함께 사용하는 오프라인 우선 구조 설계
+- AWS 인증 이후 로컬 사용자 생성 및 24시간 로컬 세션 처리
+- Electron IPC로 파일 저장, SQLite 접근, PDF 생성, 다운로드 처리 분리
+- S3 Presigned URL 기반의 선택적 파일 업로드·다운로드
+- 오류가 발생하기 쉬운 데이터 관계를 검증 화면과 상태 중심 UI로 표현
 
 ## Contact
 
-<p>
-  <a href="mailto:rlahfld54@naver.com">
-    <img src="https://img.shields.io/badge/Email-rlahfld54%40naver.com-EA4335?style=for-the-badge&logo=gmail&logoColor=ffffff" alt="Email" />
-  </a>
-  <a href="https://normal-gom-jelly.tistory.com">
-    <img src="https://img.shields.io/badge/Blog-normal--gom--jelly-FF5A4A?style=for-the-badge&logo=tistory&logoColor=ffffff" alt="Blog" />
-  </a>
-  <a href="https://github.com/rlahfld54">
-    <img src="https://img.shields.io/badge/GitHub-rlahfld54-181717?style=for-the-badge&logo=github&logoColor=ffffff" alt="GitHub" />
-  </a>
-</p>
+- GitHub: [@rlahfld54](https://github.com/rlahfld54)
+- Blog: [normal-gom-jelly.tistory.com](https://normal-gom-jelly.tistory.com)

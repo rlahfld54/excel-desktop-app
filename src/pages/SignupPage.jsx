@@ -6,6 +6,8 @@ import { isSharedApiEnabled } from '../config/cloud';
 import { signupWithSharedApi } from '../services/authApiService';
 import { saveUsers } from '../utils/authSession';
 import { initializePersonalTodos } from '../utils/todoSchedule';
+import { getPasswordChecks, isPasswordValid, passwordHelpText } from '../utils/passwordPolicy';
+import { useToast } from '../components/common';
 
 export default function SignupPage() {
   const navigate = useNavigate();
@@ -18,12 +20,22 @@ export default function SignupPage() {
   });
   const [message, setMessage] = useState('');
   const [isBusy, setIsBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const { showToast } = useToast();
   const usesSharedSignup = isSharedApiEnabled();
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setMessage('');
 
+    if (!form.username.trim() || form.username.trim().length < 2) {
+      setMessage('로그인 아이디는 2자 이상 입력해 주세요.');
+      return;
+    }
+    if (!isPasswordValid(form.password)) {
+      setMessage(passwordHelpText(form.password));
+      return;
+    }
     if (form.password !== form.passwordConfirm) {
       setMessage('비밀번호 확인이 일치하지 않습니다.');
       return;
@@ -44,9 +56,11 @@ export default function SignupPage() {
         saveUsers(usersResult.users ?? []);
         initializePersonalTodos(result.user.id);
       }
+      showToast({ type: 'success', title: '계정이 생성되었습니다', message: '이제 만든 아이디와 비밀번호로 로그인하세요.' });
       navigate('/login', { replace: true });
     } catch (error) {
       setMessage(error.message);
+      showToast({ type: 'error', title: '계정 생성에 실패했습니다', message: error.message });
     } finally {
       setIsBusy(false);
     }
@@ -79,7 +93,8 @@ export default function SignupPage() {
           <form className="mt-7 grid gap-4 sm:grid-cols-2" onSubmit={handleSubmit}>
             <label className="block">
               <span className="mb-2 block text-sm font-semibold">로그인 아이디</span>
-              <input className="form-input w-full" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} required />
+              <input className="form-input w-full" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.replace(/\s/g, '') })} minLength="2" maxLength="50" required autoComplete="username" />
+              <span className="mt-1 block text-xs text-gray-400">2~50자, 공백 없이 입력</span>
             </label>
             <label className="block">
               <span className="mb-2 block text-sm font-semibold">이름</span>
@@ -91,11 +106,13 @@ export default function SignupPage() {
             </label>
             <label className="block">
               <span className="mb-2 block text-sm font-semibold">비밀번호</span>
-              <input className="form-input w-full" type="password" minLength="6" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required />
+              <div className="relative"><input className="form-input w-full pr-12" type={showPassword ? 'text' : 'password'} minLength="8" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required autoComplete="new-password" /><button className="absolute inset-y-0 right-0 px-3 text-xs font-semibold text-gray-500 hover:text-teal-700" type="button" onClick={() => setShowPassword((current) => !current)}>{showPassword ? '숨김' : '보기'}</button></div>
+              <div className="mt-2 flex flex-wrap gap-2">{getPasswordChecks(form.password).map((check) => <span key={check.key} className={`text-xs font-semibold ${check.passed ? 'text-accent-700 dark:text-accent-300' : 'text-gray-400'}`}>{check.passed ? '✓' : '○'} {check.label}</span>)}</div>
             </label>
             <label className="block">
               <span className="mb-2 block text-sm font-semibold">비밀번호 확인</span>
-              <input className="form-input w-full" type="password" minLength="6" value={form.passwordConfirm} onChange={(event) => setForm({ ...form, passwordConfirm: event.target.value })} required />
+              <input className="form-input w-full" type={showPassword ? 'text' : 'password'} minLength="8" value={form.passwordConfirm} onChange={(event) => setForm({ ...form, passwordConfirm: event.target.value })} required autoComplete="new-password" />
+              {form.passwordConfirm && <span className={`mt-1 block text-xs font-semibold ${form.password === form.passwordConfirm ? 'text-accent-700 dark:text-accent-300' : 'text-red-600 dark:text-red-300'}`}>{form.password === form.passwordConfirm ? '✓ 비밀번호가 일치합니다.' : '비밀번호가 일치하지 않습니다.'}</span>}
             </label>
 
             {message && (

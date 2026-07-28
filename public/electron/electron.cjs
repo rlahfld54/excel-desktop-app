@@ -119,6 +119,47 @@ function getDefaultAppSettings() {
   };
 }
 
+async function directorySize(targetPath) {
+  try {
+    const entries = await fs.readdir(targetPath, { withFileTypes: true });
+    let total = 0;
+    for (const entry of entries) {
+      const entryPath = path.join(targetPath, entry.name);
+      if (entry.isDirectory()) total += await directorySize(entryPath);
+      else if (entry.isFile()) total += (await fs.stat(entryPath)).size;
+    }
+    return total;
+  } catch {
+    return 0;
+  }
+}
+
+function getCacheTargets(settings) {
+  const userData = app.getPath('userData');
+  return [
+    { key: 'http', label: '웹 요청 캐시', path: path.join(userData, 'Cache') },
+    { key: 'code', label: '코드 캐시', path: path.join(userData, 'Code Cache') },
+    { key: 'gpu', label: '그래픽 캐시', path: path.join(userData, 'GPUCache') },
+    { key: 'dawn', label: '렌더링 캐시', path: path.join(userData, 'DawnGraphiteCache') },
+    { key: 'temp', label: '업무 임시 파일', path: settings.tempPath },
+  ];
+}
+
+async function getCacheSummary(settings) {
+  const entries = await Promise.all(getCacheTargets(settings).map(async (target) => ({
+    ...target,
+    bytes: await directorySize(target.path),
+  })));
+  return { entries, totalBytes: entries.reduce((total, entry) => total + entry.bytes, 0) };
+}
+
+async function clearAppCaches(settings) {
+  const browserSessions = new Set(BrowserWindow.getAllWindows().map((window) => window.webContents.session));
+  await Promise.all([...browserSessions].map((browserSession) => browserSession.clearCache().catch(() => {})));
+  await Promise.all(getCacheTargets(settings).map((target) => fs.rm(target.path, { recursive: true, force: true }).catch(() => {})));
+  return getCacheSummary(settings);
+}
+
 async function ensureAppFolders(settings) {
   const workspaceRoot = settings.workspaceRoot || getWorkspaceRoot();
   const normalizedSettings = { ...settings };
@@ -543,6 +584,16 @@ function registerIpcHandlers() {
     ok: true,
     settings: await writeAppSettings(settings),
   }));
+
+  ipcMain.handle('cache:summary', async () => {
+    const settings = await readAppSettings();
+    return { ok: true, ...(await getCacheSummary(settings)) };
+  });
+
+  ipcMain.handle('cache:clear', async () => {
+    const settings = await readAppSettings();
+    return { ok: true, ...(await clearAppCaches(settings)) };
+  });
 
   ipcMain.handle("setup:status", async () => {
     const settings = await readAppSettings();

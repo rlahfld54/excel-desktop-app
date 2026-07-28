@@ -12,6 +12,8 @@ import {
   saveSession,
 } from '../utils/authSession';
 import { clearPersonalTodoData } from '../utils/todoSchedule';
+import { getPasswordChecks, isPasswordValid, passwordHelpText } from '../utils/passwordPolicy';
+import { useToast } from '../components/common';
 
 function StatCard({ label, value, detail, tone = 'accent' }) {
   const toneClass = tone === 'red'
@@ -41,6 +43,9 @@ export default function SecurityPage() {
   });
   const [message, setMessage] = useState('보안 설정을 확인하고 필요한 항목을 변경할 수 있습니다.');
   const [messageTone, setMessageTone] = useState('info');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
+  const { showToast } = useToast();
 
   const securityLogs = useMemo(() => logs.filter((log) => (
     ['로그인', '로그인 실패', '로그아웃', '비밀번호 변경', '자동 로그인 켜짐', '자동 로그인 꺼짐'].includes(log.action)
@@ -63,8 +68,8 @@ export default function SecurityPage() {
   const handlePasswordChange = async (event) => {
     event.preventDefault();
 
-    if (passwordForm.nextPassword.trim().length < 6) {
-      updateMessage('새 비밀번호는 6자리 이상으로 입력해주세요.', 'error');
+    if (!isPasswordValid(passwordForm.nextPassword)) {
+      updateMessage(passwordHelpText(passwordForm.nextPassword), 'error');
       return;
     }
 
@@ -73,6 +78,7 @@ export default function SecurityPage() {
       return;
     }
 
+    setIsChangingPassword(true);
     try {
       await window.api.changeUserPassword({
         username: currentUser.id,
@@ -83,8 +89,12 @@ export default function SecurityPage() {
       setPasswordForm({ currentPassword: '', nextPassword: '', confirmPassword: '' });
       refreshState();
       updateMessage('비밀번호를 변경했습니다.', 'success');
+      showToast({ type: 'success', title: '비밀번호를 변경했습니다', message: '다음 로그인부터 새 비밀번호를 사용하세요.' });
     } catch (error) {
       updateMessage(error.message, 'error');
+      showToast({ type: 'error', title: '비밀번호 변경에 실패했습니다', message: error.message });
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -151,17 +161,19 @@ export default function SecurityPage() {
 
           <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handlePasswordChange}>
             <FormField label="현재 비밀번호" labelClassName="uppercase text-gray-400 dark:text-gray-500">
-              <input className="form-input w-full font-mono" type="password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))} autoComplete="current-password" />
+              <input className="form-input w-full font-mono" type={showPasswords ? 'text' : 'password'} value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))} autoComplete="current-password" />
             </FormField>
             <div className="hidden md:block" />
             <FormField label="새 비밀번호" labelClassName="uppercase text-gray-400 dark:text-gray-500">
-              <input className="form-input w-full font-mono" type="password" value={passwordForm.nextPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, nextPassword: event.target.value }))} autoComplete="new-password" />
+              <input className="form-input w-full font-mono" type={showPasswords ? 'text' : 'password'} minLength="8" value={passwordForm.nextPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, nextPassword: event.target.value }))} autoComplete="new-password" />
+              <div className="mt-2 flex flex-wrap gap-2">{getPasswordChecks(passwordForm.nextPassword).map((check) => <span key={check.key} className={`text-xs font-semibold ${check.passed ? 'text-accent-700 dark:text-accent-300' : 'text-gray-400'}`}>{check.passed ? '✓' : '○'} {check.label}</span>)}</div>
             </FormField>
             <FormField label="새 비밀번호 확인" labelClassName="uppercase text-gray-400 dark:text-gray-500">
-              <input className="form-input w-full font-mono" type="password" value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))} autoComplete="new-password" />
+              <input className="form-input w-full font-mono" type={showPasswords ? 'text' : 'password'} minLength="8" value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))} autoComplete="new-password" />
+              {passwordForm.confirmPassword && <p className={`mt-2 text-xs font-semibold ${passwordForm.nextPassword === passwordForm.confirmPassword ? 'text-accent-700 dark:text-accent-300' : 'text-red-600 dark:text-red-300'}`}>{passwordForm.nextPassword === passwordForm.confirmPassword ? '✓ 비밀번호가 일치합니다.' : '비밀번호가 일치하지 않습니다.'}</p>}
             </FormField>
             <div className="md:col-span-2">
-              <button className="btn btn-primary" type="submit">비밀번호 저장</button>
+              <div className="flex flex-wrap items-center gap-3"><button className="btn btn-primary" type="submit" disabled={isChangingPassword}>{isChangingPassword ? '비밀번호 변경 중…' : '비밀번호 저장'}</button><button className="text-sm font-semibold text-gray-500 hover:text-teal-700" type="button" onClick={() => setShowPasswords((current) => !current)}>{showPasswords ? '비밀번호 숨기기' : '비밀번호 보기'}</button></div>
             </div>
           </form>
         </section>

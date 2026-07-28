@@ -1,4 +1,5 @@
 export const closingWorkspaceChangedEvent = 'excel-workspace:closing-workspace-changed';
+let closingWorkspaceRows = [];
 
 function normalizeRows(rows) {
   return Array.isArray(rows) ? rows.filter((row) => row && row.id) : [];
@@ -11,11 +12,12 @@ function getProgress(row) {
 }
 
 export function readClosingWorkspaceRows() {
-  return [];
+  return closingWorkspaceRows;
 }
 
 export function saveClosingWorkspaceRows(rows) {
   const nextRows = normalizeRows(rows);
+  closingWorkspaceRows = nextRows;
   window.dispatchEvent(new CustomEvent(closingWorkspaceChangedEvent, { detail: nextRows }));
   return nextRows;
 }
