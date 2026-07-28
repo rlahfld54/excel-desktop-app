@@ -49,7 +49,7 @@ import NotFoundPage from './pages/NotFoundPage';
 import { getCurrentUser, hasActiveSession } from './utils/authSession';
 import { saveUsers } from './utils/authSession';
 import { getSession } from './utils/authSession';
-import { hydratePersonalTodos } from './utils/todoSchedule';
+import { hydratePersonalTodos, hydrateTeamTodos } from './utils/todoSchedule';
 import { isSharedApiEnabled } from './config/cloud';
 import { sharedDataService } from './services/sharedDataService';
 import { useToast } from './components/common';
@@ -123,7 +123,7 @@ function App() {
         const usersResult = await window.api.listUsers?.();
         if (usersResult?.ok) saveUsers(usersResult.users ?? []);
         const session = getSession();
-        if (session?.userId) await hydratePersonalTodos(session.userId);
+        if (session?.userId) await Promise.all([hydratePersonalTodos(session.userId), hydrateTeamTodos()]);
         if (mounted) setSetupState({ loading: false, completed: Boolean(result.completed) });
       } catch {
         if (mounted) setSetupState({ loading: false, completed: false });
@@ -156,6 +156,18 @@ function App() {
   }, [showToast]);
 
   useEffect(() => {
+    const notifyMutationFailure = (event) => {
+      showToast({
+        type: 'error',
+        title: '변경 내용을 저장하지 못했습니다',
+        message: event.detail?.message || 'SQLite 저장에 실패했습니다. 화면의 변경 내용은 다시 확인해 주세요.',
+      });
+    };
+    window.addEventListener('excel-workspace:mutation-failed', notifyMutationFailure);
+    return () => window.removeEventListener('excel-workspace:mutation-failed', notifyMutationFailure);
+  }, [showToast]);
+
+  useEffect(() => {
     if (!isSharedApiEnabled() || !window.api?.onWorkspaceDataChanged) return undefined;
     let timer;
     let syncing = false;
@@ -170,6 +182,11 @@ function App() {
         const result = await sharedDataService.syncWorkspace(local.payload);
         if (!result.ok) return;
         await window.api.applyCloudWorkspace(result.data?.snapshot ?? {});
+        const session = getSession();
+        await Promise.all([
+          session?.userId ? hydratePersonalTodos(session.userId) : Promise.resolve(),
+          hydrateTeamTodos(),
+        ]);
         setWorkspaceRevision((revision) => revision + 1);
         window.dispatchEvent(new CustomEvent('excel-workspace:data-synced'));
       } finally {
@@ -190,6 +207,18 @@ function App() {
       window.removeEventListener('online', scheduleSync);
     };
   }, []);
+
+  useEffect(() => {
+    const notifyTodoSaveFailure = (event) => {
+      showToast({
+        type: 'error',
+        title: '일정 저장에 실패했습니다',
+        message: event.detail?.message || '로컬 SQLite에 저장하지 못했습니다.',
+      });
+    };
+    window.addEventListener('excel-workspace:todo-save-failed', notifyTodoSaveFailure);
+    return () => window.removeEventListener('excel-workspace:todo-save-failed', notifyTodoSaveFailure);
+  }, [showToast]);
 
   //useEffect는 라이프사이클에 해당하는 함수. 렌더링될때마다 실행된다. 업데이트될때
   useEffect(() => {

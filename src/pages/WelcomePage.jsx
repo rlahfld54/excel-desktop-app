@@ -176,10 +176,6 @@ export default function WelcomePage() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-teal-50 px-4 py-3 dark:bg-teal-500/10">
-                  <p className="text-sm font-semibold text-teal-900 dark:text-teal-100">오늘 확인할 업체와 마감 진행 상태를 실제 업무 화면에서 관리하세요.</p>
-                  <Link className="btn btn-primary shrink-0" to="/closing-workspace/overview">마감 보드 열기</Link>
-                </div>
               </div>
             </div>
           </div>

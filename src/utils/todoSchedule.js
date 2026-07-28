@@ -37,8 +37,11 @@ function savePersonalStateToDatabase(userId, patch) {
   window.api.savePersonalTodoState({
     username: userId,
     ...patch,
-  }).catch(() => {
-    // SQLite 저장 실패 시 메모리 상태만 유지합니다.
+  }).catch((error) => {
+    // 저장 실패를 숨기면 재시작 후 일정이 사라진 것처럼 보인다.
+    window.dispatchEvent(new CustomEvent('excel-workspace:todo-save-failed', {
+      detail: { message: error?.message || '일정을 로컬 SQLite에 저장하지 못했습니다.' },
+    }));
   });
 }
 

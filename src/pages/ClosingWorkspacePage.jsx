@@ -79,12 +79,23 @@ async function readClosingRowsFromDatabase(options) {
   return result?.ok && Array.isArray(result.rows) ? result.rows.map(withDerivedFields) : [];
 }
 
-function persistClosingRows(rows, options) {
+function reportWorkspaceSaveFailure(error) {
+  window.dispatchEvent(new CustomEvent('excel-workspace:mutation-failed', {
+    detail: { message: error?.message || '마감 보드 변경 내용을 SQLite에 저장하지 못했습니다.' },
+  }));
+}
+
+async function persistClosingRows(rows, options) {
   saveClosingWorkspaceRows(rows);
-  if (window.api?.saveClosingCompanies) {
-    window.api.saveClosingCompanies({ rows, options }).catch(() => {
-      // Browser-only development still has the local fallback.
-    });
+  if (!window.api?.saveClosingCompanies) {
+    reportWorkspaceSaveFailure(new Error('데스크톱 저장 기능을 사용할 수 없습니다. 변경 내용은 저장되지 않았습니다.'));
+    return;
+  }
+  try {
+    const result = await window.api.saveClosingCompanies({ rows, options });
+    if (result?.ok === false) throw new Error(result.message || '마감 보드 변경 내용을 저장하지 못했습니다.');
+  } catch (error) {
+    reportWorkspaceSaveFailure(error);
   }
 }
 
@@ -415,7 +426,7 @@ export default function ClosingWorkspacePage() {
       const nextRows = current.map((row) => (
         row.id === rowId ? withDerivedFields({ ...row, ...patch }) : row
       ));
-      persistClosingRows(nextRows, params);
+      void persistClosingRows(nextRows, params);
       return nextRows;
     });
 

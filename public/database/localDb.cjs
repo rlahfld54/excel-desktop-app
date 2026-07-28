@@ -2497,7 +2497,10 @@ function applyCloudWorkspace(database, payload = {}) {
       todos_json = excluded.todos_json,
       history_json = excluded.history_json,
       updated_at = excluded.updated_at
-    WHERE excluded.updated_at >= user_todo_state.updated_at
+    -- SQLite의 기본 날짜("YYYY-MM-DD HH:MM:SS")와 RDS ISO 날짜를 문자열로
+    -- 비교하면 순서가 뒤집힐 수 있다. 실제 시각으로 비교해야 새 PC에서도
+    -- AWS의 최신 일정이 정상 복원된다.
+    WHERE julianday(excluded.updated_at) >= julianday(user_todo_state.updated_at)
   `);
   const ensureSystemTodoOwner = database.prepare(`
     INSERT OR IGNORE INTO users (username, display_name, password_hash, role, department_name, status)
@@ -2907,6 +2910,14 @@ function saveUserTodoState(database, payload = {}) {
   const username = String(payload.username ?? "").trim();
   // 총무팀 공용 일정은 개인 계정이 아닌 예약된 SQLite 키로 보관한다.
   const isTeamSchedule = username === "team:general-affairs";
+  if (isTeamSchedule) {
+    // 새 PC에는 공용 일정의 소유자 행이 아직 없을 수 있다. 이 행이 없으면
+    // user_todo_state 외래 키 때문에 저장 자체가 실패한다.
+    database.prepare(`
+      INSERT OR IGNORE INTO users (username, display_name, password_hash, role, department_name, status)
+      VALUES ('team:general-affairs', '공용 일정', NULL, 'VIEWER', '공용', 'ACTIVE')
+    `).run();
+  }
   if (!isTeamSchedule && !database.prepare("SELECT 1 FROM users WHERE username = ?").get(username)) {
     throw new Error("투두를 저장할 사용자를 찾을 수 없습니다.");
   }
@@ -2915,17 +2926,19 @@ function saveUserTodoState(database, payload = {}) {
   const todos = Array.isArray(payload.todos) ? payload.todos : current.todos;
   const history = Array.isArray(payload.history) ? payload.history : current.history;
 
+  const updatedAt = new Date().toISOString();
   database.prepare(`
     INSERT INTO user_todo_state (username, todos_json, history_json, updated_at)
-    VALUES (@username, @todosJson, @historyJson, CURRENT_TIMESTAMP)
+    VALUES (@username, @todosJson, @historyJson, @updatedAt)
     ON CONFLICT(username) DO UPDATE SET
       todos_json = excluded.todos_json,
       history_json = excluded.history_json,
-      updated_at = CURRENT_TIMESTAMP
+      updated_at = excluded.updated_at
   `).run({
     username,
     todosJson: toJson(todos),
     historyJson: toJson(history),
+    updatedAt,
   });
 
   return getUserTodoState(database, username);
