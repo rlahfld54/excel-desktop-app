@@ -1,10 +1,11 @@
-const { app, BrowserWindow, ipcMain, dialog, Notification } = require("electron/main");
+const { app, BrowserWindow, ipcMain, dialog, Notification, safeStorage } = require("electron/main");
 const { shell } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const nodemailer = require("nodemailer");
 const {
   backupDatabase,
+  checkDatabaseIntegrity,
   closeDatabase,
   getDatabasePath,
   initializeDatabase,
@@ -15,6 +16,54 @@ const isDev = !app.isPackaged;
 
 function getSettingsPath() {
   return path.join(app.getPath("userData"), "app-settings.json");
+}
+
+function getSecureCredentialsPath() {
+  return path.join(app.getPath("userData"), "secure-credentials.json");
+}
+
+function getRuntimeStatePath() {
+  return path.join(app.getPath("userData"), "last-run-state.json");
+}
+
+async function readGmailAppPassword() {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return "";
+    const saved = JSON.parse(await fs.readFile(getSecureCredentialsPath(), "utf8"));
+    if (!saved.gmailAppPassword) return "";
+    return safeStorage.decryptString(Buffer.from(saved.gmailAppPassword, "base64"));
+  } catch {
+    return "";
+  }
+}
+
+async function writeGmailAppPassword(value) {
+  const password = String(value || "").replace(/\s+/g, "");
+  if (!password) {
+    await fs.rm(getSecureCredentialsPath(), { force: true });
+    return;
+  }
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error("이 PC에서 보안 저장소를 사용할 수 없어 Gmail 앱 비밀번호를 저장하지 못했습니다.");
+  }
+  const encrypted = safeStorage.encryptString(password).toString("base64");
+  await fs.writeFile(
+    getSecureCredentialsPath(),
+    JSON.stringify({ version: 1, gmailAppPassword: encrypted }, null, 2),
+    "utf8",
+  );
+}
+
+async function readRuntimeState() {
+  try {
+    return JSON.parse(await fs.readFile(getRuntimeStatePath(), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function writeRuntimeState(state) {
+  await fs.writeFile(getRuntimeStatePath(), JSON.stringify(state, null, 2), "utf8");
 }
 
 function getWorkspaceRoot() {
@@ -100,8 +149,6 @@ function getDefaultAppSettings() {
     retentionDays: 31,
     maxBackupSizeMb: 2048,
     autoBackupEnabled: true,
-    autoBackupIntervalMinutes: 30,
-    autoBackupTime: "23:50",
     performanceMode: "LIGHT",
     notificationsEnabled: true,
     desktopNotificationsEnabled: true,
@@ -203,7 +250,9 @@ async function readAppSettings() {
 
   try {
     const saved = JSON.parse(await fs.readFile(getSettingsPath(), "utf8"));
-    let settings = { ...defaults, ...saved };
+    const legacyGmailAppPassword = String(saved.gmailAppPassword || "");
+    const sanitizedSaved = { ...saved, gmailAppPassword: "" };
+    let settings = { ...defaults, ...sanitizedSaved };
     const shouldCopyLegacyBackups =
       saved.backupPath === getLegacyBackupPath() &&
       defaults.backupPath !== getLegacyBackupPath();
@@ -211,44 +260,58 @@ async function readAppSettings() {
       settings.backupPath = defaults.backupPath;
     }
     settings.retentionDays = Math.min(Math.max(Number(settings.retentionDays) || 31, 1), 31);
-    settings.autoBackupTime = settings.autoBackupTime || "23:50";
     settings = await ensureAppFolders(settings);
     if (shouldCopyLegacyBackups && settings.backupPath === defaults.backupPath) {
       await copyLegacyBackups(saved.backupPath, settings.backupPath);
     }
-    if (settings.backupPath !== saved.backupPath) {
+    let credentialMigrationSucceeded = true;
+    if (legacyGmailAppPassword) {
+      try {
+        await writeGmailAppPassword(legacyGmailAppPassword);
+      } catch (error) {
+        credentialMigrationSucceeded = false;
+        console.warn("Gmail credential migration skipped", error);
+      }
+    }
+    if (settings.backupPath !== saved.backupPath || (credentialMigrationSucceeded && Object.hasOwn(saved, "gmailAppPassword"))) {
       await fs.writeFile(
         getSettingsPath(),
-        JSON.stringify(settings, null, 2),
+        JSON.stringify({
+          ...settings,
+          gmailAppPassword: credentialMigrationSucceeded ? undefined : legacyGmailAppPassword,
+        }, null, 2),
         "utf8",
       );
     }
-    return settings;
+    return { ...settings, gmailAppPassword: await readGmailAppPassword() || legacyGmailAppPassword };
   } catch {
     const settings = await ensureAppFolders(defaults);
     await fs.writeFile(
       getSettingsPath(),
-      JSON.stringify(settings, null, 2),
+      JSON.stringify({ ...settings, gmailAppPassword: undefined }, null, 2),
       "utf8",
     );
-    return settings;
+    return { ...settings, gmailAppPassword: await readGmailAppPassword() };
   }
 }
 
 async function writeAppSettings(nextSettings) {
+  const hasGmailAppPassword = Object.hasOwn(nextSettings || {}, "gmailAppPassword");
+  const gmailAppPassword = nextSettings?.gmailAppPassword;
   let settings = {
     ...getDefaultAppSettings(),
     ...nextSettings,
+    gmailAppPassword: "",
   };
   settings.retentionDays = Math.min(Math.max(Number(settings.retentionDays) || 31, 1), 31);
-  settings.autoBackupTime = settings.autoBackupTime || "23:50";
   settings = await ensureAppFolders(settings);
+  if (hasGmailAppPassword) await writeGmailAppPassword(gmailAppPassword);
   await fs.writeFile(
     getSettingsPath(),
-    JSON.stringify(settings, null, 2),
+    JSON.stringify({ ...settings, gmailAppPassword: undefined }, null, 2),
     "utf8",
   );
-  return settings;
+  return { ...settings, gmailAppPassword: await readGmailAppPassword() };
 }
 
 function formatTimestamp(date = new Date()) {
@@ -337,6 +400,17 @@ async function getFolderSize(folderPath) {
   return size;
 }
 
+async function removeCredentialsFromBackupSettings(settingsPath) {
+  try {
+    const backupSettings = JSON.parse(await fs.readFile(settingsPath, "utf8"));
+    if (!Object.hasOwn(backupSettings, "gmailAppPassword")) return;
+    delete backupSettings.gmailAppPassword;
+    await fs.writeFile(settingsPath, JSON.stringify(backupSettings, null, 2), "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") console.warn("Backup credential cleanup skipped", error);
+  }
+}
+
 async function listBackupManifests(settings) {
   await fs.mkdir(settings.backupPath, { recursive: true });
   const entries = await fs.readdir(settings.backupPath, { withFileTypes: true });
@@ -347,7 +421,9 @@ async function listBackupManifests(settings) {
       const manifestPath = path.join(backupFolder, "manifest.json");
       try {
         const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
-        return normalizeBackupManifest(manifest, backupFolder);
+        const backup = normalizeBackupManifest(manifest, backupFolder);
+        await removeCredentialsFromBackupSettings(backup.settingsPath);
+        return backup;
       } catch {
         return null;
       }
@@ -373,7 +449,7 @@ async function createBackup(app, options = {}) {
   const settings = await readAppSettings();
   const now = new Date();
   const type = options.type ?? "manual";
-  const id = `${type}_${formatTimestamp(now)}`;
+  const id = `${type}_${formatTimestamp(now)}_${String(now.getMilliseconds()).padStart(3, "0")}`;
   const backupFolder = path.join(settings.backupPath, id);
   const databaseBackupPath = path.join(backupFolder, "database.sqlite");
   const settingsBackupPath = path.join(backupFolder, "app-settings.json");
@@ -382,12 +458,13 @@ async function createBackup(app, options = {}) {
 
   await fs.mkdir(backupFolder, { recursive: true });
   await backupDatabase(app, databaseBackupPath);
-
-  try {
-    await fs.copyFile(getSettingsPath(), settingsBackupPath);
-  } catch {
-    await fs.writeFile(settingsBackupPath, JSON.stringify(settings, null, 2), "utf8");
+  const integrity = checkDatabaseIntegrity(databaseBackupPath);
+  if (!integrity.ok) {
+    await fs.rm(backupFolder, { recursive: true, force: true });
+    throw new Error(`백업 SQLite 무결성 검사 실패: ${integrity.messages.join(" / ")}`);
   }
+  const { gmailAppPassword: _excludedSecret, ...backupSettings } = settings;
+  await fs.writeFile(settingsBackupPath, JSON.stringify(backupSettings, null, 2), "utf8");
 
   const sizeBytes = await getFolderSize(backupFolder);
   const manifest = {
@@ -404,7 +481,8 @@ async function createBackup(app, options = {}) {
     summary: {
       databasePath: getDatabasePath(app),
       retentionDays,
-      schedule: settings.autoBackupTime,
+      trigger: type === "shutdown" ? "app-quit" : type === "emergency" ? "process-error" : "manual",
+      integrity: "ok",
     },
   };
 
@@ -422,6 +500,10 @@ async function restoreBackup(app, backupId) {
   if (!backup) {
     throw new Error("선택한 백업을 찾을 수 없습니다.");
   }
+  const backupIntegrity = checkDatabaseIntegrity(backup.databasePath);
+  if (!backupIntegrity.ok) {
+    throw new Error(`선택한 백업의 SQLite가 손상되었습니다: ${backupIntegrity.messages.join(" / ")}`);
+  }
 
   const beforeRestore = await createBackup(app, {
     type: "restore_point",
@@ -431,19 +513,39 @@ async function restoreBackup(app, backupId) {
 
   closeDatabase();
   const databasePath = path.join(app.getPath("userData"), "excel-desktop-app.sqlite");
-  await Promise.all([
-    fs.rm(`${databasePath}-wal`, { force: true }),
-    fs.rm(`${databasePath}-shm`, { force: true }),
-  ]);
-  await fs.copyFile(backup.databasePath, databasePath);
-
   try {
-    await fs.copyFile(backup.settingsPath, getSettingsPath());
-  } catch {
-    // Settings are helpful but not mandatory for a database restore.
-  }
+    await Promise.all([
+      fs.rm(`${databasePath}-wal`, { force: true }),
+      fs.rm(`${databasePath}-shm`, { force: true }),
+    ]);
+    await fs.copyFile(backup.databasePath, databasePath);
+    initializeDatabase(app);
+    const restoredIntegrity = checkDatabaseIntegrity(databasePath);
+    if (!restoredIntegrity.ok) {
+      throw new Error(`복원된 SQLite 무결성 검사 실패: ${restoredIntegrity.messages.join(" / ")}`);
+    }
 
-  initializeDatabase(app);
+    try {
+      const currentSettings = await readAppSettings();
+      const restoredSettings = JSON.parse(await fs.readFile(backup.settingsPath, "utf8"));
+      await writeAppSettings({
+        ...currentSettings,
+        ...restoredSettings,
+        gmailAppPassword: currentSettings.gmailAppPassword,
+      });
+    } catch (error) {
+      console.warn("Backup settings restore skipped", error);
+    }
+  } catch (error) {
+    closeDatabase();
+    await Promise.all([
+      fs.rm(`${databasePath}-wal`, { force: true }),
+      fs.rm(`${databasePath}-shm`, { force: true }),
+    ]);
+    await fs.copyFile(beforeRestore.databasePath, databasePath);
+    initializeDatabase(app);
+    throw new Error(`백업 복원에 실패하여 복원 직전 상태로 되돌렸습니다: ${error.message}`);
+  }
 
   return {
     restored: backup,
@@ -451,27 +553,68 @@ async function restoreBackup(app, backupId) {
   };
 }
 
-let autoBackupTimer;
-let lastAutoBackupKey = "";
+let databaseReady = false;
+let safetyBackupPromise = null;
+let shutdownStarted = false;
+let allowQuit = false;
+let currentRunStartedAt = "";
+let startupRecoveryNotice = null;
+let currentRuntimeFailure = null;
 
-function scheduleAutoBackup(app) {
-  clearInterval(autoBackupTimer);
-  autoBackupTimer = setInterval(async () => {
-    try {
-      const settings = await readAppSettings();
-      if (!settings.autoBackupEnabled) return;
-      const now = new Date();
-      const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-      const todayKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()} ${currentTime}`;
+async function createSafetyBackup(type, message) {
+  if (!databaseReady) return null;
+  if (safetyBackupPromise) return safetyBackupPromise;
 
-      if (currentTime !== (settings.autoBackupTime || "23:50") || lastAutoBackupKey === todayKey) return;
+  safetyBackupPromise = (async () => {
+    const settings = await readAppSettings();
+    if (!settings.autoBackupEnabled) return null;
+    return createBackup(app, {
+      type,
+      message,
+      createdBy: "시스템",
+    });
+  })();
 
-      await createBackup(app, { type: "auto", createdBy: "시스템" });
-      lastAutoBackupKey = todayKey;
-    } catch (error) {
-      console.error("Automatic backup failed", error);
-    }
-  }, 30 * 1000);
+  try {
+    return await safetyBackupPromise;
+  } finally {
+    safetyBackupPromise = null;
+  }
+}
+
+function requestEmergencyBackup(reason, error) {
+  console.error(`Emergency backup requested: ${reason}`, error || "");
+  currentRuntimeFailure = {
+    failureAt: new Date().toISOString(),
+    reason,
+  };
+  return createSafetyBackup(
+    "emergency",
+    `비정상 오류 긴급 백업 - ${toDisplayDate(new Date())} (${reason})`,
+  ).then(async (backup) => {
+    currentRuntimeFailure = {
+      ...currentRuntimeFailure,
+      emergencyBackupId: backup?.id || null,
+    };
+    await writeRuntimeState({
+      clean: false,
+      startedAt: currentRunStartedAt,
+      runtimeFailure: currentRuntimeFailure,
+    });
+    return backup;
+  }).catch(async (backupError) => {
+    console.error("Emergency backup failed", backupError);
+    currentRuntimeFailure = {
+      ...currentRuntimeFailure,
+      backupError: backupError?.message || String(backupError),
+    };
+    await writeRuntimeState({
+      clean: false,
+      startedAt: currentRunStartedAt,
+      runtimeFailure: currentRuntimeFailure,
+    }).catch(() => {});
+    return null;
+  });
 }
 
 // 3. BrowserWindow 생성 관련 기능
@@ -501,6 +644,10 @@ function createWindow() {
     // Packaged app layout: app.asar/public/electron -> app.asar/dist/index.html
     win.loadFile(path.join(__dirname, "../../dist/index.html"));
   }
+
+  win.webContents.on("render-process-gone", (_, details) => {
+    requestEmergencyBackup(`화면 프로세스 종료: ${details.reason}`);
+  });
 }
 
 // 4. IPC 기능
@@ -935,6 +1082,7 @@ function registerIpcHandlers() {
       ok: true,
       backups: await listBackupManifests(settings),
       settings,
+      recoveryNotice: startupRecoveryNotice,
     };
   });
 
@@ -976,7 +1124,13 @@ if (!hasSingleInstanceLock) {
 
       // Electron 시작 시 DB 초기화.
       initializeDatabase(app);
-      scheduleAutoBackup(app);
+      databaseReady = true;
+      const previousRunState = await readRuntimeState();
+      if (previousRunState && (previousRunState.clean === false || previousRunState.runtimeFailure)) {
+        startupRecoveryNotice = previousRunState;
+      }
+      currentRunStartedAt = new Date().toISOString();
+      await writeRuntimeState({ clean: false, startedAt: currentRunStartedAt });
 
       createWindow();
 
@@ -997,9 +1151,55 @@ if (!hasSingleInstanceLock) {
 }
 
 // 6. 종료 처리
+app.on("before-quit", (event) => {
+  if (allowQuit || !databaseReady) return;
+  event.preventDefault();
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+
+  void createSafetyBackup(
+    "shutdown",
+    `앱 종료 시 자동 백업 - ${toDisplayDate(new Date())}`,
+  ).then((backup) => writeRuntimeState({
+    clean: true,
+    startedAt: currentRunStartedAt,
+    closedAt: new Date().toISOString(),
+    shutdownBackupId: backup?.id || null,
+    runtimeFailure: currentRuntimeFailure,
+  })).catch(async (error) => {
+    console.error("Shutdown backup failed", error);
+    await writeRuntimeState({
+      clean: true,
+      startedAt: currentRunStartedAt,
+      closedAt: new Date().toISOString(),
+      backupError: error?.message || String(error),
+    }).catch(() => {});
+  }).finally(() => {
+    closeDatabase();
+    databaseReady = false;
+    allowQuit = true;
+    app.quit();
+  });
+});
+
+app.on("child-process-gone", (_, details) => {
+  requestEmergencyBackup(`보조 프로세스 종료: ${details.type}/${details.reason}`);
+});
+
+process.on("uncaughtException", (error) => {
+  void requestEmergencyBackup("처리되지 않은 프로세스 오류", error).finally(() => {
+    closeDatabase();
+    databaseReady = false;
+    app.exit(1);
+  });
+});
+
+process.on("unhandledRejection", (reason) => {
+  requestEmergencyBackup("처리되지 않은 비동기 오류", reason);
+});
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
-    closeDatabase();
     app.quit();
   }
 });

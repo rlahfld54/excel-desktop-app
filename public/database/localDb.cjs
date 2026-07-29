@@ -3040,6 +3040,23 @@ function backupDatabase(app, destinationPath) {
   return database.backup(destinationPath);
 }
 
+function checkDatabaseIntegrity(databasePath) {
+  let target;
+  try {
+    target = new Database(databasePath, { readonly: true, fileMustExist: true });
+    const results = target.pragma("quick_check");
+    const messages = results.map((row) => String(row.quick_check ?? Object.values(row)[0] ?? ""));
+    return {
+      ok: messages.length > 0 && messages.every((message) => message.toLowerCase() === "ok"),
+      messages,
+    };
+  } catch (error) {
+    return { ok: false, messages: [error?.message || String(error)] };
+  } finally {
+    target?.close();
+  }
+}
+
 function registerDatabaseIpc(ipcMain, app) {
   ipcMain.handle("users:list", () => ({
     ok: true,
@@ -3642,6 +3659,7 @@ function closeDatabase() {
 module.exports = {
   authenticateLocalUser,
   backupDatabase,
+  checkDatabaseIntegrity,
   closeDatabase,
   changeLocalUserPassword,
   getDatabaseForInternalUse: getDatabase,

@@ -288,6 +288,7 @@ export default function UserPreferencesPage() {
           </FormField>
           <FormField label="앱 비밀번호" labelClassName="uppercase text-gray-400 dark:text-gray-500">
             <input className="form-input w-full" type="password" value={mailSettings.gmailAppPassword} onChange={(event) => handleMailSettingChange('gmailAppPassword', event.target.value)} autoComplete="new-password" />
+            <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">Windows 보안 저장소로 암호화되며 로컬 백업에는 포함되지 않습니다.</p>
           </FormField>
           <FormField label="테스트 수신 이메일" labelClassName="uppercase text-gray-400 dark:text-gray-500">
             <input className="form-input w-full" type="email" value={mailSettings.gmailTestEmail} onChange={(event) => handleMailSettingChange('gmailTestEmail', event.target.value)} />

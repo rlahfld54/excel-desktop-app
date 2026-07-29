@@ -24,6 +24,8 @@
     "seed:automotive": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/seed-automotive-data.cjs",
     "seed:automotive:inspect": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/seed-automotive-data.cjs --inspect",
     "verify:sales-query": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/verify-sales-query.cjs",
+    "verify:backup-safety": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/verify-backup-safety.cjs",
+    "verify:safe-storage": "electron scripts/verify-safe-storage.cjs",
     "start": "electron ."
   },
   "dependencies": {

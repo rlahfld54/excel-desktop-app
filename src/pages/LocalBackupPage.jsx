@@ -10,7 +10,6 @@ const fallbackSettings = {
   backupPath: '%ProgramData%/Excel Desktop App/Backup',
   retentionDays: 31,
   autoBackupEnabled: true,
-  autoBackupTime: '23:50',
 };
 
 function formatDate(value) {
@@ -33,24 +32,22 @@ function formatSize(bytes = 0) {
 
 function backupTypeLabel(type) {
   if (type === 'auto') return '자동 백업';
+  if (type === 'shutdown') return '종료 백업';
+  if (type === 'emergency') return '긴급 백업';
   if (type === 'restore_point') return '복구 전 저장';
   return '수동 백업';
 }
 
 function backupTypeClass(type) {
   if (type === 'auto') return 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300';
+  if (type === 'shutdown') return 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300';
+  if (type === 'emergency') return 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300';
   if (type === 'restore_point') return 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300';
   return 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300';
 }
 
-function getYesterdayBackup(backups) {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const key = yesterday.toISOString().slice(0, 10);
-
-  return backups
-    .filter((backup) => backup.createdAt?.slice(0, 10) === key)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+function getLatestSafetyBackup(backups) {
+  return backups.find((backup) => backup.type === 'shutdown' || backup.type === 'emergency');
 }
 
 function MetricCard({ label, value, detail }) {
@@ -122,7 +119,14 @@ export default function LocalBackupPage() {
       setSettings({ ...fallbackSettings, ...(result.settings ?? {}) });
       setBackups(loadedBackups);
       setSelectedBackup((current) => loadedBackups.find((backup) => backup.id === current?.id) ?? loadedBackups[0] ?? null);
-      setStatusText(loadedBackups.length > 0 ? '백업 목록을 불러왔습니다.' : '아직 저장된 백업이 없습니다.');
+      if (result.recoveryNotice) {
+        const backupStatus = (result.recoveryNotice.emergencyBackupId || result.recoveryNotice.runtimeFailure?.emergencyBackupId)
+          ? '긴급 백업이 생성되었습니다.'
+          : '긴급 백업 생성 여부를 확인해 주세요.';
+        setStatusText(`이전 실행이 정상적으로 종료되지 않았습니다. ${backupStatus}`);
+      } else {
+        setStatusText(loadedBackups.length > 0 ? '백업 목록을 불러왔습니다.' : '아직 저장된 백업이 없습니다.');
+      }
     } catch (error) {
       setStatusText(`백업 목록 확인 실패: ${error.message}`);
     } finally {
@@ -146,11 +150,11 @@ export default function LocalBackupPage() {
     ].some((value) => String(value ?? '').toLowerCase().includes(normalizedQuery)));
   }, [backups, params.query]);
 
-  const yesterdayBackup = useMemo(() => getYesterdayBackup(backups), [backups]);
+  const latestSafetyBackup = useMemo(() => getLatestSafetyBackup(backups), [backups]);
 
   const metrics = useMemo(() => [
     { label: '보관 기간', value: '최대 1개월', detail: `${Math.min(settings.retentionDays ?? 31, 31)}일 이후 자동 정리` },
-    { label: '자동 백업', value: settings.autoBackupEnabled ? '켜짐' : '꺼짐', detail: `매일 ${settings.autoBackupTime ?? '23:50'}` },
+    { label: '안전 백업', value: settings.autoBackupEnabled ? '켜짐' : '꺼짐', detail: '앱 종료·오류 발생 시' },
     { label: '백업 위치', value: settings.backupPath?.toLowerCase().includes('programdata') ? 'PC 공용' : '사용자 지정', detail: settings.backupPath },
     { label: '최근 백업', value: backups[0] ? formatDate(backups[0].createdAt) : '-', detail: backups[0]?.message ?? '아직 없음' },
   ], [backups, settings]);
@@ -218,13 +222,13 @@ export default function LocalBackupPage() {
     }
   };
 
-  const handleRestoreYesterday = () => {
-    if (!yesterdayBackup) {
-      setStatusText('어제 날짜의 백업이 없습니다. 매일 23:50 자동 백업 이후부터 사용할 수 있습니다.');
+  const handleRestoreLatestSafety = () => {
+    if (!latestSafetyBackup) {
+      setStatusText('아직 종료 또는 오류 시 생성된 안전 백업이 없습니다.');
       return;
     }
 
-    handleRestore(yesterdayBackup);
+    handleRestore(latestSafetyBackup);
   };
 
   return (
@@ -235,7 +239,7 @@ export default function LocalBackupPage() {
             <p className="text-xs font-semibold uppercase text-accent-600 dark:text-accent-300">Backup timeline</p>
             <p className="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">{statusText}</p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              자동 백업은 매일 23:50에 생성되고, 기본 백업 위치는 이 PC의 공용 ProgramData 폴더입니다.
+              자동 안전 백업은 앱을 종료하거나 오류가 발생할 때 생성되며, 기본 위치는 이 PC의 공용 ProgramData 폴더입니다.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -245,8 +249,8 @@ export default function LocalBackupPage() {
             <Link className="btn btn-secondary" to="/settings/save">
               저장 경로 설정
             </Link>
-            <button className="btn btn-primary" type="button" onClick={handleRestoreYesterday} disabled={isBusy}>
-              어제 기준 복구
+            <button className="btn btn-primary" type="button" onClick={handleRestoreLatestSafety} disabled={isBusy}>
+              최근 안전 백업 복구
             </button>
           </div>
         </div>
@@ -342,7 +346,8 @@ export default function LocalBackupPage() {
           <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
             <h2 className="font-semibold text-gray-900 dark:text-gray-100">운영 규칙</h2>
             <div className="mt-4 space-y-3 text-sm text-gray-600 dark:text-gray-300">
-              <p>매일 23:50에 자동 백업을 생성합니다.</p>
+              <p>앱을 정상 종료할 때 현재 SQLite와 설정을 자동 백업합니다.</p>
+              <p>화면 또는 프로세스 오류 감지 시 기존 백업을 덮어쓰지 않고 긴급 백업을 시도합니다.</p>
               <p>사용자가 남기는 수동 백업은 메모와 생성자를 함께 기록합니다.</p>
               <p>복구 전에는 현재 상태를 자동 저장해 되돌릴 지점을 남깁니다.</p>
               <p>모든 백업은 월 마감 기준에 맞춰 최대 한 달만 보관합니다.</p>

@@ -21,7 +21,6 @@ const fallbackSettings = {
   retentionDays: 31,
   maxBackupSizeMb: 2048,
   autoBackupEnabled: true,
-  autoBackupIntervalMinutes: 30,
   performanceMode: 'LIGHT',
   notificationsEnabled: true,
   desktopNotificationsEnabled: true,
@@ -76,7 +75,7 @@ export default function SaveSettingsPage() {
   const metrics = useMemo(() => [
     { label: '실행 환경', value: window.api?.getAppSettings ? '설치 앱' : '브라우저', detail: '현재 PC의 사용자 경로를 자동 적용' },
     { label: '백업 보관', value: `${settings.retentionDays}일`, detail: `최대 ${settings.maxBackupSizeMb.toLocaleString('ko-KR')}MB 권장` },
-    { label: '자동 백업', value: settings.autoBackupEnabled ? '켜짐' : '꺼짐', detail: `${settings.autoBackupIntervalMinutes}분 간격` },
+    { label: '안전 백업', value: settings.autoBackupEnabled ? '켜짐' : '꺼짐', detail: '앱 종료·오류 발생 시' },
     { label: '백업 범위', value: usesCommonBackupPath ? 'PC 공용' : '사용자 지정', detail: settings.backupPath },
   ], [settings]);
 
@@ -314,26 +313,14 @@ export default function SaveSettingsPage() {
           <div className="mt-4 space-y-4">
             <label className="flex items-center justify-between gap-3 rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700/60">
               <span>
-                <span className="block text-sm font-semibold text-gray-800 dark:text-gray-100">자동 백업</span>
-                <span className="block text-xs text-gray-500 dark:text-gray-400">작업 중 정기 백업</span>
+                <span className="block text-sm font-semibold text-gray-800 dark:text-gray-100">종료·오류 안전 백업</span>
+                <span className="block text-xs text-gray-500 dark:text-gray-400">앱 종료 또는 오류 감지 시에만 실행</span>
               </span>
               <input
                 className="form-checkbox"
                 type="checkbox"
                 checked={settings.autoBackupEnabled}
                 onChange={(event) => updateSetting('autoBackupEnabled', event.target.checked)}
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">자동 백업 간격</span>
-              <input
-                className="form-input mt-2 w-full"
-                min="10"
-                step="5"
-                type="number"
-                value={settings.autoBackupIntervalMinutes}
-                onChange={(event) => updateSetting('autoBackupIntervalMinutes', Number(event.target.value))}
               />
             </label>
 
