@@ -1,3 +1,6 @@
+import { isSharedApiEnabled } from '../config/cloud';
+import { sharedDataService } from '../services/sharedDataService';
+
 export const notificationChangedEvent = 'excel-workspace:notifications-changed';
 let notificationCache = [];
 
@@ -77,12 +80,19 @@ export function markNotificationRead(notificationId) {
   }
 }
 
-export function clearNotifications() {
+export async function clearNotifications() {
+  if (!window.api?.clearNotifications) throw new Error('알림 저장소에 연결할 수 없습니다.');
+
+  const result = await window.api.clearNotifications();
+  if (result?.ok === false) throw new Error(result.message || '로컬 알림을 비우지 못했습니다.');
   writeStoredNotifications([]);
 
-  if (window.api?.clearNotifications) {
-    window.api.clearNotifications()
-      .then(() => refreshNotificationsFromDatabase())
-      .catch(() => {});
+  if (isSharedApiEnabled() && navigator.onLine) {
+    const cloudResult = await sharedDataService.clearCloudNotifications();
+    if (!cloudResult.ok) {
+      throw new Error(`이 PC의 알림은 비웠지만 AWS 동기화 알림 삭제에 실패했습니다: ${cloudResult.message || '알 수 없는 오류'}`);
+    }
   }
+
+  return { deletedCount: result?.deletedCount ?? 0 };
 }

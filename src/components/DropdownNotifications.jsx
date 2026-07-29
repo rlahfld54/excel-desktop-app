@@ -30,6 +30,8 @@ function formatTime(value) {
 function DropdownNotifications({ align }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [notifications, setNotifications] = useState(() => readNotifications());
+  const [clearError, setClearError] = useState('');
+  const [clearing, setClearing] = useState(false);
 
   const trigger = useRef(null);
   const dropdown = useRef(null);
@@ -72,9 +74,18 @@ function DropdownNotifications({ align }) {
     setDropdownOpen(false);
   };
 
-  const handleClear = () => {
-    clearNotifications();
-    setNotifications([]);
+  const handleClear = async () => {
+    setClearing(true);
+    setClearError('');
+    try {
+      await clearNotifications();
+      setNotifications([]);
+    } catch (error) {
+      setClearError(error?.message || '알림을 비우지 못했습니다.');
+      setNotifications(readNotifications());
+    } finally {
+      setClearing(false);
+    }
   };
 
   return (
@@ -114,11 +125,12 @@ function DropdownNotifications({ align }) {
               <p className="mt-1 text-sm font-bold text-gray-900 dark:text-gray-100">작업 진행 상태 {notifications.length.toLocaleString('ko-KR')}건</p>
             </div>
             {notifications.length > 0 && (
-              <button className="rounded-md px-2 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700" type="button" onClick={handleClear}>
-                비우기
+              <button className="rounded-md px-2 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-700" type="button" onClick={handleClear} disabled={clearing}>
+                {clearing ? '비우는 중…' : '비우기'}
               </button>
             )}
           </div>
+          {clearError && <p className="mx-4 mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">{clearError}</p>}
           <ul className="max-h-[420px] overflow-auto no-scrollbar">
             {notifications.length > 0 ? notifications.map((notification) => {
               const content = (

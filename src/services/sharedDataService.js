@@ -19,6 +19,7 @@ export const sharedDataService = {
 
   createBackup: (backup) => requestSharedApi('/backups', { method: 'POST', body: backup }),
   listBackups: (options) => requestSharedApi('/backups', options),
+  clearCloudNotifications: () => requestSharedApi('/notifications', { method: 'DELETE' }),
   importWorkspace: (payload) => requestSharedApi('/migration/import', { method: 'POST', body: payload }),
   syncWorkspace: (payload) => requestSharedApi('/sync/workspace', { method: 'POST', body: payload }),
   downloadWorkspace: (options) => requestSharedApi('/sync/workspace', options),

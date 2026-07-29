@@ -42,7 +42,7 @@ contextBridge.exposeInMainWorld("api", {
   listNotifications: (options) => ipcRenderer.invoke("notifications:list", options),
   addNotification: (payload) => ipcRenderer.invoke("notifications:add", payload),
   markNotificationRead: (notificationId) => ipcRenderer.invoke("notifications:mark-read", notificationId),
-  clearNotifications: () => ipcRenderer.invoke("notifications:clear"),
+  clearNotifications: () => invokeWorkspaceMutation("notifications:clear"),
   getRecentFiles: () => ipcRenderer.invoke("recent-files:get"),
   getMasterData: () => ipcRenderer.invoke("master-data:get"),
   queryContacts: (options) => ipcRenderer.invoke("contacts:query", options),

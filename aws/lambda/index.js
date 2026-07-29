@@ -325,10 +325,23 @@ function fileExtension(value) {
   return String(value || '').split('.').pop().trim().toLowerCase();
 }
 
-async function cloudFiles(method, path, body, actor) {
+async function cloudFiles(method, path, body, actor, role) {
   const bucket = requiredEnv('S3_BUCKET');
+  const isAdmin = String(role || '').toUpperCase() === 'ADMIN';
+  const findAvailableFile = async (key) => {
+    const query = isAdmin
+      ? ['SELECT * FROM cloud_files WHERE object_key = $1 AND status = $2', [key, 'AVAILABLE']]
+      : ['SELECT * FROM cloud_files WHERE object_key = $1 AND uploaded_by = $2 AND status = $3', [key, actor, 'AVAILABLE']];
+    const result = await getPool().query(query[0], query[1]);
+    return result.rows[0];
+  };
   if (method === 'GET') {
-    const result = await getPool().query('SELECT * FROM cloud_files WHERE uploaded_by = $1 ORDER BY uploaded_at DESC, file_id DESC', [actor]);
+    const result = await getPool().query(
+      isAdmin
+        ? "SELECT * FROM cloud_files WHERE status = 'AVAILABLE' ORDER BY uploaded_at DESC, file_id DESC"
+        : "SELECT * FROM cloud_files WHERE uploaded_by = $1 AND status = 'AVAILABLE' ORDER BY uploaded_at DESC, file_id DESC",
+      isAdmin ? [] : [actor],
+    );
     return response(200, { files: result.rows.map(toClientRecord) });
   }
   if (method === 'POST' && path === '/files/presign') {
@@ -351,9 +364,8 @@ async function cloudFiles(method, path, body, actor) {
     return response(201, { file: toClientRecord(result.rows[0]) });
   }
   if (method === 'POST' && path === '/files/download-url') {
-    const result = await getPool().query('SELECT * FROM cloud_files WHERE object_key = $1 AND uploaded_by = $2 AND status = $3', [body.key, actor, 'AVAILABLE']);
-    if (!result.rows[0]) throw httpError(404, '파일을 찾을 수 없습니다.');
-    const file = result.rows[0];
+    const file = await findAvailableFile(body.key);
+    if (!file) throw httpError(404, '파일을 찾을 수 없습니다.');
     const extension = safeFileName(file.file_name).split('.').pop().replace(/[^a-zA-Z0-9]/g, '') || 'bin';
     const encodedFileName = encodeRfc5987FileName(file.file_name);
     const contentDisposition = `attachment; filename="download.${extension}"; filename*=UTF-8''${encodedFileName}`;
@@ -366,14 +378,20 @@ async function cloudFiles(method, path, body, actor) {
     return response(200, { downloadUrl, expiresIn: 900 });
   }
   if (method === 'DELETE' && path === '/files') {
-    const result = await getPool().query('SELECT * FROM cloud_files WHERE object_key = $1 AND uploaded_by = $2 AND status = $3', [body.key, actor, 'AVAILABLE']);
-    const file = result.rows[0];
+    const file = await findAvailableFile(body.key);
     if (!file) throw httpError(404, '파일을 찾을 수 없습니다.');
     await getS3().send(new DeleteObjectCommand({ Bucket: bucket, Key: file.object_key }));
     await getPool().query("UPDATE cloud_files SET status = 'DELETED' WHERE file_id = $1", [file.file_id]);
     return response(200, { deleted: true, key: file.object_key });
   }
   return response(405, { message: 'Method not allowed.' });
+}
+
+async function clearNotifications(actor) {
+  const result = await getPool().query(
+    "DELETE FROM local_sync_records WHERE record_table = 'notifications'",
+  );
+  return response(200, { deleted: true, deletedCount: result.rowCount, clearedBy: actor });
 }
 
 async function saveExtendedWorkspace(client, source, actor) {
@@ -552,14 +570,16 @@ exports.handler = async (event) => {
     if (method === 'POST' && path === '/auth/signup') return await signup(parseBody(event));
     if (method === 'POST' && path === '/auth/login') return await login(parseBody(event));
 
-    const actor = String(authenticate(headers).sub);
+    const claims = authenticate(headers);
+    const actor = String(claims.sub);
     const body = parseBody(event);
     if (method === 'PATCH' && path === '/users/me') return await updateMyProfile(body, actor);
     if (path === '/contacts' || path.startsWith('/contacts/')) return await contacts(method, path, body, actor);
     if (path === '/closing-companies' || path.startsWith('/closing-companies/')) return await closingCompanies(method, path, body, actor, query);
     if (path === '/todos' || path.startsWith('/todos/')) return await todos(method, path, body, actor);
     if (path === '/backups') return await backups(method, body, actor);
-    if (path === '/files' || path === '/files/presign' || path === '/files/complete' || path === '/files/download-url') return await cloudFiles(method, path, body, actor);
+    if (method === 'DELETE' && path === '/notifications') return await clearNotifications(actor);
+    if (path === '/files' || path === '/files/presign' || path === '/files/complete' || path === '/files/download-url') return await cloudFiles(method, path, body, actor, claims.role);
     if (path === '/sync/workspace') return await syncWorkspace(method, body, actor);
     if (method === 'POST' && path === '/migration/import') return await migrateWorkspace(body, actor);
     return response(404, { message: 'Route not found.' });

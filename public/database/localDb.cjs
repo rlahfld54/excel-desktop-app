@@ -3309,8 +3309,8 @@ function registerDatabaseIpc(ipcMain, app) {
 
   ipcMain.handle("notifications:clear", () => {
     const database = getDatabase(app);
-    database.prepare("DELETE FROM notifications").run();
-    return { ok: true };
+    const result = database.prepare("DELETE FROM notifications").run();
+    return { ok: true, deletedCount: result.changes };
   });
 
   ipcMain.handle("recent-files:get", () => {
