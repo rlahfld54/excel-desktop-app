@@ -104,6 +104,7 @@ export default function AwsFileStoragePage() {
   const [files, setFiles] = useState([]);
   const [query, setQuery] = useState('');
   const [currentFolder, setCurrentFolder] = useState('');
+  const [uploadDestination, setUploadDestination] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('이미지·문서·압축파일·미디어 등 필요한 파일을 AWS에 보관할 수 있습니다. 실행 파일과 스크립트는 제외됩니다.');
 
@@ -128,6 +129,16 @@ export default function AwsFileStoragePage() {
     return folderContents(files, currentFolder);
   }, [files, currentFolder, filteredFiles, query]);
   const crumbs = useMemo(() => breadcrumbParts(currentFolder), [currentFolder]);
+  const uploadDestinations = useMemo(() => {
+    const folders = new Set();
+    files.forEach((file) => {
+      const parts = pathSegments(storagePath(file)).slice(0, -1);
+      parts.forEach((_, index) => folders.add(parts.slice(0, index + 1).join('/')));
+    });
+    return [...folders].sort((left, right) => left.localeCompare(right, 'ko-KR'));
+  }, [files]);
+
+  const destinationLabel = uploadDestination || '내 기본 폴더';
 
   const upload = async () => {
     if (!window.api?.chooseFiles || !window.api?.readFileBase64) return setMessage('Electron 데스크톱 앱에서만 업로드할 수 있습니다.');
@@ -145,7 +156,7 @@ export default function AwsFileStoragePage() {
           const local = await window.api.readFileBase64(filePath);
           if (!local?.ok) throw new Error(local?.message || '파일을 읽지 못했습니다.');
           setMessage(`AWS 업로드 중: ${completedCount + 1}/${selectedPaths.length} · ${local.fileName}`);
-          const presign = await sharedDataService.presignCloudFile({ fileName: local.fileName, contentType: contentType(local.fileName), sizeBytes: local.sizeBytes });
+          const presign = await sharedDataService.presignCloudFile({ fileName: local.fileName, destinationPath: uploadDestination, contentType: contentType(local.fileName), sizeBytes: local.sizeBytes });
           if (!presign.ok) throw new Error(presign.message || '업로드 주소 생성에 실패했습니다.');
           const binary = Uint8Array.from(atob(local.base64), (character) => character.charCodeAt(0));
           const uploaded = await fetch(presign.data.uploadUrl, { method: 'PUT', headers: { 'Content-Type': contentType(local.fileName) }, body: binary });
@@ -157,7 +168,7 @@ export default function AwsFileStoragePage() {
       }
       await loadFiles();
       const blockedText = blockedCount ? ` · 보안상 ${blockedCount}개 제외` : '';
-      setMessage(failed.length ? `${completedCount}개 업로드 완료${blockedText} · ${failed.length}개 실패: ${failed.join(' / ')}` : `${completedCount}개 파일을 AWS에 보관했습니다.${blockedText}`);
+      setMessage(failed.length ? `${completedCount}개 업로드 완료${blockedText} · ${failed.length}개 실패: ${failed.join(' / ')}` : `${completedCount}개 파일을 “${destinationLabel}”에 보관했습니다.${blockedText}`);
     } catch (error) {
       setMessage(`업로드 실패: ${error.message}`);
     } finally { setBusy(false); }
@@ -179,7 +190,7 @@ export default function AwsFileStoragePage() {
           const local = await window.api.readFileBase64(selectedFile);
           if (!local?.ok) throw new Error(local?.message || '파일을 읽지 못했습니다.');
           setMessage(`폴더 업로드 중: ${completedCount + 1}/${selectedFiles.length} · ${local.fileName}`);
-          const presign = await sharedDataService.presignCloudFile({ fileName: local.fileName, contentType: contentType(local.fileName), sizeBytes: local.sizeBytes });
+          const presign = await sharedDataService.presignCloudFile({ fileName: local.fileName, destinationPath: uploadDestination, contentType: contentType(local.fileName), sizeBytes: local.sizeBytes });
           if (!presign.ok) throw new Error(presign.message || '업로드 주소 생성에 실패했습니다.');
           const binary = Uint8Array.from(atob(local.base64), (character) => character.charCodeAt(0));
           const uploaded = await fetch(presign.data.uploadUrl, { method: 'PUT', headers: { 'Content-Type': contentType(local.fileName) }, body: binary });
@@ -192,7 +203,7 @@ export default function AwsFileStoragePage() {
       await loadFiles();
       const skippedCount = Number(picked.skippedCount || 0) + blockedCount;
       const skippedText = skippedCount ? ` · 보안상 ${skippedCount}개 파일 제외` : '';
-      setMessage(failed.length ? `${completedCount}개 업로드 완료${skippedText} · ${failed.length}개 실패: ${failed.join(' / ')}` : `${completedCount}개 파일을 폴더 구조와 함께 AWS에 보관했습니다.${skippedText}`);
+      setMessage(failed.length ? `${completedCount}개 업로드 완료${skippedText} · ${failed.length}개 실패: ${failed.join(' / ')}` : `${completedCount}개 파일을 “${destinationLabel}”에 폴더 구조와 함께 보관했습니다.${skippedText}`);
     } catch (error) {
       setMessage(`폴더 업로드 실패: ${error.message}`);
     } finally { setBusy(false); }
@@ -241,6 +252,14 @@ export default function AwsFileStoragePage() {
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">이미지·문서·압축파일·미디어 등 지원 · 파일당 최대 100MB · 폴더 업로드 시 하위 폴더 구조도 보존(빈 폴더 제외) · 실행 파일/스크립트 제외</p>
           </div>
           <div className="flex flex-wrap gap-2"><button className="btn btn-secondary" type="button" disabled={busy} onClick={loadFiles}>새로고침</button><button className="btn btn-secondary" type="button" disabled={busy} onClick={uploadFolder}>{busy ? '작업 중…' : '폴더 업로드'}</button><button className="btn btn-primary" type="button" disabled={busy} onClick={upload}>{busy ? '작업 중…' : '파일 업로드'}</button></div>
+        </div>
+        <div className="mt-4 flex flex-col gap-2 rounded-lg border border-teal-100 bg-teal-50/60 p-3 sm:flex-row sm:items-center dark:border-teal-500/20 dark:bg-teal-500/10">
+          <label className="shrink-0 text-sm font-semibold text-gray-700 dark:text-gray-200" htmlFor="aws-upload-destination">업로드 위치</label>
+          <select id="aws-upload-destination" className="form-select min-w-0 flex-1" value={uploadDestination} disabled={busy} onChange={(event) => setUploadDestination(event.target.value)}>
+            <option value="">내 기본 폴더</option>
+            {uploadDestinations.map((folder) => <option key={folder} value={folder}>📁 {folder}</option>)}
+          </select>
+          {currentFolder && <button className="btn btn-secondary shrink-0" type="button" disabled={busy} onClick={() => setUploadDestination(currentFolder)}>현재 폴더 선택</button>}
         </div>
         <div className="mt-5 flex flex-col gap-3 sm:flex-row"><input className="form-input flex-1" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="파일명 또는 경로로 검색" /><p className="shrink-0 self-center text-sm text-gray-500">{filteredFiles.length}개 파일</p></div>
         <p className="mt-4 rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:bg-gray-900 dark:text-gray-200">{message}</p>

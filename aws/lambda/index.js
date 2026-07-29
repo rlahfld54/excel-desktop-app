@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
-const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 let pool;
@@ -328,6 +328,8 @@ function fileExtension(value) {
 async function cloudFiles(method, path, body, actor, role) {
   const bucket = requiredEnv('S3_BUCKET');
   const isAdmin = String(role || '').toUpperCase() === 'ADMIN';
+  const keyPrefix = isAdmin ? 'user-files/' : `user-files/${actor}/`;
+  const canAccessKey = (key) => String(key || '').startsWith(keyPrefix);
   const findAvailableFile = async (key) => {
     const query = isAdmin
       ? ['SELECT * FROM cloud_files WHERE object_key = $1 AND status = $2', [key, 'AVAILABLE']]
@@ -335,14 +337,65 @@ async function cloudFiles(method, path, body, actor, role) {
     const result = await getPool().query(query[0], query[1]);
     return result.rows[0];
   };
-  if (method === 'GET') {
-    const result = await getPool().query(
+
+  const fileNameFromObjectKey = (key) => {
+    const parts = String(key || '').split('/').filter(Boolean);
+    const relativeParts = parts.slice(2);
+    if (!relativeParts.length) return 'file';
+    const baseName = relativeParts.pop().replace(/^\d{10,}-[a-z0-9]{6,}-/i, '');
+    return [...relativeParts, baseName].join('/');
+  };
+
+  const listS3Files = async () => {
+    const metadataResult = await getPool().query(
       isAdmin
-        ? "SELECT * FROM cloud_files WHERE status = 'AVAILABLE' ORDER BY uploaded_at DESC, file_id DESC"
-        : "SELECT * FROM cloud_files WHERE uploaded_by = $1 AND status = 'AVAILABLE' ORDER BY uploaded_at DESC, file_id DESC",
+        ? "SELECT * FROM cloud_files WHERE status = 'AVAILABLE'"
+        : "SELECT * FROM cloud_files WHERE uploaded_by = $1 AND status = 'AVAILABLE'",
       isAdmin ? [] : [actor],
     );
-    return response(200, { files: result.rows.map(toClientRecord) });
+    const metadataByKey = new Map(metadataResult.rows.map((row) => [row.object_key, row]));
+    const objects = [];
+    let continuationToken;
+    do {
+      const page = await getS3().send(new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: keyPrefix,
+        ContinuationToken: continuationToken,
+      }));
+      objects.push(...(page.Contents || []).filter((item) => item.Key && !item.Key.endsWith('/')));
+      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (continuationToken);
+
+    return objects.map((item) => {
+      const saved = metadataByKey.get(item.Key);
+      if (saved) return toClientRecord(saved);
+      const owner = String(item.Key).split('/')[1] || actor;
+      return {
+        fileId: `s3-${item.Key}`,
+        objectKey: item.Key,
+        fileName: fileNameFromObjectKey(item.Key),
+        contentType: 'application/octet-stream',
+        sizeBytes: Number(item.Size || 0),
+        uploadedBy: owner,
+        uploadedAt: item.LastModified || new Date().toISOString(),
+        status: 'AVAILABLE',
+      };
+    }).sort((left, right) => String(right.uploadedAt).localeCompare(String(left.uploadedAt)));
+  };
+
+  const resolveFile = async (key) => {
+    if (!canAccessKey(key)) throw httpError(403, '파일 접근 권한이 없습니다.');
+    const saved = await findAvailableFile(key);
+    if (saved) return saved;
+    return {
+      object_key: key,
+      file_name: fileNameFromObjectKey(key),
+      content_type: 'application/octet-stream',
+      uploaded_by: String(key).split('/')[1] || actor,
+    };
+  };
+  if (method === 'GET') {
+    return response(200, { files: await listS3Files() });
   }
   if (method === 'POST' && path === '/files/presign') {
     const fileName = safeFilePath(body.fileName);
@@ -352,20 +405,25 @@ async function cloudFiles(method, path, body, actor, role) {
     if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > 100 * 1024 * 1024) throw httpError(400, '파일 크기는 100MB 이하만 허용됩니다.');
     const fileParts = fileName.split('/');
     const baseName = fileParts.pop();
-    const folderPath = fileParts.length ? `${fileParts.join('/')}/` : '';
-    const key = `user-files/${actor}/${folderPath}${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${baseName}`;
+    const uploadedFolderPath = fileParts.length ? `${fileParts.join('/')}/` : '';
+    const requestedDestination = String(body.destinationPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const destinationPath = requestedDestination ? safeFilePath(requestedDestination) : '';
+    if (!isAdmin && destinationPath && destinationPath !== actor && !destinationPath.startsWith(`${actor}/`)) {
+      throw httpError(403, '자신의 AWS 폴더에만 업로드할 수 있습니다.');
+    }
+    const destinationPrefix = destinationPath || actor;
+    const key = `user-files/${destinationPrefix}/${uploadedFolderPath}${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${baseName}`;
     const command = new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: body.contentType || 'application/octet-stream' });
     const uploadUrl = await getSignedUrl(getS3(), command, { expiresIn: 900 });
     return response(200, { uploadUrl, key, fileName, contentType: body.contentType || 'application/octet-stream', expiresIn: 900 });
   }
   if (method === 'POST' && path === '/files/complete') {
-    if (!String(body.key || '').startsWith(`user-files/${actor}/`)) throw httpError(403, '파일 소유자가 아닙니다.');
+    if (!canAccessKey(body.key)) throw httpError(403, '파일 소유자가 아닙니다.');
     const result = await getPool().query(`INSERT INTO cloud_files (object_key,file_name,content_type,size_bytes,uploaded_by) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (object_key) DO UPDATE SET size_bytes=EXCLUDED.size_bytes,status='AVAILABLE' RETURNING *`, [body.key, safeFilePath(body.fileName), body.contentType || 'application/octet-stream', Number(body.sizeBytes || 0), actor]);
     return response(201, { file: toClientRecord(result.rows[0]) });
   }
   if (method === 'POST' && path === '/files/download-url') {
-    const file = await findAvailableFile(body.key);
-    if (!file) throw httpError(404, '파일을 찾을 수 없습니다.');
+    const file = await resolveFile(body.key);
     const extension = safeFileName(file.file_name).split('.').pop().replace(/[^a-zA-Z0-9]/g, '') || 'bin';
     const encodedFileName = encodeRfc5987FileName(file.file_name);
     const contentDisposition = `attachment; filename="download.${extension}"; filename*=UTF-8''${encodedFileName}`;
@@ -378,10 +436,9 @@ async function cloudFiles(method, path, body, actor, role) {
     return response(200, { downloadUrl, expiresIn: 900 });
   }
   if (method === 'DELETE' && path === '/files') {
-    const file = await findAvailableFile(body.key);
-    if (!file) throw httpError(404, '파일을 찾을 수 없습니다.');
+    const file = await resolveFile(body.key);
     await getS3().send(new DeleteObjectCommand({ Bucket: bucket, Key: file.object_key }));
-    await getPool().query("UPDATE cloud_files SET status = 'DELETED' WHERE file_id = $1", [file.file_id]);
+    if (file.file_id) await getPool().query("UPDATE cloud_files SET status = 'DELETED' WHERE file_id = $1", [file.file_id]);
     return response(200, { deleted: true, key: file.object_key });
   }
   return response(405, { message: 'Method not allowed.' });
