@@ -252,7 +252,7 @@ function App() {
     );
   }
 
-  if (!setupState.completed && location.pathname !== '/setup' && location.pathname !== '/login') {
+  if (!setupState.completed && !['/', '/setup', '/login'].includes(location.pathname)) {
     return <Navigate to={isSharedApiEnabled() ? '/login' : '/setup'} replace />;
   }
 

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import Logo from '../images/logo.svg';
-import { cloudConfig, isSharedApiEnabled } from '../config/cloud';
+import { cloudConfig, isSharedApiEnabled, setSharedApiBaseUrl } from '../config/cloud';
 import { saveUsers } from '../utils/authSession';
 
 const steps = [
@@ -66,6 +66,9 @@ export default function SetupPage() {
         ...current,
         apiBaseUrl: result.settings?.cloudApiBaseUrl ?? '',
       }));
+      if (result.settings?.cloudApiBaseUrl) {
+        setSharedApiBaseUrl(result.settings.cloudApiBaseUrl);
+      }
     }
     loadStatus().catch((error) => setMessage(error.message));
   }, []);
@@ -73,6 +76,15 @@ export default function SetupPage() {
   const databaseCounts = useMemo(() => status?.database?.coreCounts ?? {}, [status]);
   const hasExistingUser = Number(databaseCounts.users) > 0;
   const usesSharedLogin = isSharedApiEnabled();
+
+  const handleBack = () => {
+    if (step > 0) {
+      setMessage('');
+      setStep((current) => current - 1);
+      return;
+    }
+    navigate('/', { replace: true });
+  };
 
   const handleRegister = async () => {
     setMessage('');
@@ -94,6 +106,24 @@ export default function SetupPage() {
     } finally {
       setIsBusy(false);
     }
+  };
+
+  const handleExistingAccount = () => {
+    setMessage('');
+    const apiBaseUrl = setSharedApiBaseUrl(cloud.apiBaseUrl || cloudConfig.apiBaseUrl);
+    if (!apiBaseUrl) {
+      setMessage('기존 계정에 연결할 AWS API 주소를 입력해 주세요.');
+      return;
+    }
+
+    try {
+      new URL(apiBaseUrl);
+    } catch {
+      setMessage('올바른 AWS API 주소를 입력해 주세요.');
+      return;
+    }
+
+    navigate('/login', { replace: true, state: { from: '/dashboard', firstDeviceLogin: true } });
   };
 
   const handleDownload = async () => {
@@ -131,13 +161,23 @@ export default function SetupPage() {
   return (
     <main className="min-h-screen bg-[linear-gradient(135deg,#e8faf5_0%,#eef7ff_48%,#fff7df_100%)] px-5 py-8 text-gray-950 dark:bg-[linear-gradient(135deg,#052820_0%,#071f34_52%,#2b2208_100%)] dark:text-white">
       <div className="mx-auto w-full max-w-5xl">
-        <header className="mb-6 flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-white bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
-            <img className="h-7 w-7" src={Logo} alt="" />
-          </span>
-          <div>
-            <p className="font-bold">Excel Desktop App</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">처음 사용 설정</p>
+        <header className="mb-6 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-white bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+              <img className="h-7 w-7" src={Logo} alt="" />
+            </span>
+            <div>
+              <p className="font-bold">Excel Desktop App</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">처음 사용 설정</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="btn btn-secondary h-10 px-4" type="button" onClick={handleBack}>
+              뒤로가기
+            </button>
+            <button className="btn btn-secondary h-10 px-4" type="button" onClick={() => navigate('/', { replace: true })}>
+              홈으로
+            </button>
           </div>
         </header>
 
@@ -181,6 +221,26 @@ export default function SetupPage() {
                 <p className="mt-3 text-sm leading-6 text-gray-500 dark:text-gray-400">
                   첫 계정은 이 PC의 관리자 계정으로 SQLite에 저장됩니다. AWS 계정과 같은 아이디를 사용하면 온라인·오프라인 전환이 자연스럽습니다.
                 </p>
+                <div className="mt-6 rounded-2xl border border-teal-200 bg-teal-50 p-5 dark:border-teal-500/30 dark:bg-teal-500/10">
+                  <p className="font-bold text-teal-900 dark:text-teal-100">이미 사용 중인 AWS 계정이 있나요?</p>
+                  <p className="mt-1 text-sm leading-6 text-teal-800/80 dark:text-teal-100/70">
+                    새 계정을 만들지 않고 로그인하면 기존 계정과 업무 데이터를 이 PC로 내려받습니다.
+                  </p>
+                  {!cloudConfig.apiBaseUrl && (
+                    <label className="mt-4 block">
+                      <span className="mb-2 block text-sm font-semibold">AWS API 주소</span>
+                      <input
+                        className="form-input w-full bg-white dark:bg-gray-900"
+                        value={cloud.apiBaseUrl}
+                        onChange={(event) => setCloud({ ...cloud, apiBaseUrl: event.target.value })}
+                        placeholder="https://api.example.com"
+                      />
+                    </label>
+                  )}
+                  <button className="btn btn-secondary mt-4 h-11" type="button" onClick={handleExistingAccount}>
+                    기존 AWS 계정으로 로그인
+                  </button>
+                </div>
                 <div className="mt-7 grid gap-4 sm:grid-cols-2">
                   <label className="block">
                     <span className="mb-2 block text-sm font-semibold">로그인 아이디</span>

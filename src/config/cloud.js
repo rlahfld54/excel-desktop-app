@@ -12,6 +12,24 @@ export const cloudConfig = {
   backupRegion: import.meta.env.VITE_SHARED_BACKUP_REGION ?? 'ap-northeast-2',
 };
 
+const runtimeApiBaseUrlKey = 'excel-workspace:shared-api-base-url';
+
+export function getSharedApiBaseUrl() {
+  const runtimeValue = typeof window !== 'undefined'
+    ? window.localStorage.getItem(runtimeApiBaseUrlKey)
+    : '';
+  return String(runtimeValue || cloudConfig.apiBaseUrl || '').trim().replace(/\/$/, '');
+}
+
+export function setSharedApiBaseUrl(value) {
+  const normalized = String(value ?? '').trim().replace(/\/$/, '');
+  if (typeof window !== 'undefined') {
+    if (normalized) window.localStorage.setItem(runtimeApiBaseUrlKey, normalized);
+    else window.localStorage.removeItem(runtimeApiBaseUrlKey);
+  }
+  return normalized;
+}
+
 export function isSharedApiEnabled() {
-  return Boolean(cloudConfig.apiBaseUrl);
+  return Boolean(getSharedApiBaseUrl());
 }

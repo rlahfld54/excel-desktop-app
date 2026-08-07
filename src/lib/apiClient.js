@@ -1,9 +1,9 @@
-import { cloudConfig, isSharedApiEnabled } from '../config/cloud';
+import { cloudConfig, getSharedApiBaseUrl, isSharedApiEnabled } from '../config/cloud';
 import { getSession } from '../utils/authSession';
 
 function buildUrl(path, query) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const url = new URL(`${cloudConfig.apiBaseUrl}${normalizedPath}`);
+  const url = new URL(`${getSharedApiBaseUrl()}${normalizedPath}`);
 
   Object.entries(query ?? {}).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
