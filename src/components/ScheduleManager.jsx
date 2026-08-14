@@ -42,8 +42,8 @@ function ItemModal({ draft, onChange, onClose, onSubmit, onDelete }) {
   if (!draft) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/40 px-4">
-      <div className="w-full max-w-2xl rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-gray-950/40 px-4 py-4">
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-700/60">
           <div>
             <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
@@ -56,7 +56,7 @@ function ItemModal({ draft, onChange, onClose, onSubmit, onDelete }) {
           <button className="btn btn-secondary" type="button" onClick={onClose}>닫기</button>
         </div>
 
-        <form className="space-y-4 p-5" onSubmit={onSubmit}>
+        <form className="min-h-0 space-y-4 overflow-y-auto p-5" onSubmit={onSubmit}>
           <div className="grid gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
             <label className="block">
               <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">종류</span>
@@ -122,7 +122,43 @@ function TypeBadge({ type }) {
   );
 }
 
-function TodayAgenda({ items, onAddSchedule, onAddTodo, onEdit, onToggle }) {
+function AgendaList({ items, emptyText, onEdit, onToggle }) {
+  return (
+    <div className="mt-4 max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+      {items.map((item) => {
+        const meta = priorityMeta[item.priority] ?? priorityMeta.LOW;
+
+        return (
+          <article key={item.id} className="rounded-lg border border-gray-100 bg-white px-3 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+            <div className="flex items-start gap-3">
+              {item.itemType !== 'SCHEDULE' && (
+                <input
+                  className="form-checkbox mt-1 h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                  type="checkbox"
+                  checked={item.done}
+                  onChange={(event) => onToggle(item.id, event.target.checked)}
+                  aria-label={`${item.title} 완료`}
+                />
+              )}
+              <button className="min-w-0 flex-1 text-left" type="button" onClick={() => onEdit(item)}>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <TypeBadge type={item.itemType || 'TODO'} />
+                  <span className={`rounded border px-1.5 py-0.5 text-[11px] font-bold ${meta.className}`}>{meta.label}</span>
+                  {item.reminderAt && <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[11px] font-bold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">{item.reminderAt}</span>}
+                </div>
+                <p className={`mt-2 font-bold ${item.done ? 'text-gray-400 line-through dark:text-gray-500' : 'text-gray-900 dark:text-gray-100'}`}>{item.title}</p>
+                {item.detail && <p className="mt-1 line-clamp-2 text-sm text-gray-500 dark:text-gray-400">{item.detail}</p>}
+              </button>
+            </div>
+          </article>
+        );
+      })}
+      {items.length === 0 && <p className="rounded-lg border border-dashed border-gray-300 px-3 py-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">{emptyText}</p>}
+    </div>
+  );
+}
+
+function TodayAgenda({ items, onEdit, onToggle }) {
   const todayKey = getTodayKey();
   const todayItems = items
     .filter((item) => item.dueDate === todayKey)
@@ -130,19 +166,9 @@ function TodayAgenda({ items, onAddSchedule, onAddTodo, onEdit, onToggle }) {
 
   return (
     <section className="rounded-lg border border-teal-100 bg-teal-50/70 p-4 shadow-xs dark:border-teal-500/20 dark:bg-teal-500/10">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase text-teal-700 dark:text-teal-300">오늘의 일정</p>
-          <h2 className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">{todayKey} 확인 항목</h2>
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">오늘 처리할 일정과 투두를 먼저 확인하고, 필요한 항목은 바로 수정합니다.</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="btn btn-secondary" type="button" onClick={onAddSchedule}>일정 추가</button>
-          <button className="btn btn-primary" type="button" onClick={onAddTodo}>투두 추가</button>
-        </div>
-      </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+      <div className="mt-4 max-h-64 overflow-y-auto pr-1">
+        <div className="grid gap-3 lg:grid-cols-3">
         {todayItems.map((item) => {
           const meta = priorityMeta[item.priority] ?? priorityMeta.LOW;
           return (
@@ -164,39 +190,33 @@ function TodayAgenda({ items, onAddSchedule, onAddTodo, onEdit, onToggle }) {
             </article>
           );
         })}
-        {todayItems.length === 0 && (
-          <div className="rounded-lg border border-dashed border-teal-200 bg-white/70 p-4 text-sm font-semibold text-gray-500 dark:border-teal-500/30 dark:bg-gray-800/70 dark:text-gray-400 lg:col-span-3">
-            오늘 등록된 일정이나 투두가 없습니다.
-          </div>
-        )}
+          {todayItems.length === 0 && (
+            <div className="rounded-lg border border-dashed border-teal-200 bg-white/70 p-4 text-sm font-semibold text-gray-500 dark:border-teal-500/30 dark:bg-gray-800/70 dark:text-gray-400 lg:col-span-3">
+              오늘 등록된 일정이나 투두가 없습니다.
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );
 }
 
-function ItemTable({ title, description, items, emptyText, filter, onFilterChange, onAdd, onToggle, onEdit, onDelete, showCheckbox = false }) {
+function ItemTable({ items, emptyText, filter, onFilterChange, onToggle, onEdit, onDelete, showCheckbox = false }) {
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-bold text-gray-900 dark:text-gray-100">{title}</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{description}</p>
+    <section className="mt-4">
+      {filter && (
+        <div className="flex justify-end">
+          <select className="form-select h-9 w-28 text-sm" value={filter} onChange={(event) => onFilterChange(event.target.value)}>
+            <option value="OPEN">미완료</option>
+            <option value="DONE">완료</option>
+            <option value="ALL">전체</option>
+          </select>
         </div>
-        <div className="flex gap-2">
-          {filter && (
-            <select className="form-select h-9 w-28 text-sm" value={filter} onChange={(event) => onFilterChange(event.target.value)}>
-              <option value="OPEN">미완료</option>
-              <option value="DONE">완료</option>
-              <option value="ALL">전체</option>
-            </select>
-          )}
-          <button className="btn btn-primary h-9" type="button" onClick={onAdd}>추가</button>
-        </div>
-      </div>
+      )}
 
-      <div className="mt-4 overflow-x-auto" data-table-tools="false">
+      <div className={`${filter ? 'mt-3' : ''} max-h-72 overflow-auto rounded-lg border border-gray-200 bg-white dark:border-gray-700/60 dark:bg-gray-800`} data-table-tools="false">
         <table className="min-w-full text-sm">
-          <thead className="bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900/30 dark:text-gray-400">
+          <thead className="sticky top-0 z-10 bg-gray-50/90 text-left text-xs font-semibold text-gray-500 shadow-[0_1px_0_0_rgba(229,231,235,1)] backdrop-blur dark:bg-gray-900/90 dark:text-gray-400 dark:shadow-[0_1px_0_0_rgba(55,65,81,1)]">
             <tr>
               {showCheckbox && <th className="w-10 px-3 py-2">완료</th>}
               <th className="px-3 py-2">제목</th>
@@ -210,20 +230,20 @@ function ItemTable({ title, description, items, emptyText, filter, onFilterChang
             {items.map((item) => {
               const meta = priorityMeta[item.priority] ?? priorityMeta.LOW;
               return (
-                <tr key={item.id} className={item.done ? 'bg-gray-50/70 dark:bg-gray-900/20' : ''}>
+                <tr key={item.id} className={`transition-colors hover:bg-teal-50/40 dark:hover:bg-teal-500/5 ${item.done ? 'bg-gray-50/70 dark:bg-gray-900/20' : ''}`}>
                   {showCheckbox && (
-                    <td className="px-3 py-3 align-top">
+                    <td className="px-3 py-2.5 align-top">
                       <input className="form-checkbox h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" type="checkbox" checked={item.done} onChange={(event) => onToggle(item.id, event.target.checked)} aria-label={`${item.title} 완료`} />
                     </td>
                   )}
-                  <td className="min-w-64 px-3 py-3 align-top">
+                  <td className="min-w-64 px-3 py-2.5 align-top">
                     <p className={`font-semibold ${item.done ? 'text-gray-400 line-through dark:text-gray-500' : 'text-gray-900 dark:text-gray-100'}`}>{item.title}</p>
-                    <p className="mt-1 text-sm leading-5 text-gray-500 dark:text-gray-400">{item.detail}</p>
+                    {item.detail && <p className="mt-0.5 line-clamp-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{item.detail}</p>}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-3 align-top font-semibold text-gray-600 dark:text-gray-300">{item.dueDate}</td>
-                  <td className="whitespace-nowrap px-3 py-3 align-top"><span className={`rounded border px-1.5 py-0.5 text-[11px] font-bold ${meta.className}`}>{meta.label}</span></td>
-                  <td className="whitespace-nowrap px-3 py-3 align-top text-gray-500 dark:text-gray-400">{item.reminderAt || '-'}</td>
-                  <td className="whitespace-nowrap px-3 py-3 align-top text-right">
+                  <td className="whitespace-nowrap px-3 py-2.5 align-top font-semibold text-gray-600 dark:text-gray-300">{item.dueDate}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 align-top"><span className={`rounded border px-1.5 py-0.5 text-[11px] font-bold ${meta.className}`}>{meta.label}</span></td>
+                  <td className="whitespace-nowrap px-3 py-2.5 align-top text-gray-500 dark:text-gray-400">{item.reminderAt || '-'}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 align-top text-right">
                     <button className="rounded-md px-2 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700" type="button" onClick={() => onEdit(item)}>
                       수정
                     </button>
@@ -255,6 +275,7 @@ export default function ScheduleManager() {
     return { year: now.getFullYear(), month: now.getMonth() };
   });
   const [selectedDate, setSelectedDate] = useState(() => getTodayKey());
+  const [detailView, setDetailView] = useState('selected');
   const [todoFilter, setTodoFilter] = useState('OPEN');
   useEffect(() => {
     let mounted = true;
@@ -293,6 +314,15 @@ export default function ScheduleManager() {
   const sortedSchedules = useMemo(() => (
     [...scheduleItems].sort((a, b) => `${a.dueDate} ${a.reminderAt || '99:99'}`.localeCompare(`${b.dueDate} ${b.reminderAt || '99:99'}`))
   ), [scheduleItems]);
+  const detailMeta = {
+    selected: { label: '선택한 날짜', title: selectedDate, description: '선택한 날짜의 일정, 투두와 완료 기록을 확인합니다.' },
+    today: { label: '오늘 항목', title: `${getTodayKey()} 확인 항목`, description: '오늘 처리하거나 확인할 일정과 투두입니다.' },
+    todos: { label: '투두 목록', title: '투두 테이블', description: '체크 처리해야 하는 업무를 관리합니다.' },
+    schedules: { label: '일정 목록', title: '일정 테이블', description: '회의, 보고, 마감 일정을 확인합니다.' },
+    overdue: { label: '지연 항목', title: '기한이 지난 투두', description: '기한이 지났지만 아직 완료하지 않은 업무입니다.' },
+    history: { label: '체크 기록', title: '체크 기록', description: '투두 완료와 해제 내역을 확인합니다.' },
+  };
+  const activeDetail = detailMeta[detailView];
 
   const refreshState = (nextItems) => {
     setItems(nextItems);
@@ -363,38 +393,25 @@ export default function ScheduleManager() {
   };
 
   return (
-    <div className="space-y-5">
-      <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="font-bold text-gray-900 dark:text-gray-100">일정 범위</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              총무팀 공용 일정과 투두를 한 화면에서 관리합니다.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <TodayAgenda
-        items={items}
-        onAddSchedule={() => openNewModal('SCHEDULE')}
-        onAddTodo={() => openNewModal('TODO')}
-        onEdit={openEditModal}
-        onToggle={handleToggle}
-      />
-
+    <div className="space-y-4">
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {[
-          ['오늘 항목', `${todayItems.length}개`, '오늘 처리하거나 확인할 일정/투두'],
-          ['미완료 투두', `${openTodos.length}개`, '아직 체크되지 않은 업무'],
-          ['일정', `${scheduleItems.length}개`, '달력에 표시되는 일정'],
-          ['지연', `${overdueTodos.length}개`, '기한이 지난 미완료 투두'],
-        ].map(([label, value, detail]) => (
-          <div key={label} className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
+          ['today', '오늘 항목', `${todayItems.length}개`, '오늘 처리하거나 확인할 일정/투두'],
+          ['todos', '미완료 투두', `${openTodos.length}개`, '아직 체크되지 않은 업무'],
+          ['schedules', '일정', `${scheduleItems.length}개`, '달력에 표시되는 일정'],
+          ['overdue', '지연', `${overdueTodos.length}개`, '기한이 지난 미완료 투두'],
+        ].map(([view, label, value, detail]) => (
+          <button
+            key={label}
+            className={`rounded-lg border p-4 text-left shadow-xs transition ${detailView === view ? 'border-teal-400 bg-teal-50 ring-2 ring-teal-100 dark:border-teal-400/70 dark:bg-teal-500/10 dark:ring-teal-500/10' : 'border-gray-200 bg-white hover:border-teal-300 hover:bg-teal-50/50 dark:border-gray-700/60 dark:bg-gray-800 dark:hover:border-teal-500/50 dark:hover:bg-teal-500/10'}`}
+            type="button"
+            onClick={() => setDetailView(view)}
+            aria-pressed={detailView === view}
+          >
             <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">{label}</p>
             <p className="mt-2 text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{detail}</p>
-          </div>
+          </button>
         ))}
       </section>
 
@@ -422,7 +439,7 @@ export default function ScheduleManager() {
         </div>
       </section>
 
-      <div className="grid grid-cols-12 gap-5">
+      <div className="grid grid-cols-12 gap-4 xl:items-start">
         <section className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -447,11 +464,16 @@ export default function ScheduleManager() {
                 role={day ? 'button' : undefined}
                 tabIndex={day ? 0 : undefined}
                 aria-label={day ? `${day.key} 일정 보기` : '빈 날짜'}
-                onClick={() => day && setSelectedDate(day.key)}
+                onClick={() => {
+                  if (!day) return;
+                  setSelectedDate(day.key);
+                  setDetailView('selected');
+                }}
                 onKeyDown={(event) => {
                   if (!day || !['Enter', ' '].includes(event.key)) return;
                   event.preventDefault();
                   setSelectedDate(day.key);
+                  setDetailView('selected');
                 }}
               >
                 {day && (
@@ -491,77 +513,125 @@ export default function ScheduleManager() {
           </div>
         </section>
 
-        <aside className="col-span-12 space-y-5 xl:col-span-6">
-          <section className="rounded-lg border border-sky-200 bg-sky-50/60 p-4 shadow-xs dark:border-sky-500/30 dark:bg-sky-500/10">
+        <aside className="col-span-12 xl:col-span-6 xl:sticky xl:top-4">
+          <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700/60 dark:bg-gray-800">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div><p className="text-xs font-bold uppercase text-sky-700 dark:text-sky-300">선택한 날짜</p><h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">{selectedDate}</h2><p className="mt-1 text-sm text-gray-600 dark:text-gray-300">지난 날짜를 선택해도 당시 일정, 투두, 완료 기록을 확인할 수 있습니다.</p></div>
-              <div className="flex gap-2"><button className="btn btn-secondary h-9" type="button" onClick={() => openNewModal('SCHEDULE', selectedDate)}>일정 추가</button><button className="btn btn-primary h-9" type="button" onClick={() => openNewModal('TODO', selectedDate)}>투두 추가</button></div>
-            </div>
-            <div className="mt-4 space-y-2">
-              {selectedDayItems.map((item) => <button key={item.id} type="button" className="flex w-full items-center justify-between gap-3 rounded-md border border-sky-100 bg-white px-3 py-2 text-left hover:border-sky-300 dark:border-sky-500/20 dark:bg-gray-800" onClick={() => openEditModal(item)}><span className="min-w-0"><span className="mr-2"><TypeBadge type={item.itemType || 'TODO'} /></span><span className={`font-semibold ${item.done ? 'text-gray-400 line-through' : 'text-gray-900 dark:text-gray-100'}`}>{item.title}</span></span><span className="shrink-0 text-xs text-gray-500">{item.reminderAt || (item.done ? '완료' : '종일')}</span></button>)}
-              {selectedDayHistory.map((record) => <p key={record.id} className="rounded-md border border-dashed border-sky-200 px-3 py-2 text-sm text-gray-600 dark:border-sky-500/20 dark:text-gray-300">완료 기록 · {record.title} · {record.done ? '완료' : '완료 해제'}</p>)}
-              {selectedDayItems.length === 0 && selectedDayHistory.length === 0 && <p className="rounded-md border border-dashed border-sky-200 px-3 py-5 text-center text-sm text-gray-500 dark:border-sky-500/30 dark:text-gray-400">이 날짜에 등록되거나 완료 처리된 항목이 없습니다.</p>}
-            </div>
-          </section>
-          <ItemTable
-            title="투두 테이블"
-            description="체크 처리해야 하는 업무만 관리합니다."
-            items={sortedTodos}
-            emptyText="표시할 투두가 없습니다."
-            filter={todoFilter}
-            onFilterChange={setTodoFilter}
-            onAdd={() => openNewModal('TODO')}
-            onToggle={handleToggle}
-            onEdit={openEditModal}
-            onDelete={handleDelete}
-            showCheckbox
-          />
-
-          <ItemTable
-            title="일정 테이블"
-            description="회의, 보고, 마감 일정처럼 시간표에 남길 항목입니다."
-            items={sortedSchedules}
-            emptyText="등록된 일정이 없습니다."
-            onAdd={() => openNewModal('SCHEDULE')}
-            onToggle={handleToggle}
-            onEdit={openEditModal}
-            onDelete={handleDelete}
-          />
-
-          <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-            <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="font-bold text-gray-900 dark:text-gray-100">체크 기록</h2>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">투두 완료/해제 내역을 확인하고, 완료 처리는 되돌릴 수 있습니다.</p>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-teal-700 dark:text-teal-300">상세 보기</p>
+                <h2 className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">{activeDetail.title}</h2>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{activeDetail.description}</p>
               </div>
             </div>
-            <div className="mt-4 max-h-80 space-y-2 overflow-auto no-scrollbar">
-              {history.slice(0, 12).map((record) => {
-                const meta = priorityMeta[record.priority] ?? priorityMeta.LOW;
-                const target = items.find((item) => item.id === record.todoId);
-                const canUndo = record.done && target && target.done && target.itemType !== 'SCHEDULE';
 
-                return (
-                  <div key={record.id} className="rounded-lg border border-gray-100 px-3 py-2 dark:border-gray-700/60">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium text-gray-800 dark:text-gray-100">{record.title}</p>
-                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{new Date(record.changedAt).toLocaleString('ko-KR', { hour12: false })}</p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <span className={`rounded border px-1.5 py-0.5 text-[11px] font-bold ${meta.className}`}>{record.done ? '완료' : '해제'}</span>
-                        {canUndo && (
-                          <button className="rounded-md px-2 py-1 text-xs font-bold text-teal-700 hover:bg-teal-50 dark:text-teal-300 dark:hover:bg-teal-500/10" type="button" onClick={() => handleUndoComplete(record)}>
-                            완료 되돌리기
-                          </button>
-                        )}
-                      </div>
+            <div className="mt-5 flex flex-wrap gap-1.5 border-b border-gray-100 pb-4 dark:border-gray-700/60" role="tablist" aria-label="일정 관리 상세 보기">
+              {[
+                ['selected', '선택 날짜'],
+                ['todos', '투두 목록'],
+                ['schedules', '일정 목록'],
+                ['history', '체크 기록'],
+              ].map(([view, label]) => (
+                <button
+                  key={view}
+                  className={`rounded-md px-3 py-2 text-sm font-semibold transition ${detailView === view ? 'bg-teal-600 text-white shadow-sm shadow-teal-900/15' : 'bg-gray-100 text-gray-600 hover:bg-teal-50 hover:text-teal-800 dark:bg-gray-700/60 dark:text-gray-300 dark:hover:bg-teal-500/10 dark:hover:text-teal-200'}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={detailView === view}
+                  onClick={() => setDetailView(view)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {detailView === 'selected' && (
+              <>
+                <AgendaList
+                  items={selectedDayItems}
+                  emptyText="이 날짜에 등록된 일정이나 투두가 없습니다."
+                  onEdit={openEditModal}
+                  onToggle={handleToggle}
+                />
+                {selectedDayHistory.length > 0 && (
+                  <div className="mt-3 border-t border-sky-200 pt-3 dark:border-sky-500/20">
+                    <p className="text-xs font-bold text-sky-700 dark:text-sky-300">해당 날짜의 체크 기록</p>
+                    <div className="mt-2 space-y-2">
+                      {selectedDayHistory.map((record) => <p key={record.id} className="rounded-md border border-dashed border-sky-200 bg-white/60 px-3 py-2 text-sm text-gray-600 dark:border-sky-500/20 dark:bg-gray-800/60 dark:text-gray-300">완료 기록 · {record.title} · {record.done ? '완료' : '완료 해제'}</p>)}
                     </div>
                   </div>
-                );
-              })}
-              {history.length === 0 && <p className="rounded-lg bg-gray-50 px-3 py-4 text-sm text-gray-500 dark:bg-gray-900/30 dark:text-gray-400">아직 체크 기록이 없습니다.</p>}
-            </div>
+                )}
+              </>
+            )}
+
+            {detailView === 'today' && (
+              <AgendaList
+                items={todayItems}
+                emptyText="오늘 등록된 일정이나 투두가 없습니다."
+                onEdit={openEditModal}
+                onToggle={handleToggle}
+              />
+            )}
+
+            {detailView === 'overdue' && (
+              <AgendaList
+                items={overdueTodos}
+                emptyText="지연된 투두가 없습니다."
+                onEdit={openEditModal}
+                onToggle={handleToggle}
+              />
+            )}
+
+            {detailView === 'todos' && (
+              <ItemTable
+                items={sortedTodos}
+                emptyText="표시할 투두가 없습니다."
+                filter={todoFilter}
+                onFilterChange={setTodoFilter}
+                onToggle={handleToggle}
+                onEdit={openEditModal}
+                onDelete={handleDelete}
+                showCheckbox
+              />
+            )}
+
+            {detailView === 'schedules' && (
+              <ItemTable
+                items={sortedSchedules}
+                emptyText="등록된 일정이 없습니다."
+                onToggle={handleToggle}
+                onEdit={openEditModal}
+                onDelete={handleDelete}
+              />
+            )}
+
+            {detailView === 'history' && (
+              <div className="mt-4 max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+                {history.map((record) => {
+                  const meta = priorityMeta[record.priority] ?? priorityMeta.LOW;
+                  const target = items.find((item) => item.id === record.todoId);
+                  const canUndo = record.done && target && target.done && target.itemType !== 'SCHEDULE';
+
+                  return (
+                    <div key={record.id} className="rounded-lg border border-gray-100 bg-white px-3 py-2 dark:border-gray-700/60 dark:bg-gray-800">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-800 dark:text-gray-100">{record.title}</p>
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{new Date(record.changedAt).toLocaleString('ko-KR', { hour12: false })}</p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className={`rounded border px-1.5 py-0.5 text-[11px] font-bold ${meta.className}`}>{record.done ? '완료' : '해제'}</span>
+                          {canUndo && (
+                            <button className="rounded-md px-2 py-1 text-xs font-bold text-teal-700 hover:bg-teal-50 dark:text-teal-300 dark:hover:bg-teal-500/10" type="button" onClick={() => handleUndoComplete(record)}>
+                              완료 되돌리기
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {history.length === 0 && <p className="rounded-lg border border-dashed border-gray-300 px-3 py-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">아직 체크 기록이 없습니다.</p>}
+              </div>
+            )}
           </section>
         </aside>
       </div>

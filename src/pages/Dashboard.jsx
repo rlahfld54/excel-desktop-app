@@ -203,8 +203,7 @@ function OwnerRiskSummary({ owners }) {
 function TeamTodoList({ todos }) {
   const openTodos = todos
     .filter((todo) => (todo.itemType || 'TODO') === 'TODO' && !todo.done)
-    .sort((left, right) => `${left.dueDate} ${left.priority}`.localeCompare(`${right.dueDate} ${right.priority}`))
-    .slice(0, 6);
+    .sort((left, right) => `${left.dueDate} ${left.priority}`.localeCompare(`${right.dueDate} ${right.priority}`));
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
@@ -215,7 +214,7 @@ function TeamTodoList({ todos }) {
         </div>
         <Link className="btn btn-secondary" to="/schedule/todos">전체 보기</Link>
       </div>
-      <div className="mt-4 space-y-2">
+      <div className="mt-4 max-h-[24rem] space-y-2 overflow-y-auto overscroll-contain pr-1">
         {openTodos.map((todo) => {
           const meta = priorityMeta[todo.priority] ?? priorityMeta.LOW;
 
@@ -275,7 +274,6 @@ function TeamScheduleOverview({ schedules }) {
   const visibleSchedules = schedules
     .filter((schedule) => schedule.itemType === 'SCHEDULE')
     .sort((a, b) => `${a.dueDate} ${a.reminderAt || '99:99'}`.localeCompare(`${b.dueDate} ${b.reminderAt || '99:99'}`))
-    .slice(0, 10)
     .map((schedule) => {
       const date = new Date(`${schedule.dueDate}T00:00:00`);
       return {
@@ -296,24 +294,26 @@ function TeamScheduleOverview({ schedules }) {
         </div>
         <Link className="btn btn-secondary" to="/schedule/todos">일정관리</Link>
       </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-        {visibleSchedules.map((schedule) => (
-          <article key={`${schedule.dueDate}-${schedule.title}`} className={`min-h-32 rounded-md border p-3 ${toneClass[schedule.tone]}`}>
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-xs font-bold opacity-80">{schedule.dayLabel}</p>
-                <p className="text-xl font-bold">{schedule.dateLabel}</p>
+      <div className="mt-4 max-h-[24rem] overflow-y-auto overscroll-contain pr-1">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          {visibleSchedules.map((schedule) => (
+            <article key={`${schedule.dueDate}-${schedule.title}`} className={`min-h-32 rounded-md border p-3 ${toneClass[schedule.tone]}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs font-bold opacity-80">{schedule.dayLabel}</p>
+                  <p className="text-xl font-bold">{schedule.dateLabel}</p>
+                </div>
+                <span className="rounded bg-white/70 px-1.5 py-0.5 text-[11px] font-bold dark:bg-gray-900/30">{schedule.timeLabel}</span>
               </div>
-              <span className="rounded bg-white/70 px-1.5 py-0.5 text-[11px] font-bold dark:bg-gray-900/30">{schedule.timeLabel}</span>
+              <p className="mt-4 text-sm font-bold leading-5">{schedule.title}</p>
+            </article>
+          ))}
+          {visibleSchedules.length === 0 && (
+            <div className="rounded-md border border-dashed border-gray-300 p-4 text-sm font-semibold text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              등록된 총무팀 일정이 없습니다.
             </div>
-            <p className="mt-4 text-sm font-bold leading-5">{schedule.title}</p>
-          </article>
-        ))}
-        {visibleSchedules.length === 0 && (
-          <div className="rounded-md border border-dashed border-gray-300 p-4 text-sm font-semibold text-gray-500 dark:border-gray-700 dark:text-gray-400">
-            등록된 총무팀 일정이 없습니다.
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </section>
   );

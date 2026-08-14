@@ -499,14 +499,6 @@ export default function ClosingWorkspacePage() {
         </div>
       </section>
 
-      <section className="mb-3 flex flex-col gap-3 rounded-lg border border-teal-200 bg-teal-50/70 px-4 py-3 dark:border-teal-500/30 dark:bg-teal-500/10 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="font-bold text-teal-950 dark:text-teal-100">오늘의 마감 보드</p>
-          <p className="mt-1 text-sm text-teal-800 dark:text-teal-200">업체를 선택해 금액·메모를 갱신하고, 발송이 필요하면 발송 큐에서 메일을 준비하세요.</p>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-2"><Link className="btn btn-secondary" to="/closing-workspace/send-queue">발송 큐 열기</Link><Link className="btn btn-secondary" to="/collect/upload-validation">자료 검증</Link></div>
-      </section>
-
       <section className="mb-3 shrink-0 rounded-lg border border-gray-200 bg-white p-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -556,14 +548,14 @@ export default function ClosingWorkspacePage() {
         </div>
       </section>
       
-      <div className="grid grid-cols-12 gap-5">
-        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8" data-table-tools="false">
+      <div className="grid grid-cols-12 gap-5 xl:items-start">
+        <section className="col-span-12 flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8" data-table-tools="false">
           <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <h2 className="font-bold text-gray-900 dark:text-gray-100">업체별 마감 리스트</h2>
           </div>
-          <div className="overflow-x-auto">
+          <div className="min-h-72 max-h-[30rem] overflow-auto overscroll-contain" data-table-tools="false">
             <table className="min-w-full text-sm">
-              <thead className="bg-gray-50 text-left text-xs font-semibold text-gray-500 dark:bg-gray-900/30 dark:text-gray-400">
+              <thead className="sticky top-0 z-10 bg-gray-50 text-left text-xs font-semibold text-gray-500 shadow-[0_1px_0_0_rgba(229,231,235,1)] dark:bg-gray-900 dark:text-gray-400 dark:shadow-[0_1px_0_0_rgba(55,65,81,1)]">
                 <tr>
                   <th className="px-4 py-3">업체</th>
                   <th className="px-4 py-3">담당자</th>
@@ -645,7 +637,7 @@ export default function ClosingWorkspacePage() {
           </div>
         </section>
 
-        <aside className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4">
+        <aside className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto xl:pr-1">
           {!selectedRow ? (
             <div className="flex min-h-72 items-center justify-center text-center text-sm text-gray-500 dark:text-gray-400">
               조회 후 업체를 선택하면 상세 정보가 표시됩니다.
