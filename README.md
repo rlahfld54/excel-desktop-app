@@ -49,7 +49,7 @@
 | AWS | API Gateway, Lambda, RDS PostgreSQL, S3 |
 | Authentication | JWT, bcrypt |
 
-## 주요 화면
+## 주요 화면💖💖💖💖💖💖💖 추천
 
 [화면을 슬라이드로 둘러보기](https://rlahfld54.github.io/excel-desktop-app/showcase/) · [자동 전환 GIF 보기](docs/images/screen-tour.gif)
 
