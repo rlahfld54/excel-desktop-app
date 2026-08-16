@@ -51,6 +51,8 @@
 
 ## 주요 화면
 
+[화면을 슬라이드로 둘러보기](https://rlahfld54.github.io/excel-desktop-app/showcase/) · [자동 전환 GIF 보기](docs/images/screen-tour.gif)
+
 ### 대시보드
 
 업무 현황과 핵심 지표를 한눈에 확인합니다.

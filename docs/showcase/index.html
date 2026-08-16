@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Excel Desktop App 주요 화면 둘러보기" />
+    <title>Excel Desktop App | 주요 화면</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, "Noto Sans KR", system-ui, sans-serif; background: #f3f7f7; color: #102a2a; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 320px; }
+      main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 72px 0 56px; }
+      .eyebrow { margin: 0 0 10px; color: #0f766e; font-size: .82rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+      h1 { margin: 0; font-size: clamp(2rem, 5vw, 3.75rem); letter-spacing: -.055em; }
+      .intro { max-width: 650px; margin: 18px 0 38px; color: #516363; font-size: 1.05rem; line-height: 1.75; }
+      .slider { overflow: hidden; border: 1px solid #d7e3e2; border-radius: 20px; background: #fff; box-shadow: 0 24px 60px rgba(15, 50, 50, .13); }
+      .frame { position: relative; aspect-ratio: 24 / 13; background: #173b3c; }
+      .slide { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity .4s ease; }
+      .slide.active { opacity: 1; pointer-events: auto; }
+      .slide img { width: 100%; height: 100%; object-fit: contain; }
+      .caption { position: absolute; right: 0; bottom: 0; left: 0; z-index: 1; padding: 18px 24px 20px; background: linear-gradient(transparent, rgba(7, 31, 31, .88) 42%); color: #fff; }
+      .caption h2 { margin: 18px 0 0; font-size: 1.2rem; }
+      .caption p { margin: 6px 0 0; color: #e3eeee; }
+      .control { position: absolute; top: calc(50% - 30px); z-index: 2; display: grid; width: 48px; height: 48px; place-items: center; border: 0; border-radius: 999px; background: rgba(5, 28, 28, .72); color: #fff; cursor: pointer; font-size: 1.8rem; }
+      .control:hover, .control:focus-visible { background: #0f766e; outline: 3px solid #99f6e4; outline-offset: 2px; }
+      .previous { left: 18px; } .next { right: 18px; }
+      .bottom { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px 24px; }
+      .dots { display: flex; flex-wrap: wrap; gap: 9px; }
+      .dot { width: 10px; height: 10px; padding: 0; border: 0; border-radius: 999px; background: #b6c5c4; cursor: pointer; }
+      .dot[aria-current="true"] { width: 28px; background: #0f766e; }
+      .pause { border: 1px solid #b9cdcb; border-radius: 8px; background: #fff; padding: 8px 12px; color: #134e4a; cursor: pointer; font: inherit; font-size: .9rem; font-weight: 700; }
+      .pause:hover, .pause:focus-visible { background: #ecfdf5; outline: 3px solid #99f6e4; outline-offset: 2px; }
+      .fallback { margin: 24px 0 0; color: #516363; text-align: center; }
+      .fallback a { color: #0f766e; font-weight: 700; }
+      @media (max-width: 640px) { main { width: min(100% - 24px, 1180px); padding-top: 42px; } .control { width: 40px; height: 40px; font-size: 1.5rem; } .previous { left: 10px; } .next { right: 10px; } .caption { padding: 14px 16px 16px; } .bottom { padding: 16px; } }
+      @media (prefers-reduced-motion: reduce) { .slide { transition: none; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Excel Desktop App</p>
+      <h1>주요 화면 둘러보기</h1>
+      <p class="intro">매출 검증부터 업체 마감, 로컬 백업과 AWS 파일 보관까지 하나의 데스크톱 업무 흐름으로 확인하세요.</p>
+
+      <section class="slider" aria-roledescription="carousel" aria-label="Excel Desktop App 주요 화면">
+        <div class="frame">
+          <article class="slide active" aria-label="1 / 5: 대시보드">
+            <img src="../images/dashboard.PNG" alt="업무 현황과 핵심 지표를 보여주는 대시보드" />
+            <div class="caption"><h2>대시보드</h2><p>업무 현황과 핵심 지표를 한눈에 확인합니다.</p></div>
+          </article>
+          <article class="slide" aria-label="2 / 5: 매출 검증">
+            <img src="../images/upload-validation.PNG" alt="엑셀 업로드와 오류 검증 결과를 보여주는 매출 검증 화면" />
+            <div class="caption"><h2>매출 검증</h2><p>엑셀 업로드부터 오류 검증, 저장까지의 흐름을 관리합니다.</p></div>
+          </article>
+          <article class="slide" aria-label="3 / 5: 마감 관리">
+            <img src="../images/closing-workspace.PNG" alt="업체별 마감 진행 상황을 보여주는 마감 관리 화면" />
+            <div class="caption"><h2>마감 관리</h2><p>업체별 마감 진행 상황과 발송 흐름을 관리합니다.</p></div>
+          </article>
+          <article class="slide" aria-label="4 / 5: 동기화 및 백업">
+            <img src="../images/storage-backup.PNG" alt="로컬 SQLite와 AWS RDS 동기화 및 백업 화면" />
+            <div class="caption"><h2>동기화/백업</h2><p>로컬 SQLite 데이터와 AWS RDS 간 동기화 및 백업을 관리합니다.</p></div>
+          </article>
+          <article class="slide" aria-label="5 / 5: AWS 파일 보관함">
+            <img src="../images/aws-files.PNG" alt="S3 파일의 업로드, 검색, 다운로드, 삭제를 지원하는 AWS 파일 보관함" />
+            <div class="caption"><h2>AWS 파일 보관함</h2><p>S3 파일을 업로드, 검색, 다운로드, 삭제할 수 있습니다.</p></div>
+          </article>
+          <button class="control previous" type="button" aria-label="이전 화면">‹</button>
+          <button class="control next" type="button" aria-label="다음 화면">›</button>
+        </div>
+        <div class="bottom"><div class="dots" aria-label="화면 선택"></div><button class="pause" type="button">자동 재생 일시정지</button></div>
+      </section>
+      <p class="fallback"><a href="../../README.md">프로젝트 README로 돌아가기</a></p>
+    </main>
+    <script>
+      const slides = [...document.querySelectorAll('.slide')];
+      const dots = document.querySelector('.dots');
+      const pauseButton = document.querySelector('.pause');
+      let current = 0;
+      let playing = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+      let timer;
+
+      const show = (index) => {
+        current = (index + slides.length) % slides.length;
+        slides.forEach((slide, position) => slide.classList.toggle('active', position === current));
+        [...dots.children].forEach((dot, position) => dot.setAttribute('aria-current', position === current ? 'true' : 'false'));
+      };
+      const stop = () => { clearInterval(timer); timer = undefined; };
+      const start = () => { stop(); if (playing) timer = setInterval(() => show(current + 1), 5000); };
+      slides.forEach((slide, index) => {
+        const dot = document.createElement('button');
+        dot.className = 'dot'; dot.type = 'button'; dot.setAttribute('aria-label', `${index + 1}번 화면 보기`);
+        dot.addEventListener('click', () => { show(index); start(); }); dots.append(dot);
+      });
+      document.querySelector('.previous').addEventListener('click', () => { show(current - 1); start(); });
+      document.querySelector('.next').addEventListener('click', () => { show(current + 1); start(); });
+      pauseButton.addEventListener('click', () => { playing = !playing; pauseButton.textContent = playing ? '자동 재생 일시정지' : '자동 재생 시작'; start(); });
+      document.querySelector('.slider').addEventListener('mouseenter', stop);
+      document.querySelector('.slider').addEventListener('mouseleave', start);
+      document.addEventListener('keydown', (event) => { if (event.key === 'ArrowLeft') { show(current - 1); start(); } if (event.key === 'ArrowRight') { show(current + 1); start(); } });
+      show(0); start();
+    </script>
+  </body>
+</html>
