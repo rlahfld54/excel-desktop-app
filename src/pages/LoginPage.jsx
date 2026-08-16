@@ -214,6 +214,7 @@ export default function LoginPage() {
                       disabled={isSubmitting}
                       placeholder="아이디"
                       autoComplete="username"
+                      autoFocus
                     />
                   ) : (
                     <select
@@ -222,6 +223,7 @@ export default function LoginPage() {
                       value={userId}
                       onChange={(event) => setUserId(event.target.value)}
                       disabled={isSubmitting}
+                      autoFocus
                     >
                       {users.map((user) => (
                         <option key={user.id} value={user.id}>
@@ -247,7 +249,6 @@ export default function LoginPage() {
                     disabled={isSubmitting}
                     placeholder="비밀번호"
                     autoComplete="current-password"
-                    autoFocus
                   /><button className="absolute inset-y-0 right-0 px-3 text-xs font-semibold text-gray-500 hover:text-teal-700" type="button" onClick={() => setShowPassword((current) => !current)} disabled={isSubmitting}>{showPassword ? '숨김' : '보기'}</button></div>
                 </div>
 

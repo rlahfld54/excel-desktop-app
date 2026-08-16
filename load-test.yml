@@ -1,0 +1,23 @@
+config:
+  target: "http://127.0.0.1:5173"
+  phases:
+    - name: "warm up"
+      duration: 15
+      arrivalRate: 2
+    - name: "ramp up"
+      duration: 30
+      arrivalRate: 2
+      rampTo: 10
+    - name: "steady load"
+      duration: 45
+      arrivalRate: 10
+  ensure:
+    thresholds:
+      - http.codes.200: 1
+      - http.response_time.p95: 1000
+
+scenarios:
+  - name: "load the main page"
+    flow:
+      - get:
+          url: "/"

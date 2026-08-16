@@ -5,9 +5,6 @@
 매출 엑셀 취합, 데이터 검증, 거래처 마감 관리, 보고서·발송 이력, 일정과 백업을 하나의 업무 흐름으로 연결한 Electron 데스크톱 애플리케이션입니다.
 인터넷 연결 시 AWS와 동기화하고, 연결이 끊겨도 PC의 SQLite 데이터베이스를 기준으로 업무를 계속할 수 있도록 설계했습니다.
 
-<!-- 스크린샷을 docs/images 폴더에 넣은 뒤 아래 경로를 실제 파일명으로 바꿔 주세요. -->
-<!-- ![Excel Desktop App 대시보드](docs/images/dashboard.png) -->
-
 ## 핵심 기능
 
 | 영역 | 구현 내용 |
@@ -54,15 +51,35 @@
 
 ## 주요 화면
 
-스크린샷은 [`docs/images`](docs/images)에 추가합니다.
+### 대시보드
 
-| 화면 | 넣을 이미지 | 설명 |
-| --- | --- | --- |
-| 대시보드 | `dashboard.png` | 업무 현황과 핵심 지표 |
-| 매출 검증 | `upload-validation.png` | 엑셀 업로드·오류 검증·저장 |
-| 마감 관리 | `closing-workspace.png` | 업체별 마감 진행 및 발송 흐름 |
-| 동기화/백업 | `storage-backup.png` | 로컬 SQLite와 AWS RDS 동기화 |
-| AWS 파일 보관함 | `aws-files.png` | S3 파일 업로드·검색·다운로드·삭제 |
+업무 현황과 핵심 지표를 한눈에 확인합니다.
+
+![대시보드](docs/images/dashboard.PNG)
+
+### 매출 검증
+
+엑셀 업로드부터 오류 검증, 저장까지의 흐름을 관리합니다.
+
+![매출 검증](docs/images/upload-validation.PNG)
+
+### 마감 관리
+
+업체별 마감 진행 상황과 발송 흐름을 관리합니다.
+
+![마감 관리](docs/images/closing-workspace.PNG)
+
+### 동기화/백업
+
+로컬 SQLite 데이터와 AWS RDS 간 동기화 및 백업을 관리합니다.
+
+![동기화 및 백업](docs/images/storage-backup.PNG)
+
+### AWS 파일 보관함
+
+S3 파일을 업로드, 검색, 다운로드, 삭제할 수 있습니다.
+
+![AWS 파일 보관함](docs/images/aws-files.PNG)
 
 ## 데이터 흐름
 
