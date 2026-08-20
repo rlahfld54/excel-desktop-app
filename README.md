@@ -49,9 +49,9 @@
 | AWS | API Gateway, Lambda, RDS PostgreSQL, S3 |
 | Authentication | JWT, bcrypt |
 
-## 주요 화면💖💖💖💖💖💖💖 추천
+## 주요 화면을 슬라이드로 둘러보기
 
-[화면을 슬라이드로 둘러보기](https://rlahfld54.github.io/excel-desktop-app/showcase/) · [자동 전환 GIF 보기](docs/images/screen-tour.gif)
+[주요 화면을 슬라이드로 둘러보기](https://rlahfld54.github.io/excel-desktop-app/showcase/) 
 
 ### 대시보드
 
@@ -64,6 +64,9 @@
 엑셀 업로드부터 오류 검증, 저장까지의 흐름을 관리합니다.
 
 ![매출 검증](docs/images/upload-validation.PNG)
+
+### 마감 발송 큐 기능 소개
+[슬라이드 형식으로 첨부가 안되어 블로그 참고 부탁드립니다.](https://normal-gom-jelly.tistory.com/entry/%EB%A7%88%EA%B0%90-%EB%B0%9C%EC%86%A1-%ED%81%90-%EA%B8%B0%EB%8A%A5-%EC%86%8C%EA%B0%9C)
 
 ### 마감 관리
 
