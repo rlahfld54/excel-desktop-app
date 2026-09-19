@@ -176,6 +176,30 @@ function getDatabase(app) {
   CREATE INDEX IF NOT EXISTS idx_sales_codes
   ON sales(customer_code, product_code);
 
+  -- 매출마감 출력용 원본 행 표준 view
+  -- 저장 테이블은 유지하고, 화면/Excel/PDF가 같은 원본 key를 사용하게 한다.
+  CREATE VIEW IF NOT EXISTS closing_sales_detail AS
+  SELECT
+    sales.row_id AS row_id,
+    sales.upload_id AS upload_id,
+    sales.row_no AS row_no,
+    sales.transaction_date AS transaction_date,
+    sales.customer_code AS customer_code,
+    customers.customer_name AS customer_name,
+    customers.business_number AS business_number,
+    customers.tax_status AS tax_status,
+    sales.product_code AS product_code,
+    COALESCE(NULLIF(sales.raw_product_name, ''), products.product_name, sales.product_code, '') AS product_name,
+    sales.quantity AS quantity,
+    sales.unit_price AS unit_price,
+    sales.sales_amount AS sales_amount,
+    sales.validation_status AS validation_status,
+    sales.review_status AS review_status,
+    sales.owner_name AS owner_name
+  FROM sales
+  LEFT JOIN customers ON customers.customer_code = sales.customer_code
+  LEFT JOIN products ON products.product_code = sales.product_code;
+
   -- =========================
   -- 상세 검증 결과
   -- 기존 validation_results는 요약용,
@@ -1163,6 +1187,8 @@ function normalizeClosingCompany(row) {
   return {
     id: row.closingId,
     company: row.company,
+    businessNumber: row.businessNumber ?? "",
+    taxStatus: row.taxStatus ?? "UNKNOWN",
     owner: row.owner ?? "",
     deadline: row.deadline ?? "",
     contactName: row.contactName ?? "",
@@ -1174,6 +1200,8 @@ function normalizeClosingCompany(row) {
     salesAmount: Number(row.salesAmount) || 0,
     confirmedAmount: Number(row.confirmedAmount) || 0,
     taxAmount: Number(row.taxAmount) || 0,
+    // 🔥 매출 상세내역
+    detailRows: parseJsonArray(row.detailRowsJson),
     contactConfirmed: row.contactConfirmed === 1,
     amountConfirmed: row.amountConfirmed === 1,
     taxMatched: row.taxMatched === 1,
@@ -1346,6 +1374,38 @@ function getClosingCompanies(database, options = {}) {
       SELECT
         customers.customer_code AS closingId,
         customers.customer_name AS company,
+        customers.business_number AS businessNumber,
+        customers.tax_status AS taxStatus,
+        COALESCE((
+          SELECT json_group_array(json_object(
+            'transactionDate', detail.transactionDate,
+            'productCode', detail.productCode,
+            'product', detail.product,
+            'quantity', detail.quantity,
+            'unitPrice', detail.unitPrice,
+            'salesAmount', detail.salesAmount,
+            'validationStatus', detail.validationStatus,
+            'owner', detail.owner,
+            'note', ''
+          ))
+          FROM (
+            SELECT
+              closing_sales_detail.transaction_date AS transactionDate,
+              closing_sales_detail.product_code AS productCode,
+              closing_sales_detail.product_name AS product,
+              closing_sales_detail.quantity AS quantity,
+              closing_sales_detail.unit_price AS unitPrice,
+              closing_sales_detail.sales_amount AS salesAmount,
+              closing_sales_detail.validation_status AS validationStatus,
+              closing_sales_detail.owner_name AS owner
+            FROM closing_sales_detail
+            WHERE closing_sales_detail.upload_id = (SELECT upload_id FROM selected_upload)
+              AND closing_sales_detail.customer_code = customers.customer_code
+              AND (@startDate = '' OR closing_sales_detail.transaction_date >= @startDate)
+              AND (@endDate = '' OR closing_sales_detail.transaction_date <= @endDate)
+            ORDER BY closing_sales_detail.transaction_date, closing_sales_detail.row_no
+          ) detail
+        ), '[]') AS detailRowsJson,
         COALESCE(status.owner_name, sales_summary.ownerName, '') AS owner,
         COALESCE(
           status.deadline,
@@ -1971,6 +2031,7 @@ function getFilteredContacts(database, options = {}) {
          contacts.customer_code AS customerCode,
          customers.customer_name AS customerName,
          customers.business_number AS businessNumber,
+         customers.tax_status AS taxStatus,
          contacts.department_name AS departmentName,
          contacts.recipient_name AS recipientName,
          contacts.recipient_email AS recipientEmail,
@@ -2366,6 +2427,7 @@ function saveLocalContact(database, payload = {}) {
     customerCode: String(payload.customerCode ?? '').trim() || null,
     customerName: String(payload.customerName ?? '').trim(),
     businessNumber: String(payload.businessNumber ?? '').trim() || null,
+    taxStatus: ['TAXABLE', 'TAX_FREE', 'ZERO_RATE'].includes(payload.taxStatus) ? payload.taxStatus : 'UNKNOWN',
     departmentName: String(payload.departmentName ?? '').trim() || null,
     recipientName: String(payload.recipientName ?? '').trim(),
     recipientEmail: String(payload.recipientEmail ?? '').trim() || null,
@@ -2378,8 +2440,8 @@ function saveLocalContact(database, payload = {}) {
   const write = database.transaction(() => {
     if (row.customerCode) {
       database.prepare(`INSERT INTO customers (customer_code,customer_name,business_number,tax_status,status,memo)
-        VALUES (@customerCode,@customerName,@businessNumber,'UNKNOWN','ACTIVE',NULL)
-        ON CONFLICT(customer_code) DO UPDATE SET customer_name=excluded.customer_name,business_number=excluded.business_number,updated_at=CURRENT_TIMESTAMP`).run(row);
+        VALUES (@customerCode,@customerName,@businessNumber,@taxStatus,'ACTIVE',NULL)
+        ON CONFLICT(customer_code) DO UPDATE SET customer_name=excluded.customer_name,business_number=excluded.business_number,tax_status=excluded.tax_status,updated_at=CURRENT_TIMESTAMP`).run(row);
     }
     if (Number.isInteger(contactId) && contactId > 0) {
       const result = database.prepare(`UPDATE contacts SET customer_code=@customerCode,department_name=@departmentName,recipient_name=@recipientName,recipient_email=@recipientEmail,recipient_phone=@recipientPhone,preferred_channel=@preferredChannel,status=@status,memo=@memo,updated_at=CURRENT_TIMESTAMP WHERE contact_id=@contactId`).run({ ...row, contactId });
@@ -2389,7 +2451,7 @@ function saveLocalContact(database, payload = {}) {
     return Number(database.prepare(`INSERT INTO contacts (customer_code,department_name,recipient_name,recipient_email,recipient_phone,preferred_channel,status,memo) VALUES (@customerCode,@departmentName,@recipientName,@recipientEmail,@recipientPhone,@preferredChannel,@status,@memo)`).run(row).lastInsertRowid);
   });
   const savedId = write();
-  return database.prepare(`SELECT contacts.contact_id AS contactId,contacts.customer_code AS customerCode,customers.customer_name AS customerName,customers.business_number AS businessNumber,contacts.department_name AS departmentName,contacts.recipient_name AS recipientName,contacts.recipient_email AS recipientEmail,contacts.recipient_phone AS recipientPhone,contacts.preferred_channel AS preferredChannel,contacts.status,contacts.memo FROM contacts LEFT JOIN customers ON customers.customer_code=contacts.customer_code WHERE contacts.contact_id=?`).get(savedId);
+  return database.prepare(`SELECT contacts.contact_id AS contactId,contacts.customer_code AS customerCode,customers.customer_name AS customerName,customers.business_number AS businessNumber,customers.tax_status AS taxStatus,contacts.department_name AS departmentName,contacts.recipient_name AS recipientName,contacts.recipient_email AS recipientEmail,contacts.recipient_phone AS recipientPhone,contacts.preferred_channel AS preferredChannel,contacts.status,contacts.memo FROM contacts LEFT JOIN customers ON customers.customer_code=contacts.customer_code WHERE contacts.contact_id=?`).get(savedId);
 }
 
 function deleteLocalContact(database, contactId) {
@@ -2998,6 +3060,7 @@ function importBootstrapData(database, payload = {}) {
       customerName: row.customerName,
       businessNumber: row.businessNumber ?? null,
       taxStatus: row.taxStatus ?? "UNKNOWN",
+      detailRows: parseJsonArray(row.detailRowsJson),
       status: row.status ?? "ACTIVE",
       memo: row.memo ?? null,
       updatedAt: row.updatedAt ?? null,

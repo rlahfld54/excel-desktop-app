@@ -1,17 +1,17 @@
-export function getBusinessCard(user) {
+export function getBusinessCard(user, documentSettings = {}) {
   return {
     name: user.name ?? '',
     title: user.title ?? '',
     department: user.department ?? '',
     email: user.email ?? '',
     phone: user.phone ?? '',
-    company: 'Aster Works',
-    companyKr: '애스터웍스',
+    company: documentSettings.companyName || 'Aster Works',
+    companyKr: documentSettings.companyName || '애스터웍스',
   };
 }
 
-export function makeSignatureText(user) {
-  const card = getBusinessCard(user);
+export function makeSignatureText(user, documentSettings = {}) {
+  const card = getBusinessCard(user, documentSettings);
   return [
     '',
     '--',

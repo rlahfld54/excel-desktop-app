@@ -9,6 +9,7 @@ import { addNotification } from '../utils/appNotifications';
 import { getBusinessCard, makeSignatureText } from '../utils/businessCard';
 import { validateDateRange } from '../utils/queryValidation';
 import { getCurrentMonthRange, isWithinDateRange } from '../utils/dataFormat';
+import { CLOSING_COLUMNS, getTaxTypeLabel, normalizeClosingDocumentSettings, formatClosingCurrency } from '../utils/closingDocumentSettings';
 
 const closingDays = ['10일', '25일', '30일'];
 const temporaryRecipientEmail = 'rlahfld54@naver.com';
@@ -23,6 +24,28 @@ const steps = [
 
 function formatCurrency(value) {
   return `${Number(value).toLocaleString('ko-KR')}원`;
+}
+
+function getTargetSupplyAmount(target) {
+  return Number(target.confirmedAmount || target.salesAmount || target.amount || 0);
+}
+
+function getTargetTaxAmount(target) {
+  if (target.taxStatus === 'TAX_FREE' || target.taxStatus === 'ZERO_RATE') return 0;
+  return target.taxAmount != null
+    ? Number(target.taxAmount)
+    : Math.round(getTargetSupplyAmount(target) * 0.1);
+}
+
+function getTargetTotalAmount(target) {
+  return getTargetSupplyAmount(target) + getTargetTaxAmount(target);
+}
+
+function hasTaxIssue(target) {
+  const taxAmount = getTargetTaxAmount(target);
+  if (!target.taxStatus || target.taxStatus === 'UNKNOWN') return true;
+  if (target.taxStatus === 'TAXABLE') return taxAmount === 0 && getTargetSupplyAmount(target) > 0;
+  return taxAmount > 0;
 }
 
 function getTargetDate(target, month) {
@@ -116,7 +139,110 @@ function wrapPdfText(text, font, size, maxWidth) {
   return lines;
 }
 
-async function createClosingPdfBlob(target, mailTemplates) {
+function getImageBytes(dataUrl) {
+  if (!dataUrl || !String(dataUrl).startsWith('data:')) return null;
+  const [header, value] = String(dataUrl).split(',');
+  if (!value) return null;
+  const binary = atob(value);
+  return {
+    bytes: Uint8Array.from(binary, (character) => character.charCodeAt(0)),
+    isJpg: header.includes('image/jpeg'),
+  };
+}
+
+async function loadImageDataUrl(value) {
+  if (!value) return '';
+  const normalizedValue = String(value);
+  const isSvg = normalizedValue.includes('image/svg+xml') || normalizedValue.toLowerCase().endsWith('.svg');
+  if (normalizedValue.startsWith('data:') && !isSvg) return normalizedValue;
+  try {
+    const response = await fetch(normalizedValue);
+    if (!response.ok) return '';
+    let blob = await response.blob();
+    if (isSvg) {
+      const image = await createImageBitmap(blob);
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext('2d');
+      if (!context) return '';
+      context.drawImage(image, 0, 0);
+      image.close();
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) return '';
+    }
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return '';
+  }
+}
+
+function getClosingTableColumns(target, documentSettings) {
+  const values = {
+    customer: target.company,
+    businessNumber: target.businessNumber || documentSettings.businessNumber,
+    product: '월 매출 합계',
+    quantity: '-',
+    unitPrice: '-',
+    supplyAmount: formatClosingCurrency(getTargetSupplyAmount(target)),
+    taxAmount: formatClosingCurrency(getTargetTaxAmount(target)),
+    totalAmount: formatClosingCurrency(getTargetTotalAmount(target)),
+    note: target.memo || target.reason || '',
+  };
+
+  return CLOSING_COLUMNS
+    .filter((column) => documentSettings.visibleColumns[column.key] !== false)
+    .map((column) => ({ ...column, value: values[column.key] }));
+}
+
+function getClosingDetailRows(target, documentSettings) {
+  const sourceRows = Array.isArray(target.detailRows) && target.detailRows.length > 0
+    ? target.detailRows
+    : [{
+      transactionDate: '',
+      productCode: '',
+      product: '월 매출 합계',
+      quantity: '-',
+      unitPrice: '-',
+      salesAmount: getTargetSupplyAmount(target),
+      validationStatus: '정상',
+      owner: target.manager || '',
+      note: target.memo || target.reason || '',
+    }];
+
+  return sourceRows.map((row) => {
+    const values = {
+      transactionDate: String(row.transactionDate || '').slice(0, 10),
+      customer: target.company,
+      businessNumber: target.businessNumber || documentSettings.businessNumber,
+      productCode: row.productCode || '',
+      product: row.product || '',
+      quantity: row.quantity ?? '',
+      unitPrice: row.unitPrice == null ? '' : formatClosingCurrency(row.unitPrice),
+      supplyAmount: row.salesAmount == null ? '' : formatClosingCurrency(row.salesAmount),
+      taxAmount: target.taxStatus === 'TAXABLE' && row.salesAmount != null
+        ? formatClosingCurrency(Math.round(Number(row.salesAmount || 0) * 0.1))
+        : formatClosingCurrency(0),
+      totalAmount: target.taxStatus === 'TAXABLE' && row.salesAmount != null
+        ? formatClosingCurrency(Number(row.salesAmount || 0) + Math.round(Number(row.salesAmount || 0) * 0.1))
+        : formatClosingCurrency(row.salesAmount || 0),
+      validationStatus: row.validationStatus === 'VALID' || row.validationStatus === '정상' ? '정상' : (row.validationStatus || '확인 필요'),
+      owner: row.owner || target.manager || '',
+      note: row.note || '',
+    };
+    return getClosingTableColumns({ ...target, ...values }, documentSettings).map((column) => ({
+      ...column,
+      value: values[column.key],
+    }));
+  });
+}
+
+async function createClosingPdfBlob(target, mailTemplates, documentSettings) {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
 
@@ -125,14 +251,22 @@ async function createClosingPdfBlob(target, mailTemplates) {
   const page = pdfDoc.addPage([595.28, 841.89]);
   const { width, height } = page.getSize();
   const margin = 48;
-  const teal = rgb(0.02, 0.48, 0.44);
+  const hex = documentSettings.primaryColor.replace('#', '');
+  const teal = rgb(parseInt(hex.slice(0, 2), 16) / 255, parseInt(hex.slice(2, 4), 16) / 255, parseInt(hex.slice(4, 6), 16) / 255);
   const gray = rgb(0.32, 0.36, 0.43);
   const lightGray = rgb(0.95, 0.97, 0.98);
   const border = rgb(0.82, 0.86, 0.9);
   let y = height - 58;
 
-  page.drawText('마감 확인 요청서', { x: margin, y, size: 24, font, color: teal });
-  page.drawText('Excel Desktop App', { x: margin, y: y - 22, size: 10, font, color: gray });
+  const logoBytes = getImageBytes(await loadImageDataUrl(documentSettings.logoDataUrl));
+  if (logoBytes) {
+    const logo = logoBytes.isJpg ? await pdfDoc.embedJpg(logoBytes.bytes) : await pdfDoc.embedPng(logoBytes.bytes);
+    const scale = Math.min(86 / logo.width, 42 / logo.height);
+    page.drawImage(logo, { x: width - margin - logo.width * scale, y: height - 88, width: logo.width * scale, height: logo.height * scale });
+  }
+
+  page.drawText('매출 마감장', { x: margin, y, size: 24, font, color: teal });
+  page.drawText(documentSettings.companyName || '회사명', { x: margin, y: y - 22, size: 10, font, color: gray });
   page.drawText(new Date().toLocaleDateString('ko-KR'), { x: width - margin - 86, y, size: 10, font, color: gray });
 
   y -= 62;
@@ -152,10 +286,13 @@ async function createClosingPdfBlob(target, mailTemplates) {
   });
 
   y -= 126;
-  page.drawText('마감 정보', { x: margin, y, size: 15, font, color: rgb(0.06, 0.09, 0.16) });
+  page.drawText('마감 요약', { x: margin, y, size: 15, font, color: teal });
   y -= 28;
   [
-    ['마감 금액', formatCurrency(target.amount)],
+    ['공급가액', formatClosingCurrency(getTargetSupplyAmount(target))],
+    ['부가세', formatClosingCurrency(getTargetTaxAmount(target))],
+    ['합계', formatClosingCurrency(getTargetTotalAmount(target))],
+    ['과세 유형', getTaxTypeLabel(target.taxStatus)],
     ['발송 유형', getSendType(target)],
     ['미확정 사유', target.reason],
     ['마지막 연락', `${target.lastContactAt} / ${target.contactCount}회`],
@@ -168,22 +305,61 @@ async function createClosingPdfBlob(target, mailTemplates) {
   });
 
   y -= 18;
-  page.drawText('요청 문구', { x: margin, y, size: 15, font, color: rgb(0.06, 0.09, 0.16) });
+  page.drawText('안내문', { x: margin, y, size: 15, font, color: teal });
   y -= 24;
-  const messageLines = wrapPdfText(getTargetMailBody(target, mailTemplates), font, 11, width - margin * 2 - 24);
+  const messageLines = wrapPdfText(documentSettings.defaultMessage || '첨부 파일을 확인해 주세요.', font, 11, width - margin * 2 - 24);
   page.drawRectangle({ x: margin, y: y - Math.max(messageLines.length * 18 + 20, 74), width: width - margin * 2, height: Math.max(messageLines.length * 18 + 32, 86), color: rgb(0.99, 0.99, 0.99), borderColor: border, borderWidth: 1 });
   messageLines.forEach((line) => {
     page.drawText(line, { x: margin + 12, y, size: 11, font, color: rgb(0.17, 0.2, 0.26) });
     y -= 18;
   });
 
-  page.drawText('첨부 엑셀 파일과 함께 거래처 확인 요청 메일에 첨부됩니다.', {
+  page.drawText(documentSettings.defaultMessage || '첨부 파일을 확인해 주세요.', {
     x: margin,
     y: 42,
     size: 9,
     font,
     color: gray,
   });
+
+  const detailRows = getClosingDetailRows(target, documentSettings);
+  const tableColumns = detailRows[0] || getClosingTableColumns(target, documentSettings);
+  const tableWidth = width - margin * 2;
+  const cellWidth = tableColumns.length ? tableWidth / tableColumns.length : tableWidth;
+  const rowsPerPage = 28;
+  for (let pageIndex = 0; pageIndex < detailRows.length; pageIndex += rowsPerPage) {
+    const detailPage = pdfDoc.addPage([595.28, 841.89]);
+    const tableTop = detailPage.getHeight() - 110;
+    const pageRows = detailRows.slice(pageIndex, pageIndex + rowsPerPage);
+    detailPage.drawText(`거래 내역${pageIndex > 0 ? ` (${pageIndex + 1})` : ''}`, { x: margin, y: tableTop + 28, size: 15, font, color: teal });
+    tableColumns.forEach((column, index) => {
+      const x = margin + index * cellWidth;
+      detailPage.drawRectangle({ x, y: tableTop, width: cellWidth, height: 24, color: teal, borderColor: border, borderWidth: 0.5 });
+      detailPage.drawText(column.label.slice(0, 8), { x: x + 5, y: tableTop + 8, size: 7, font, color: rgb(1, 1, 1) });
+    });
+    pageRows.forEach((row, rowIndex) => {
+      row.forEach((column, columnIndex) => {
+        const x = margin + columnIndex * cellWidth;
+        const rowY = tableTop - 28 - rowIndex * 22;
+        detailPage.drawRectangle({ x, y: rowY, width: cellWidth, height: 22, borderColor: border, borderWidth: 0.5 });
+        detailPage.drawText(String(column.value).slice(0, 14), { x: x + 4, y: rowY + 7, size: 6.5, font, color: rgb(0.1, 0.12, 0.16) });
+      });
+    });
+    detailPage.drawText(documentSettings.defaultMessage || '첨부 파일을 확인해 주세요.', {
+      x: margin,
+      y: 42,
+      size: 9,
+      font,
+      color: gray,
+    });
+  }
+
+  const sealBytes = getImageBytes(await loadImageDataUrl(documentSettings.sealDataUrl));
+  if (sealBytes) {
+    const seal = sealBytes.isJpg ? await pdfDoc.embedJpg(sealBytes.bytes) : await pdfDoc.embedPng(sealBytes.bytes);
+    const scale = Math.min(46 / seal.width, 46 / seal.height);
+    page.drawImage(seal, { x: width - margin - seal.width * scale, y: 34, width: seal.width * scale, height: seal.height * scale });
+  }
 
   const pdfBytes = await pdfDoc.save();
   return new Blob([pdfBytes], { type: 'application/pdf' });
@@ -239,8 +415,8 @@ function escapeVCardValue(value) {
     .replace(/;/g, '\\;');
 }
 
-function createBusinessCardFile(user) {
-  const card = getBusinessCard(user);
+function createBusinessCardFile(user, documentSettings) {
+  const card = getBusinessCard(user, documentSettings);
   const vcard = [
     'BEGIN:VCARD',
     'VERSION:3.0',
@@ -264,14 +440,14 @@ function createBusinessCardFile(user) {
   };
 }
 
-async function createBusinessCardImageFile(user) {
-  const response = await fetch(`${import.meta.env.BASE_URL}email-signature-card.png`);
+async function createBusinessCardImageFile(user, documentSettings = normalizeClosingDocumentSettings()) {
+  const response = await fetch(documentSettings.businessCardDataUrl || `${import.meta.env.BASE_URL}email-signature-card.png`);
   if (!response.ok) {
     throw new Error('메일 명함 이미지를 불러오지 못했습니다.');
   }
   const backgroundBlob = await response.blob();
   const backgroundImage = await createImageBitmap(backgroundBlob);
-  const card = getBusinessCard(user);
+  const card = getBusinessCard(user, documentSettings);
   const canvas = document.createElement('canvas');
   canvas.width = 1200;
   canvas.height = 512;
@@ -340,15 +516,40 @@ function escapeMailHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
-function createMailHtml(target, templates, currentUser) {
+function makeClosingContactText(settings) {
+  const manager = settings.manager || {};
+  return [
+    manager.name ? `담당자: ${manager.name}` : '',
+    manager.phone ? `연락처: ${manager.phone}` : '',
+    manager.email ? `이메일: ${manager.email}` : '',
+    settings.companyName ? `회사명: ${settings.companyName}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function createMailHtml(target, templates, currentUser, documentSettings = normalizeClosingDocumentSettings()) {
   const bodyHtml = escapeMailHtml(getTargetMailBody(target, templates)).replace(/\n/g, '<br>');
+  const summaryHtml = `
+    <div style="margin:0 0 20px;padding:14px 16px;border:1px solid #f4d35e;border-radius:8px;background:#fff8cc">
+      <div style="margin-bottom:8px;font-size:15px;font-weight:700;color:#5b4600">매출 마감 요약</div>
+      <div style="font-weight:700;color:#2f2a1c">공급가액: ${escapeMailHtml(formatClosingCurrency(getTargetSupplyAmount(target)))}</div>
+      <div style="font-weight:700;color:#2f2a1c">부가세: ${escapeMailHtml(formatClosingCurrency(getTargetTaxAmount(target)))}</div>
+      <div style="font-weight:700;color:#2f2a1c">합계: ${escapeMailHtml(formatClosingCurrency(getTargetTotalAmount(target)))}</div>
+      <div style="margin-top:6px;color:#5f573b">과세구분: ${escapeMailHtml(getTaxTypeLabel(target.taxStatus))}</div>
+    </div>
+  `;
+  const contactHtml = documentSettings.emailSignature.showTextContact
+    ? `<div style="margin-top:20px;white-space:pre-line">${escapeMailHtml(makeClosingContactText(documentSettings))}</div>`
+    : '';
+  const cardHtml = documentSettings.emailSignature.showBusinessCard
+    ? '<div style="margin-top:28px;width:600px;max-width:100%"><img src="cid:asterworks-business-card" alt="회사 담당자 명함" width="600" style="display:block;width:100%;height:auto;border:0;border-radius:12px"></div>'
+    : '';
 
   return `
     <div style="font-family:Arial,'Noto Sans KR',sans-serif;color:#334155;font-size:14px;line-height:1.75">
+      ${summaryHtml}
       <div>${bodyHtml}</div>
-      <div style="margin-top:28px;width:600px;max-width:100%">
-        <img src="cid:asterworks-business-card" alt="Aster Works 명함" width="600" style="display:block;width:100%;height:auto;border:0;border-radius:12px">
-      </div>
+      ${contactHtml}
+      ${cardHtml}
     </div>
   `;
 }
@@ -451,7 +652,10 @@ function getTargetMailBody(target, templates = makeDefaultMailTemplates()) {
     commonBody,
     '',
     `마감일: ${target.deadline}`,
-    `마감 금액: ${formatCurrency(target.amount)}`,
+    `공급가액: ${formatClosingCurrency(getTargetSupplyAmount(target))}`,
+    `부가세: ${formatClosingCurrency(getTargetTaxAmount(target))}`,
+    `합계: ${formatClosingCurrency(getTargetTotalAmount(target))}`,
+    `과세구분: ${getTaxTypeLabel(target.taxStatus)}`,
     `확인 유형: ${sendType}`,
     targetNote ? ['', '[추가 안내]', targetNote].join('\n') : '',
     '',
@@ -459,13 +663,15 @@ function getTargetMailBody(target, templates = makeDefaultMailTemplates()) {
   ].filter(Boolean).join('\n');
 }
 
-function createCombinedMailBody({ emailTargets, templates, currentUser }) {
+function createCombinedMailBody({ emailTargets, templates, currentUser, documentSettings = normalizeClosingDocumentSettings() }) {
   return [
     ...emailTargets.flatMap((target, index) => [
       index > 0 ? '\n------------------------------' : '',
       getTargetMailBody(target, templates),
     ]),
-    makeSignatureText(currentUser),
+    documentSettings.defaultMessage,
+    documentSettings.emailSignature.showTextContact ? makeClosingContactText(documentSettings) : '',
+    makeSignatureText(currentUser, documentSettings),
   ].filter(Boolean).join('\n');
 }
 
@@ -477,46 +683,495 @@ function getMailSubject(target, templates) {
   return target ? getTargetMailSubject(target, templates) : `거래처 마감 자료 확인 ${templates?.subjectSuffix || '의 건'}`;
 }
 
-async function createClosingXlsxBlob(target, mailTemplates) {
+async function createClosingXlsxBlob(target, mailTemplates, documentSettings) {
+  console.log('🔥 documentSettings:', documentSettings);
+console.log('🖼 logo:', documentSettings.logoDataUrl);
+console.log('🔴 seal:', documentSettings.sealDataUrl);
+
   const ExcelModule = await import('exceljs');
   const ExcelJS = ExcelModule.default ?? ExcelModule;
+
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('마감 요청');
 
   workbook.creator = 'Excel Desktop App';
   workbook.created = new Date();
   workbook.modified = new Date();
-  worksheet.columns = [
-    { header: '항목', key: 'label', width: 22 },
-    { header: '내용', key: 'value', width: 42 },
-  ];
-  worksheet.addRows([
-    { label: '업체명', value: target.company },
-    { label: '거래처 담당자', value: target.contactName },
-    { label: '내부 담당자', value: target.manager },
-    { label: '마감일', value: target.deadline },
-    { label: '마감 금액', value: target.amount },
-    { label: '발송 유형', value: getSendType(target) },
-    { label: '미확정 사유', value: target.reason },
-    { label: '마지막 연락', value: target.lastContactAt },
-  ]);
-  worksheet.getRow(1).font = { bold: true };
-  worksheet.getColumn('value').numFmt = '#,##0';
-  worksheet.addRow({});
-  worksheet.addRow({ label: '요청 문구', value: getTargetMailBody(target, mailTemplates) });
 
-  const buffer = await workbook.xlsx.writeBuffer();
-  return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  // =========================================================
+  // 기본 데이터
+  // =========================================================
+
+  const primaryColor = String(
+    documentSettings.primaryColor || '#1F4E78'
+  )
+    .replace('#', '')
+    .toUpperCase();
+
+  const primaryArgb = `FF${primaryColor}`;
+
+  // Preview와 동일하게 표시 설정된 컬럼만 사용
+  const visibleColumns = CLOSING_COLUMNS
+    .filter(
+      (column) =>
+        documentSettings.visibleColumns?.[column.key] !== false
+    )
+    .slice(0, 6);
+
+  const detailRows = getClosingDetailRows(
+    target,
+    documentSettings
+  );
+
+  const supplyAmount = getTargetSupplyAmount(target);
+  const taxAmount = getTargetTaxAmount(target);
+  const totalAmount = getTargetTotalAmount(target);
+
+  // =========================================================
+  // A:F 고정 문서 폭
+  // =========================================================
+
+  worksheet.columns = [
+    { width: 15 },
+    { width: 18 },
+    { width: 22 },
+    { width: 12 },
+    { width: 16 },
+    { width: 16 },
+  ];
+
+  // 눈금선 숨기기
+  worksheet.views = [
+    {
+      showGridLines: false,
+    },
+  ];
+
+  // =========================================================
+  // 공통 스타일
+  // =========================================================
+
+  const thinBorder = {
+    top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+    left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+    bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+    right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+  };
+
+  const center = {
+    vertical: 'middle',
+    horizontal: 'center',
+  };
+
+  const right = {
+    vertical: 'middle',
+    horizontal: 'right',
+  };
+
+  // =========================================================
+  // 상단 : 로고 + 매출마감장 + 거래처명
+  // =========================================================
+
+  worksheet.getRow(1).height = 24;
+  worksheet.getRow(2).height = 24;
+  worksheet.getRow(3).height = 10;
+
+  worksheet.mergeCells('A1:B2');
+  worksheet.mergeCells('D1:F1');
+  worksheet.mergeCells('D2:F2');
+
+  worksheet.getCell('D1').value = '매출마감장';
+  worksheet.getCell('D1').font = {
+    size: 10,
+    color: { argb: 'FF6B7280' },
+  };
+  worksheet.getCell('D1').alignment = right;
+
+  // ★ 우리 회사명이 아니라 거래처명
+  worksheet.getCell('D2').value =
+    target.company || '거래처명';
+
+  worksheet.getCell('D2').font = {
+    bold: true,
+    size: 16,
+    color: { argb: primaryArgb },
+  };
+
+  worksheet.getCell('D2').alignment = right;
+
+  // 하단 구분선
+  for (let col = 1; col <= 6; col += 1) {
+    worksheet.getCell(3, col).border = {
+      bottom: {
+        style: 'thin',
+        color: { argb: 'FFE5E7EB' },
+      },
+    };
+  }
+
+    // =========================================================
+    // 로고 - 좌측 상단 A1:B2
+    // =========================================================
+    const logoDataUrl = await loadImageDataUrl(
+      documentSettings.logoDataUrl
+    );
+
+    if (logoDataUrl) {
+      try {
+        const logoId = workbook.addImage({
+          base64: logoDataUrl,
+          extension: 'png',
+        });
+
+        worksheet.addImage(logoId, {
+          tl: { col: 0.15, row: 0.25 }, // A1 근처
+          ext: {
+            width: 112,
+            height: 36,
+          },
+          editAs: 'oneCell',
+        });
+      } catch (error) {
+        console.warn('마감장 로고 삽입 실패:', error);
+      }
+    }
+
+  // =========================================================
+  // 마감 정보 영역
+  // Preview의 회색/대표색 배경 카드
+  // =========================================================
+
+  worksheet.mergeCells('A5:F5');
+
+  worksheet.getCell('A5').value =
+    `${documentSettings.closingMonth || '2026년 9월'} 매출 마감장 · ${getTaxTypeLabel(target.taxStatus)}`;
+
+  worksheet.getCell('A5').font = {
+    size: 10,
+    color: { argb: 'FF6B7280' },
+  };
+
+  worksheet.getCell('A5').alignment = {
+    vertical: 'middle',
+    horizontal: 'left',
+  };
+
+  worksheet.getRow(5).height = 24;
+
+  // 금액 영역
+  worksheet.mergeCells('A6:B6');
+  worksheet.mergeCells('C6:D6');
+  worksheet.mergeCells('E6:F6');
+
+  worksheet.mergeCells('A7:B7');
+  worksheet.mergeCells('C7:D7');
+  worksheet.mergeCells('E7:F7');
+
+  worksheet.getCell('A6').value = '공급가액';
+  worksheet.getCell('C6').value = '부가세';
+  worksheet.getCell('E6').value = '합계';
+
+  worksheet.getCell('A7').value = supplyAmount;
+  worksheet.getCell('C7').value = taxAmount;
+  worksheet.getCell('E7').value = totalAmount;
+
+  ['A6', 'C6', 'E6'].forEach((address) => {
+    const cell = worksheet.getCell(address);
+
+    cell.font = {
+      size: 9,
+      color: { argb: 'FF6B7280' },
+    };
+
+    cell.alignment = center;
+  });
+
+  ['A7', 'C7', 'E7'].forEach((address) => {
+    const cell = worksheet.getCell(address);
+
+    cell.font = {
+      bold: true,
+      size: 12,
+      color: { argb: primaryArgb },
+    };
+
+    cell.alignment = center;
+
+    cell.numFmt = '#,##0"원"';
+  });
+
+  worksheet.getRow(6).height = 18;
+  worksheet.getRow(7).height = 24;
+
+  // Preview의 연한 배경색과 비슷한 영역
+  for (let row = 5; row <= 7; row += 1) {
+    for (let col = 1; col <= 6; col += 1) {
+      worksheet.getCell(row, col).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: {
+          argb: 'FFF3F4F6',
+        },
+      };
+    }
+  }
+
+  // 왼쪽 대표색 포인트
+  for (let row = 5; row <= 7; row += 1) {
+    worksheet.getCell(row, 1).border = {
+      left: {
+        style: 'medium',
+        color: { argb: primaryArgb },
+      },
+    };
+  }
+
+  // =========================================================
+  // 상세 매출 테이블
+  // =========================================================
+
+  const tableStartRow = 9;
+
+  // visibleColumns가 6개보다 적으면 사용 열만큼 분배
+  const tableColumnCount = Math.max(
+    visibleColumns.length,
+    1
+  );
+
+  // 헤더
+  visibleColumns.forEach((column, index) => {
+    const cell = worksheet.getCell(
+      tableStartRow,
+      index + 1
+    );
+
+    cell.value = column.label;
+
+    cell.font = {
+      bold: true,
+      size: 9,
+      color: {
+        argb: 'FFFFFFFF',
+      },
+    };
+
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: {
+        argb: primaryArgb,
+      },
+    };
+
+    cell.alignment = center;
+  });
+
+  // 사용하지 않는 오른쪽 영역도 대표색으로 채워
+  // Preview의 하나의 긴 헤더처럼 보이게 함.
+  for (
+    let col = tableColumnCount + 1;
+    col <= 6;
+    col += 1
+  ) {
+    worksheet.getCell(tableStartRow, col).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: {
+        argb: primaryArgb,
+      },
+    };
+  }
+
+  worksheet.getRow(tableStartRow).height = 22;
+
+  // =========================================================
+  // 실제 detailRows
+  // =========================================================
+
+  detailRows.forEach((row, rowIndex) => {
+    const excelRowNumber =
+      tableStartRow + rowIndex + 1;
+
+    /*
+     * getClosingDetailRows()가
+     *
+     * [
+     *   { key, label, value },
+     *   ...
+     * ]
+     *
+     * 형태라는 기존 코드 기준.
+     */
+
+    visibleColumns.forEach(
+      (visibleColumn, columnIndex) => {
+        const sourceColumn = row.find(
+          (item) =>
+            item.key === visibleColumn.key
+        );
+
+        const cell = worksheet.getCell(
+          excelRowNumber,
+          columnIndex + 1
+        );
+
+        cell.value =
+          sourceColumn?.value ?? '';
+
+        cell.font = {
+          size: 9,
+          color: {
+            argb: 'FF6B7280',
+          },
+        };
+
+        cell.alignment = {
+          vertical: 'middle',
+          horizontal:
+            visibleColumn.key === 'quantity' ||
+            visibleColumn.key === 'unitPrice' ||
+            visibleColumn.key === 'supplyAmount' ||
+            visibleColumn.key === 'taxAmount' ||
+            visibleColumn.key === 'totalAmount'
+              ? 'right'
+              : 'left',
+        };
+
+        cell.border = thinBorder;
+
+        // 숫자는 Excel 숫자로 유지
+        if (
+          [
+            'unitPrice',
+            'supplyAmount',
+            'taxAmount',
+            'totalAmount',
+          ].includes(visibleColumn.key) &&
+          typeof cell.value === 'number'
+        ) {
+          cell.numFmt = '#,##0"원"';
+        }
+      }
+    );
+
+    // F열까지 테두리 유지
+    for (
+      let col = tableColumnCount + 1;
+      col <= 6;
+      col += 1
+    ) {
+      worksheet.getCell(
+        excelRowNumber,
+        col
+      ).border = thinBorder;
+    }
+
+    worksheet.getRow(
+      excelRowNumber
+    ).height = 20;
+  });
+
+  // =========================================================
+// 직인 - 테이블 하단 우측
+// =========================================================
+
+const tableEndRow = tableStartRow + detailRows.length;
+
+// 테이블과 직인 사이 한 줄 여백
+const sealStartRow = tableEndRow + 2;
+
+// 직인이 들어갈 공간 확보
+worksheet.getRow(sealStartRow).height = 20;
+worksheet.getRow(sealStartRow + 1).height = 20;
+worksheet.getRow(sealStartRow + 2).height = 20;
+
+const sealDataUrl = await loadImageDataUrl(
+  documentSettings.sealDataUrl
+);
+
+if (sealDataUrl) {
+  try {
+    const sealId = workbook.addImage({
+      base64: sealDataUrl,
+      extension: 'png',
+    });
+
+    worksheet.addImage(sealId, {
+      // E:F 영역
+      tl: {
+        col: 5.25,
+        row: sealStartRow - 1,
+      },
+      ext: {
+        width: 48,
+        height: 48,
+      },
+      editAs: 'oneCell',
+    });
+  } catch (error) {
+    console.warn('마감장 직인 삽입 실패:', error);
+  }
 }
 
-async function createGeneratedFiles(targets, mailTemplates) {
+  // =========================================================
+  // 인쇄 설정
+  // =========================================================
+
+  worksheet.pageSetup = {
+    paperSize: 9, // A4
+    orientation: 'portrait',
+
+    fitToPage: true,
+    fitToWidth: 1,
+
+    // 세로 페이지 수 제한 없음
+    fitToHeight: 0,
+
+    margins: {
+      left: 0.3,
+      right: 0.3,
+      top: 0.4,
+      bottom: 0.4,
+      header: 0.2,
+      footer: 0.2,
+    },
+  };
+
+  // F열까지 / 실제 문서가 끝나는 행까지
+  const lastRow = Math.max(
+    worksheet.lastRow?.number || 1,
+    sealStartRow + 2
+  );
+
+  worksheet.pageSetup.printArea = `A1:F${lastRow}`;
+
+  // 인쇄 시 가운데 배치
+  worksheet.pageSetup.horizontalCentered = true;
+
+  // =========================================================
+  // 파일 생성
+  // =========================================================
+
+  const buffer =
+    await workbook.xlsx.writeBuffer();
+
+  return new Blob(
+    [buffer],
+    {
+      type:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }
+  );
+}
+
+async function createGeneratedFiles(targets, mailTemplates, documentSettings) {
   const createdAt = new Date().toISOString();
   const fileGroups = [];
 
   for (const target of targets) {
     const baseName = sanitizeFileName(`${target.company}_${target.deadline}_마감요청`);
-    const xlsxBlob = await createClosingXlsxBlob(target, mailTemplates);
-    const pdfBlob = await createClosingPdfBlob(target, mailTemplates);
+    const xlsxBlob = await createClosingXlsxBlob(target, mailTemplates, documentSettings);
+    const pdfBlob = await createClosingPdfBlob(target, mailTemplates, documentSettings);
     fileGroups.push({
       targetId: target.id,
       company: target.company,
@@ -543,16 +1198,19 @@ async function createGeneratedFiles(targets, mailTemplates) {
   return fileGroups;
 }
 
-async function createEmailDraftEml({ emailTargets, generatedFileGroups, mailSettings, currentUser, mailTemplates }) {
+async function createEmailDraftEml({ emailTargets, generatedFileGroups, mailSettings, currentUser, mailTemplates, documentSettings }) {
   const firstTarget = emailTargets[0];
   const subject = getMailSubject(firstTarget, mailTemplates);
-  const body = createCombinedMailBody({ emailTargets, templates: mailTemplates, currentUser }).replace(/\n/g, '\r\n');
+  const body = createCombinedMailBody({ emailTargets, templates: mailTemplates, currentUser, documentSettings }).replace(/\n/g, '\r\n');
   const boundary = `----=_ClosingDraft_${Date.now()}`;
-  const businessCardFile = createBusinessCardFile(currentUser);
+  const businessCardFile = documentSettings.emailSignature.showBusinessCard ? createBusinessCardFile(currentUser, documentSettings) : null;
+  const businessCardImageFile = documentSettings.emailSignature.showBusinessCard
+    ? await createBusinessCardImageFile(currentUser, documentSettings)
+    : null;
   const attachments = generatedFileGroups
     .filter((group) => emailTargets.some((target) => target.id === group.targetId))
     .flatMap((group) => group.files)
-    .concat(businessCardFile);
+    .concat([businessCardFile, businessCardImageFile].filter(Boolean));
   const encodedAttachments = [];
 
   for (const file of attachments) {
@@ -591,8 +1249,8 @@ async function createEmailDraftEml({ emailTargets, generatedFileGroups, mailSett
   return `${headers.join('\r\n')}\r\n\r\n${parts.join('\r\n')}`;
 }
 
-function createMailBody({ emailTargets, mailTemplates, currentUser }) {
-  return createCombinedMailBody({ emailTargets, templates: mailTemplates, currentUser });
+function createMailBody({ emailTargets, mailTemplates, currentUser, documentSettings }) {
+  return createCombinedMailBody({ emailTargets, templates: mailTemplates, currentUser, documentSettings });
 }
 
 function makePreflightChecks({ mailSettings, mailTemplates, selectedTargets, emailTargets, isGenerated }) {
@@ -629,6 +1287,11 @@ function makePreflightChecks({ mailSettings, mailTemplates, selectedTargets, ema
       label: '첨부 생성',
       ok: isGenerated,
       detail: isGenerated ? '엑셀/PDF 첨부 생성 상태 확인' : '첨부 생성 단계에서 먼저 생성하세요.',
+    },
+    {
+      label: '과세 정보',
+      ok: selectedTargets.length > 0 && selectedTargets.every((target) => !hasTaxIssue(target)),
+      detail: selectedTargets.some(hasTaxIssue) ? '과세 유형 또는 부가세 금액을 확인하세요.' : '거래처 과세 유형과 부가세를 확인했습니다.',
     },
     {
       label: '제목/본문',
@@ -988,9 +1651,12 @@ function mapClosingCompanyToTarget(row) {
     taxMatched: row.taxMatched,
     reason: row.requestSent ? '마감 완료' : row.reason,
     amount: row.confirmedAmount || row.salesAmount || 0,
+    businessNumber: row.businessNumber || '',
+    taxStatus: row.taxStatus || 'UNKNOWN',
     salesAmount: row.salesAmount || 0,
     confirmedAmount: row.confirmedAmount || 0,
     taxAmount: row.taxAmount || 0,
+    detailRows: Array.isArray(row.detailRows) ? row.detailRows : [],
     lastContactAt: row.lastContactAt,
     contactCount: row.contactCount || 0,
   };
@@ -1072,6 +1738,7 @@ export default function ClosingSendQueuePage() {
     replyToEmail: currentUserEmail,
   });
   const [preflightChecked, setPreflightChecked] = useState(false);
+  const [documentSettings, setDocumentSettings] = useState(() => normalizeClosingDocumentSettings());
 
   useEffect(() => {
     let isMounted = true;
@@ -1088,6 +1755,7 @@ export default function ClosingSendQueuePage() {
             testEmail: settings.gmailTestEmail || '',
             replyToEmail: settings.gmailReplyToEmail || currentUserEmail,
           });
+          setDocumentSettings(normalizeClosingDocumentSettings(settings.closingDocument));
         })
         .catch(() => {
           // Keep user profile defaults when app settings are unavailable.
@@ -1289,7 +1957,7 @@ export default function ClosingSendQueuePage() {
     setStatusText(`${selectedTargets.length}개 업체의 엑셀/PDF 첨부파일을 생성하는 중입니다.`);
 
     try {
-      const nextFileGroups = await createGeneratedFiles(selectedTargets, mailTemplates);
+      const nextFileGroups = await createGeneratedFiles(selectedTargets, mailTemplates, documentSettings);
       const saveResult = await saveGeneratedFilesToDisk(nextFileGroups);
       const savedPathByName = new Map((saveResult?.savedFiles || []).map((file) => [file.fileName, file.filePath]));
       const fileGroupsWithPaths = nextFileGroups.map((group) => ({
@@ -1300,6 +1968,8 @@ export default function ClosingSendQueuePage() {
           filePath: savedPathByName.get(file.fileName),
         })),
       }));
+
+
       setGeneratedFileGroups(fileGroupsWithPaths);
       setIsGenerated(true);
       setMailDraftStatus(`${nextFileGroups.length}개 업체의 첨부가 준비되었습니다. 메일 초안 파일을 만들 수 있습니다.`);
@@ -1316,7 +1986,8 @@ export default function ClosingSendQueuePage() {
         href: '/closing-workspace/send-queue',
       });
     } catch (error) {
-      setStatusText('첨부 파일 생성 중 오류가 발생했습니다. 다시 시도하세요.');
+      const detail = error?.message ? ` (${error.message})` : '';
+      setStatusText(`첨부 파일 생성 중 오류가 발생했습니다${detail}`);
       addNotification({
         title: '첨부 생성 실패',
         message: error?.message || '엑셀/PDF 파일 생성 중 오류가 발생했습니다.',
@@ -1348,7 +2019,7 @@ export default function ClosingSendQueuePage() {
       return;
     }
 
-    const eml = await createEmailDraftEml({ emailTargets, generatedFileGroups, mailSettings, currentUser, mailTemplates });
+    const eml = await createEmailDraftEml({ emailTargets, generatedFileGroups, mailSettings, currentUser, mailTemplates, documentSettings });
     const fileName = `${sanitizeFileName(`마감_메일_초안_${emailTargets.length}개업체`)}.eml`;
     downloadTextFile(eml, fileName, 'message/rfc822;charset=utf-8');
     setMailDraftStatus(`${fileName} 파일을 만들었습니다. 열어서 첨부 포함 메일 초안을 확인하세요.`);
@@ -1411,13 +2082,15 @@ export default function ClosingSendQueuePage() {
 
     try {
       const attachments = [];
-      const businessCardFile = createBusinessCardFile(currentUser);
-      const businessCardImageFile = await createBusinessCardImageFile(currentUser);
+      const businessCardFile = documentSettings.emailSignature.showBusinessCard ? createBusinessCardFile(currentUser, documentSettings) : null;
+      const businessCardImageFile = documentSettings.emailSignature.showBusinessCard
+        ? await createBusinessCardImageFile(currentUser, documentSettings)
+        : null;
       const targetIds = new Set(emailTargets.map((target) => target.id));
       const files = generatedFileGroups
         .filter((group) => targetIds.has(group.targetId))
         .flatMap((group) => group.files)
-        .concat(businessCardFile, businessCardImageFile);
+        .concat([businessCardFile, businessCardImageFile].filter(Boolean));
 
       for (const file of files) {
         attachments.push({
@@ -1436,8 +2109,8 @@ export default function ClosingSendQueuePage() {
         testEmail: mailSettings.testEmail,
         replyToEmail: mailSettings.replyToEmail,
         subject: getMailSubject(emailTargets[0], mailTemplates),
-        text: createMailBody({ emailTargets, mailTemplates, currentUser }),
-        html: createMailHtml(emailTargets[0], mailTemplates, currentUser),
+        text: createMailBody({ emailTargets, mailTemplates, currentUser, documentSettings }),
+        html: createMailHtml(emailTargets[0], mailTemplates, currentUser, documentSettings),
         attachments,
       });
 
@@ -1530,13 +2203,15 @@ export default function ClosingSendQueuePage() {
       const packageId = Date.now();
       const createdAt = new Date().toISOString();
       const fileGroupByTarget = new Map(generatedFileGroups.map((group) => [group.targetId, group]));
-      const businessCardFile = createBusinessCardFile(currentUser);
-      const businessCardImageFile = await createBusinessCardImageFile(currentUser);
+      const businessCardFile = documentSettings.emailSignature.showBusinessCard ? createBusinessCardFile(currentUser, documentSettings) : null;
+      const businessCardImageFile = documentSettings.emailSignature.showBusinessCard
+        ? await createBusinessCardImageFile(currentUser, documentSettings)
+        : null;
       const messages = [];
 
       for (const target of emailTargets) {
         const fileGroup = fileGroupByTarget.get(target.id);
-        const files = [...(fileGroup?.files ?? []), businessCardFile, businessCardImageFile];
+        const files = [...(fileGroup?.files ?? []), businessCardFile, businessCardImageFile].filter(Boolean);
         const attachments = [];
         for (const file of files) {
           attachments.push({
@@ -1551,8 +2226,8 @@ export default function ClosingSendQueuePage() {
           targetId: target.id,
           to: target.email,
           subject: getMailSubject(target, mailTemplates),
-          text: `${getTargetMailBody(target, mailTemplates)}\n${makeSignatureText(currentUser)}`,
-          html: createMailHtml(target, mailTemplates, currentUser),
+          text: createMailBody({ emailTargets: [target], mailTemplates, currentUser, documentSettings }),
+          html: createMailHtml(target, mailTemplates, currentUser, documentSettings),
           attachments,
         });
       }

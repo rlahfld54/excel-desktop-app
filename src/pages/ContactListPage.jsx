@@ -55,6 +55,7 @@ const emptyDraft = {
   customerCode: '',
   customerName: '',
   businessNumber: '',
+  taxStatus: 'UNKNOWN',
   departmentName: '',
   recipientName: '',
   recipientTitle: '',
@@ -153,6 +154,19 @@ function ContactForm({ draft = emptyDraft, mode, onChange, onSubmit, onCancel })
                 {label}
               </option>
             ))}
+          </select>
+        </FormField>
+
+        <FormField label="과세 유형">
+          <select
+            className="form-select w-full"
+            value={draft.taxStatus ?? 'UNKNOWN'}
+            onChange={(e) => update('taxStatus', e.target.value)}
+          >
+            <option value="TAXABLE">일반과세</option>
+            <option value="TAX_FREE">면세</option>
+            <option value="ZERO_RATE">영세율</option>
+            <option value="UNKNOWN">미등록</option>
           </select>
         </FormField>
       </div>

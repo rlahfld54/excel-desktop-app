@@ -23,6 +23,7 @@ import ReportGeneratorPage from './pages/ReportGeneratorPage';
 import ReportTemplatesPage from './pages/ReportTemplatesPage';
 import ClosingSendQueuePage from './pages/ClosingSendQueuePage';
 import ClosingWorkspacePage from './pages/ClosingWorkspacePage';
+import ClosingDocumentSettingsPage from './pages/ClosingDocumentSettingsPage';
 import UploadValidationPage from './pages/UploadValidationPage';
 import DataTablePage from './pages/DataTablePage';
 import CodeMappingPage from './pages/CodeMappingPage';
@@ -59,6 +60,7 @@ const routeComponents = {
   ExecutiveReportDashboardPage,
   ClosingSendQueuePage,
   ClosingWorkspacePage,
+  ClosingDocumentSettingsPage,
   UploadValidationPage,
   RecentTasksPage,
   FileManagerPage,

@@ -13,6 +13,11 @@ export const menuGroups = [
         path: "/closing-workspace/send-queue",
         component: "ClosingSendQueuePage",
       },
+      {
+        label: "매출마감장 설정",
+        path: "/closing-workspace/settings",
+        component: "ClosingDocumentSettingsPage",
+      },
     ],
   },
   {
