@@ -69,7 +69,6 @@ const emptyDraft = {
 const statusLabels = {
   ACTIVE: '사용',
   HOLD: '보류',
-  INACTIVE: '미사용',
 };
 
 const channelLabels = {
@@ -78,30 +77,14 @@ const channelLabels = {
   PHONE: '전화',
 };
 
-function makeContactId() {
-  return `CONTACT-${Date.now().toString(36).toUpperCase()}`;
-}
-
-function normalizeContact(contact) {
+function normalizeContact(contact = {}) {
   return {
     ...emptyDraft,
     ...contact,
-    contactId: String(contact.contactId ?? makeContactId()),
+    contactId: contact.contactId ?? '',
     preferredChannel: contact.preferredChannel || 'EMAIL',
     status: contact.status || 'ACTIVE',
   };
-}
-
-function matchesContactFilters(contact, params) {
-  const includes = (value, query) => String(value ?? '').toLowerCase().includes(String(query ?? '').trim().toLowerCase());
-  return (
-    (!params.customer || includes(contact.customerName, params.customer) || includes(contact.customerCode, params.customer))
-    && (!params.contact || includes(contact.recipientName, params.contact))
-    && (!params.email || includes(contact.recipientEmail, params.email))
-    && (!params.phone || includes(contact.recipientPhone, params.phone))
-    && (params.channel === 'ALL' || contact.preferredChannel === params.channel)
-    && (params.status === 'ALL' || contact.status === params.status)
-  );
 }
 
 
@@ -213,9 +196,14 @@ export default function ContactListPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [serverTotal, setServerTotal] = useState(0);
 
+  const visibleContacts = useMemo(
+    () => contacts.filter((contact) => String(contact.status ?? '').toUpperCase() !== 'INACTIVE'),
+    [contacts],
+  );
+
   const selectedContact = useMemo(
-    () => contacts.find((contact) => contact.contactId === selectedId) ?? contacts[0] ?? null,
-    [contacts, selectedId],
+    () => visibleContacts.find((contact) => contact.contactId === selectedId) ?? visibleContacts[0] ?? null,
+    [visibleContacts, selectedId],
   );
 
   const totalPages = Math.max(Math.ceil(serverTotal / params.pageSize), 1);
@@ -228,8 +216,9 @@ export default function ContactListPage() {
     }));
   };
 
-  const handleSearch = async (targetPage = 1, mode = 'search') => {
+  const handleSearch = async (targetPage = 1, mode = 'search', keepSelection = false) => {
     const isPageChange = mode === 'page';
+    const currentSelectedId = selectedId;
     if (!window.api?.queryContacts || isSearching || isPaging) {
       if (!window.api?.queryContacts) setNotice('SQLite 조회는 Electron 데스크톱 앱에서만 사용할 수 있습니다.');
       return;
@@ -247,20 +236,38 @@ export default function ContactListPage() {
       });
       const data = result?.data;
       const nextContacts = result?.ok && Array.isArray(data?.rows)
-        ? data.rows.map(normalizeContact)
+        ? data.rows
+          .filter((contact) => String(contact.status ?? '').toUpperCase() !== 'INACTIVE')
+          .map(normalizeContact)
         : [];
       setContacts(nextContacts);
-      setSelectedId(nextContacts[0]?.contactId ?? '');
-      setDraft(emptyDraft);
-      setFormMode('create');
       setServerTotal(Number(data?.total) || 0);
       setParams((current) => ({ ...current, page: Number(data?.page) || targetPage }));
       setNotice(`SQLite에서 담당자 ${Number(data?.total || 0).toLocaleString('ko-KR')}명을 조회했습니다.`);
+
+      if (keepSelection) {
+        const currentSelected = nextContacts.find((contact) => contact.contactId === currentSelectedId);
+        if (currentSelected) {
+          setSelectedId(currentSelected.contactId);
+          setDraft(currentSelected);
+          setFormMode('edit');
+        } else {
+          setSelectedId(nextContacts[0]?.contactId ?? '');
+          setDraft(emptyDraft);
+          setFormMode('create');
+        }
+      } else {
+        setSelectedId(nextContacts[0]?.contactId ?? '');
+        setDraft(emptyDraft);
+        setFormMode('create');
+      }
     } catch (error) {
       setContacts([]);
-      setSelectedId('');
-      setDraft(emptyDraft);
-      setFormMode('create');
+      if (!keepSelection) {
+        setSelectedId('');
+        setDraft(emptyDraft);
+        setFormMode('create');
+      }
       setServerTotal(0);
       setParams((current) => ({ ...current, page: 1 }));
       setNotice(`SQLite 조회 실패: ${error?.message || '알 수 없는 오류'}`);
@@ -272,20 +279,6 @@ export default function ContactListPage() {
       }
     }
   };
-
-  const metrics = useMemo(() => {
-    const customerCount = new Set(contacts.map((contact) => contact.customerCode || contact.customerName).filter(Boolean)).size;
-    const activeCount = contacts.filter((contact) => contact.status === 'ACTIVE').length;
-    const emailCount = contacts.filter((contact) => contact.preferredChannel === 'EMAIL').length;
-    const missingInfoCount = contacts.filter((contact) => !contact.recipientEmail && !contact.recipientPhone).length;
-
-    return [
-      { label: '등록 담당자', value: `${serverTotal.toLocaleString('ko-KR')}명`, detail: `현재 페이지 ${customerCount.toLocaleString('ko-KR')}개 거래처` },
-      { label: '사용 중', value: `${activeCount.toLocaleString('ko-KR')}명`, detail: '발송/마감 작업에 사용' },
-      { label: '메일 대상', value: `${emailCount.toLocaleString('ko-KR')}명`, detail: '메일 채널 우선' },
-      { label: '정보 확인', value: `${missingInfoCount.toLocaleString('ko-KR')}명`, detail: '이메일 또는 전화번호 필요' },
-    ];
-  }, [contacts, serverTotal]);
 
   const startCreate = () => {
     setFormMode('create');
@@ -308,45 +301,57 @@ export default function ContactListPage() {
     setNotice(`${contact.customerName} 담당자 정보를 선택했습니다.`);
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    if (isSaving) return;
+  const buildContactPayload = (contactId) => normalizeContact({
+    ...draft,
+    contactId,
+    customerName: String(draft.customerName ?? '').trim(),
+    customerCode: String(draft.customerCode ?? '').trim(),
+    businessNumber: String(draft.businessNumber ?? '').trim(),
+    departmentName: String(draft.departmentName ?? '').trim(),
+    recipientName: String(draft.recipientName ?? '').trim(),
+    recipientTitle: String(draft.recipientTitle ?? '').trim(),
+    recipientEmail: String(draft.recipientEmail ?? '').trim(),
+    recipientPhone: String(draft.recipientPhone ?? '').trim(),
+    memo: String(draft.memo ?? '').trim(),
+  });
 
-    const nextContact = normalizeContact({
-      ...draft,
-      contactId: formMode === 'edit' && draft.contactId ? draft.contactId : makeContactId(),
-      customerName: draft.customerName.trim(),
-      customerCode: draft.customerCode.trim(),
-      businessNumber: draft.businessNumber.trim(),
-      departmentName: draft.departmentName.trim(),
-      recipientName: draft.recipientName.trim(),
-      recipientTitle: draft.recipientTitle.trim(),
-      recipientEmail: draft.recipientEmail.trim(),
-      recipientPhone: draft.recipientPhone.trim(),
-      memo: draft.memo.trim(),
-    });
-
+  const persistContact = async (nextContact, mode) => {
     if (!nextContact.customerName || !nextContact.recipientName) {
       setNotice('거래처명과 담당자명은 꼭 입력해야 합니다.');
       return;
     }
 
     setIsSaving(true);
+
     try {
-      if (!window.api?.saveContact) throw new Error('Electron 데스크톱 앱에서만 저장할 수 있습니다.');
+      if (!window.api?.saveContact) {
+        throw new Error('Electron 데스크톱 앱에서만 저장할 수 있습니다.');
+      }
+
       const result = await window.api.saveContact(nextContact);
-      if (!result?.ok) throw new Error('SQLite 저장에 실패했습니다.');
+
+      if (!result?.ok) {
+        throw new Error('SQLite 저장에 실패했습니다.');
+      }
+
       const savedContact = normalizeContact(result.contact);
 
-      setContacts((current) => {
-        if (formMode === 'edit') return current.map((contact) => (contact.contactId === savedContact.contactId ? savedContact : contact));
-        return [savedContact, ...current];
-      });
-      setSelectedId(savedContact.contactId);
-      setDraft(savedContact);
-      setFormMode('edit');
-      setServerTotal((current) => formMode === 'edit' ? current : current + 1);
-      setNotice(`${formMode === 'edit' ? '담당자 정보가 수정되었습니다.' : '새 거래처 담당자가 등록되었습니다.'} SQLite에 즉시 반영됐고, 온라인이면 AWS에도 자동 동기화됩니다.`);
+      if (mode === 'edit') {
+        setContacts((current) => current.map((contact) => (
+          contact.contactId === savedContact.contactId ? savedContact : contact
+        )));
+        setSelectedId(savedContact.contactId);
+        setDraft(savedContact);
+        setFormMode('edit');
+        setNotice('담당자 정보가 수정되었습니다.');
+      } else {
+        setContacts((current) => [savedContact, ...current]);
+        setSelectedId(savedContact.contactId);
+        setDraft(savedContact);
+        setFormMode('edit');
+        setServerTotal((current) => current + 1);
+        setNotice('새 거래처 담당자가 등록되었습니다.');
+      }
     } catch (error) {
       setNotice(`저장 실패: ${error?.message || '알 수 없는 오류'}`);
     } finally {
@@ -354,32 +359,70 @@ export default function ContactListPage() {
     }
   };
 
-  const handleDelete = async (contact = selectedContact) => {
-    if (!contact) return;
-    const confirmed = window.confirm(`${contact.customerName} ${contact.recipientName} 담당자를 삭제할까요?`);
-    if (!confirmed) return;
-
-    setIsSaving(true);
-    try {
-      if (!window.api?.deleteContact) throw new Error('Electron 데스크톱 앱에서만 삭제할 수 있습니다.');
-      const result = await window.api.deleteContact(contact.contactId);
-      if (!result?.ok) throw new Error('SQLite 삭제에 실패했습니다.');
-      setContacts((current) => {
-        const nextContacts = current.filter((item) => item.contactId !== contact.contactId);
-        const nextSelected = nextContacts[0]?.contactId ?? '';
-        setSelectedId(nextSelected);
-        setDraft(nextContacts[0] ? normalizeContact(nextContacts[0]) : emptyDraft);
-        setFormMode(nextContacts[0] ? 'edit' : 'create');
-        return nextContacts;
-      });
-      setServerTotal((current) => Math.max(current - 1, 0));
-      setNotice('담당자 정보가 로컬 SQLite에서 삭제되었습니다. 온라인이면 AWS에도 자동 동기화됩니다.');
-    } catch (error) {
-      setNotice(`삭제 실패: ${error?.message || '알 수 없는 오류'}`);
-    } finally {
-      setIsSaving(false);
-    }
+  const handleCreate = (event) => {
+    event.preventDefault();
+    if (isSaving) return;
+    void persistContact(buildContactPayload(''), 'create');
   };
+
+  const handleUpdate = (event) => {
+    event.preventDefault();
+    if (isSaving) return;
+    if (!draft.contactId) {
+      setNotice('수정할 담당자 ID를 찾을 수 없습니다. 목록에서 다시 선택해 주세요.');
+      return;
+    }
+    void persistContact(buildContactPayload(draft.contactId), 'edit');
+  };
+
+const handleDelete = async (contact = selectedContact) => {
+  if (!contact) return;
+
+  const confirmed = window.confirm(
+    `${contact.customerName} ${contact.recipientName} 담당자를 삭제할까요?`
+  );
+
+  if (!confirmed) return;
+
+  setIsSaving(true);
+
+  try {
+    if (!window.api?.deleteContact) {
+      throw new Error('Electron 데스크톱 앱에서만 삭제할 수 있습니다.');
+    }
+
+    const result = await window.api.deleteContact(contact.contactId);
+
+    if (!result?.ok) {
+      throw new Error('담당자 미사용 처리에 실패했습니다.');
+    }
+
+    const remainingContacts = contacts.filter((item) => item.contactId !== contact.contactId);
+    setContacts(remainingContacts);
+
+    const wasSelected = selectedId === contact.contactId || selectedContact?.contactId === contact.contactId;
+    if (wasSelected) {
+      const nextContact = remainingContacts[0] ?? null;
+      setSelectedId(nextContact?.contactId ?? '');
+      setDraft(nextContact ? normalizeContact(nextContact) : emptyDraft);
+      setFormMode(nextContact ? 'edit' : 'create');
+    }
+
+    setServerTotal((current) =>
+      Math.max(current - 1, 0)
+    );
+
+    setNotice(
+      '담당자가 미사용 처리되었습니다.'
+    );
+  } catch (error) {
+    setNotice(
+      `삭제 실패: ${error?.message || '알 수 없는 오류'}`
+    );
+  } finally {
+    setIsSaving(false);
+  }
+};
 
 
 
@@ -449,7 +492,7 @@ export default function ContactListPage() {
             <div>
               <h2 className="font-bold text-gray-900 dark:text-gray-100">거래처 담당자 목록</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                전체 {serverTotal.toLocaleString('ko-KR')}명 중 {contacts.length.toLocaleString('ko-KR')}명 표시
+                전체 {serverTotal.toLocaleString('ko-KR')}명 중 {visibleContacts.length.toLocaleString('ko-KR')}명 표시
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -477,7 +520,7 @@ export default function ContactListPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60">
-                {contacts.map((contact) => {
+                {visibleContacts.map((contact) => {
                   const selected = contact.contactId === selectedContact?.contactId;
 
                   return (
@@ -505,13 +548,14 @@ export default function ContactListPage() {
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
                           <button className="btn btn-secondary h-8 px-3 text-xs" type="button" onClick={() => startEdit(contact)}>수정</button>
-                          <button className="h-8 rounded-md border border-rose-200 px-3 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10" type="button" onClick={() => handleDelete(contact)}>삭제</button>
+                          <button className="h-8 rounded-md border border-rose-200 px-3 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10" type="button" 
+                          onClick={() => handleDelete(contact)}>삭제</button>
                         </div>
                       </td>
                     </tr>
                   );
                 })}
-                {contacts.length === 0 && (
+                {visibleContacts.length === 0 && (
                   <tr>
                     <td className="px-4 py-10 text-center text-gray-500" colSpan="6">조건에 맞는 담당자가 없습니다.</td>
                   </tr>
@@ -536,7 +580,7 @@ export default function ContactListPage() {
             draft={draft}
             mode={formMode}
             onChange={setDraft}
-            onSubmit={handleSubmit}
+            onSubmit={formMode === 'edit' ? handleUpdate : handleCreate}
             onCancel={startCreate}
           />
         </aside>

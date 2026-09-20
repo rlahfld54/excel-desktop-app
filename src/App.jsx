@@ -112,7 +112,6 @@ function App() {
     loading: Boolean(window.api?.getSetupStatus),
     completed: !window.api?.getSetupStatus,
   });
-  const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const { showToast } = useToast();
 
@@ -185,7 +184,6 @@ function App() {
         if (!result.ok) throw new Error(result.message || 'AWS 동기화 요청이 거부되었습니다.');
         await window.api.applyCloudWorkspace(result.data?.snapshot ?? {});
         await hydrateTeamTodos();
-        setWorkspaceRevision((revision) => revision + 1);
         window.dispatchEvent(new CustomEvent('excel-workspace:data-synced'));
       } catch (error) {
         showToast({
@@ -266,7 +264,7 @@ function App() {
           <p className="mt-1">현재 변경 사항은 이 PC의 로컬 SQLite에만 저장합니다. 연결이 복구되면 자동 동기화를 다시 시도합니다.</p>
         </div>
       )}
-      <Routes key={`workspace-${workspaceRevision}`}>
+      <Routes>
       <Route exact path="/" element={<WelcomePage />} />
       <Route exact path="/setup" element={<SetupPage />} />
       <Route exact path="/login" element={<LoginPage />} />

@@ -2010,6 +2010,7 @@ function getFilteredContacts(database, options = {}) {
     "(@contact = '%%' OR lower(COALESCE(contacts.recipient_name, '')) LIKE @contact)",
     "(@email = '%%' OR lower(COALESCE(contacts.recipient_email, '')) LIKE @email)",
     "(@phone = '%%' OR lower(COALESCE(contacts.recipient_phone, '')) LIKE @phone)",
+    "UPPER(COALESCE(contacts.status, '')) <> 'INACTIVE'",
     "(@channel = 'ALL' OR contacts.preferred_channel = @channel)",
     "(@status = 'ALL' OR contacts.status = @status)",
   ].join(" AND ");
