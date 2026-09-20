@@ -92,38 +92,118 @@ function splitHeaderAndRows(rawRows) {
   return { columns, rows };
 }
 
+class SpreadsheetParseError extends Error {
+  constructor(code, message, originalError = null) {
+    super(message);
+    this.name = 'SpreadsheetParseError';
+    this.code = code;
+    this.originalError = originalError;
+  }
+}
+
 export async function parseSpreadsheetFile(file) {
+  if (!file) {
+    throw new SpreadsheetParseError(
+      'FILE_NOT_SELECTED',
+      '선택된 파일이 없습니다.'
+    );
+  }
+
   const extension = file.name.split('.').pop()?.toLowerCase();
 
   if (extension === 'csv') {
-    const text = await file.text();
-    return {
-      fileName: file.name,
-      ...splitHeaderAndRows(parseCsvText(text)),
-    };
+    try {
+      const text = await file.text();
+
+      return {
+        fileName: file.name,
+        ...splitHeaderAndRows(parseCsvText(text)),
+      };
+    } catch (error) {
+      console.error('CSV 파일 읽기 실패:', error);
+
+      throw new SpreadsheetParseError(
+        'CSV_READ_FAILED',
+        'CSV 파일을 읽지 못했습니다.',
+        error
+      );
+    }
   }
 
   if (extension === 'xlsx') {
     const ExcelModule = await import('exceljs');
     const ExcelJS = ExcelModule.default ?? ExcelModule;
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(await file.arrayBuffer());
-    const worksheet = workbook.worksheets[0];
+
+    let arrayBuffer;
+
+    try {
+      arrayBuffer = await file.arrayBuffer();
+    } catch (error) {
+      console.error('파일 데이터 읽기 실패:', error);
+
+      throw new SpreadsheetParseError(
+        'FILE_READ_FAILED',
+        '선택한 파일의 데이터를 읽지 못했습니다.',
+        error
+      );
+    }
+
+    try {
+      await workbook.xlsx.load(arrayBuffer);
+    } catch (error) {
+      console.error('ExcelJS XLSX 로드 실패:', {
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        error,
+      });
+
+      throw new SpreadsheetParseError(
+        'INCOMPATIBLE_XLSX',
+        '현재 파일은 프로그램과 호환되는 Excel 형식으로 읽을 수 없습니다.',
+        error
+      );
+    }
+
+    const worksheet = workbook.worksheets?.[0];
 
     if (!worksheet) {
-      return { fileName: file.name, columns: [], rows: [] };
+      throw new SpreadsheetParseError(
+        'SHEET_NOT_FOUND',
+        '엑셀 파일에 읽을 수 있는 시트가 없습니다.'
+      );
     }
 
     const rawRows = [];
-    worksheet.eachRow((worksheetRow) => {
-      rawRows.push(worksheetRow.values.slice(1).map(normalizeCell));
+
+    worksheet.eachRow({ includeEmpty: false }, (worksheetRow) => {
+      rawRows.push(
+        worksheetRow.values
+          .slice(1)
+          .map(normalizeCell)
+      );
     });
+
+    const parsed = splitHeaderAndRows(
+      trimEmptyEdges(rawRows)
+    );
+
+    if (parsed.columns.length === 0) {
+      throw new SpreadsheetParseError(
+        'EMPTY_SPREADSHEET',
+        '엑셀 파일에서 컬럼을 찾지 못했습니다.'
+      );
+    }
 
     return {
       fileName: file.name,
-      ...splitHeaderAndRows(trimEmptyEdges(rawRows)),
+      ...parsed,
     };
   }
 
-  throw new Error('CSV 또는 XLSX 파일만 업로드할 수 있습니다.');
+  throw new SpreadsheetParseError(
+    'UNSUPPORTED_EXTENSION',
+    'CSV 또는 XLSX 파일만 업로드할 수 있습니다.'
+  );
 }
