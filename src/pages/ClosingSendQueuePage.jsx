@@ -1,6 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import fontkit from '@pdf-lib/fontkit';
-import { PDFDocument, rgb } from 'pdf-lib';
 
 import PageShell from './PageShell';
 import { DateRangeFields } from '../components/common';
@@ -106,79 +104,40 @@ async function downloadBlob(blob, fileName) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-let koreanFontBytesPromise;
-
-function loadKoreanFontBytes() {
-  if (!koreanFontBytesPromise) {
-    koreanFontBytesPromise = fetch(`${import.meta.env.BASE_URL}fonts/malgun.ttf`).then((response) => {
-      if (!response.ok) throw new Error('PDF 한글 폰트를 불러오지 못했습니다.');
-      return response.arrayBuffer();
-    });
-  }
-  return koreanFontBytesPromise;
-}
-
-function wrapPdfText(text, font, size, maxWidth) {
-  const normalized = String(text ?? '').replace(/\s+/g, ' ').trim();
-  if (!normalized) return [''];
-
-  const lines = [];
-  let line = '';
-
-  normalized.split('').forEach((char) => {
-    const nextLine = `${line}${char}`;
-    if (font.widthOfTextAtSize(nextLine, size) > maxWidth && line) {
-      lines.push(line);
-      line = char.trimStart();
-      return;
-    }
-    line = nextLine;
-  });
-
-  if (line) lines.push(line);
-  return lines;
-}
-
-function getImageBytes(dataUrl) {
-  if (!dataUrl || !String(dataUrl).startsWith('data:')) return null;
-  const [header, value] = String(dataUrl).split(',');
-  if (!value) return null;
-  const binary = atob(value);
-  return {
-    bytes: Uint8Array.from(binary, (character) => character.charCodeAt(0)),
-    isJpg: header.includes('image/jpeg'),
-  };
-}
-
 async function loadImageDataUrl(value) {
   if (!value) return '';
   const normalizedValue = String(value);
   const isSvg = normalizedValue.includes('image/svg+xml') || normalizedValue.toLowerCase().endsWith('.svg');
   if (normalizedValue.startsWith('data:') && !isSvg) return normalizedValue;
   try {
-    const response = await fetch(normalizedValue);
-    if (!response.ok) return '';
-    let blob = await response.blob();
-    if (isSvg) {
-      const image = await createImageBitmap(blob);
-      const canvas = document.createElement('canvas');
-      canvas.width = image.width;
-      canvas.height = image.height;
-      const context = canvas.getContext('2d');
-      if (!context) return '';
-      context.drawImage(image, 0, 0);
-      image.close();
-      blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-      if (!blob) return '';
+    let imageUrl = normalizedValue;
+    if (!normalizedValue.startsWith('data:')) {
+      const response = await fetch(normalizedValue);
+      if (!response.ok) throw new Error(`이미지 파일을 불러오지 못했습니다 (${response.status}).`);
+      const blob = await response.blob();
+      imageUrl = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(blob);
+      });
     }
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => resolve('');
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return '';
+    if (!imageUrl) throw new Error('이미지 파일을 읽지 못했습니다.');
+    if (isSvg) {
+      const image = new Image();
+      image.src = imageUrl;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth || 1;
+      canvas.height = image.naturalHeight || 1;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('이미지 변환을 시작하지 못했습니다.');
+      context.drawImage(image, 0, 0);
+      return canvas.toDataURL('image/png');
+    }
+    return imageUrl;
+  } catch (error) {
+    throw new Error(`로고 또는 직인 이미지를 변환하지 못했습니다: ${error?.message || '알 수 없는 오류'}`);
   }
 }
 
@@ -242,127 +201,51 @@ function getClosingDetailRows(target, documentSettings) {
   });
 }
 
-async function createClosingPdfBlob(target, mailTemplates, documentSettings) {
-  const pdfDoc = await PDFDocument.create();
-  pdfDoc.registerFontkit(fontkit);
+async function createClosingPdfBlobs(xlsxBlobs) {
+  // XLSX Blob → Base64
+  const files = await Promise.all(
+    xlsxBlobs.map(async (blob) => {
+      const arrayBuffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
 
-  const fontBytes = await loadKoreanFontBytes();
-  const font = await pdfDoc.embedFont(fontBytes, { subset: true });
-  const page = pdfDoc.addPage([595.28, 841.89]);
-  const { width, height } = page.getSize();
-  const margin = 48;
-  const hex = documentSettings.primaryColor.replace('#', '');
-  const teal = rgb(parseInt(hex.slice(0, 2), 16) / 255, parseInt(hex.slice(2, 4), 16) / 255, parseInt(hex.slice(4, 6), 16) / 255);
-  const gray = rgb(0.32, 0.36, 0.43);
-  const lightGray = rgb(0.95, 0.97, 0.98);
-  const border = rgb(0.82, 0.86, 0.9);
-  let y = height - 58;
+      let binary = '';
+      const chunkSize = 0x8000;
 
-  const logoBytes = getImageBytes(await loadImageDataUrl(documentSettings.logoDataUrl));
-  if (logoBytes) {
-    const logo = logoBytes.isJpg ? await pdfDoc.embedJpg(logoBytes.bytes) : await pdfDoc.embedPng(logoBytes.bytes);
-    const scale = Math.min(86 / logo.width, 42 / logo.height);
-    page.drawImage(logo, { x: width - margin - logo.width * scale, y: height - 88, width: logo.width * scale, height: logo.height * scale });
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(
+          ...bytes.subarray(i, i + chunkSize)
+        );
+      }
+
+      return btoa(binary);
+    })
+  );
+
+  // preload → ipcMain
+  const result = await window.api.convertExcelToPdf({
+    files,
+  });
+
+  if (!result?.ok) {
+    throw new Error(
+      result?.message ||
+      'Excel PDF 내보내기에 실패했습니다.'
+    );
   }
 
-  page.drawText('매출 마감장', { x: margin, y, size: 24, font, color: teal });
-  page.drawText(documentSettings.companyName || '회사명', { x: margin, y: y - 22, size: 10, font, color: gray });
-  page.drawText(new Date().toLocaleDateString('ko-KR'), { x: width - margin - 86, y, size: 10, font, color: gray });
+  // PDF Base64 → Blob
+  return result.files.map((base64) => {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
 
-  y -= 62;
-  page.drawRectangle({ x: margin, y: y - 86, width: width - margin * 2, height: 96, color: lightGray, borderColor: border, borderWidth: 1 });
-  [
-    ['업체명', target.company],
-    ['거래처 담당자', target.contactName],
-    ['내부 담당자', target.manager],
-    ['마감일', target.deadline],
-  ].forEach(([label, value], index) => {
-    const col = index % 2;
-    const row = Math.floor(index / 2);
-    const x = margin + 18 + col * 250;
-    const rowY = y - 16 - row * 38;
-    page.drawText(label, { x, y: rowY, size: 9, font, color: gray });
-    page.drawText(String(value), { x, y: rowY - 17, size: 13, font, color: rgb(0.06, 0.09, 0.16) });
-  });
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
 
-  y -= 126;
-  page.drawText('마감 요약', { x: margin, y, size: 15, font, color: teal });
-  y -= 28;
-  [
-    ['공급가액', formatClosingCurrency(getTargetSupplyAmount(target))],
-    ['부가세', formatClosingCurrency(getTargetTaxAmount(target))],
-    ['합계', formatClosingCurrency(getTargetTotalAmount(target))],
-    ['과세 유형', getTaxTypeLabel(target.taxStatus)],
-    ['발송 유형', getSendType(target)],
-    ['미확정 사유', target.reason],
-    ['마지막 연락', `${target.lastContactAt} / ${target.contactCount}회`],
-    ['세금계산서 상태', target.taxIssued ? '발행 확인' : '발행 전'],
-  ].forEach(([label, value]) => {
-    page.drawRectangle({ x: margin, y: y - 12, width: width - margin * 2, height: 30, borderColor: border, borderWidth: 0.8 });
-    page.drawText(label, { x: margin + 12, y, size: 10, font, color: gray });
-    page.drawText(String(value), { x: margin + 150, y, size: 11, font, color: rgb(0.06, 0.09, 0.16) });
-    y -= 30;
-  });
-
-  y -= 18;
-  page.drawText('안내문', { x: margin, y, size: 15, font, color: teal });
-  y -= 24;
-  const messageLines = wrapPdfText(documentSettings.defaultMessage || '첨부 파일을 확인해 주세요.', font, 11, width - margin * 2 - 24);
-  page.drawRectangle({ x: margin, y: y - Math.max(messageLines.length * 18 + 20, 74), width: width - margin * 2, height: Math.max(messageLines.length * 18 + 32, 86), color: rgb(0.99, 0.99, 0.99), borderColor: border, borderWidth: 1 });
-  messageLines.forEach((line) => {
-    page.drawText(line, { x: margin + 12, y, size: 11, font, color: rgb(0.17, 0.2, 0.26) });
-    y -= 18;
-  });
-
-  page.drawText(documentSettings.defaultMessage || '첨부 파일을 확인해 주세요.', {
-    x: margin,
-    y: 42,
-    size: 9,
-    font,
-    color: gray,
-  });
-
-  const detailRows = getClosingDetailRows(target, documentSettings);
-  const tableColumns = detailRows[0] || getClosingTableColumns(target, documentSettings);
-  const tableWidth = width - margin * 2;
-  const cellWidth = tableColumns.length ? tableWidth / tableColumns.length : tableWidth;
-  const rowsPerPage = 28;
-  for (let pageIndex = 0; pageIndex < detailRows.length; pageIndex += rowsPerPage) {
-    const detailPage = pdfDoc.addPage([595.28, 841.89]);
-    const tableTop = detailPage.getHeight() - 110;
-    const pageRows = detailRows.slice(pageIndex, pageIndex + rowsPerPage);
-    detailPage.drawText(`거래 내역${pageIndex > 0 ? ` (${pageIndex + 1})` : ''}`, { x: margin, y: tableTop + 28, size: 15, font, color: teal });
-    tableColumns.forEach((column, index) => {
-      const x = margin + index * cellWidth;
-      detailPage.drawRectangle({ x, y: tableTop, width: cellWidth, height: 24, color: teal, borderColor: border, borderWidth: 0.5 });
-      detailPage.drawText(column.label.slice(0, 8), { x: x + 5, y: tableTop + 8, size: 7, font, color: rgb(1, 1, 1) });
+    return new Blob([bytes], {
+      type: 'application/pdf',
     });
-    pageRows.forEach((row, rowIndex) => {
-      row.forEach((column, columnIndex) => {
-        const x = margin + columnIndex * cellWidth;
-        const rowY = tableTop - 28 - rowIndex * 22;
-        detailPage.drawRectangle({ x, y: rowY, width: cellWidth, height: 22, borderColor: border, borderWidth: 0.5 });
-        detailPage.drawText(String(column.value).slice(0, 14), { x: x + 4, y: rowY + 7, size: 6.5, font, color: rgb(0.1, 0.12, 0.16) });
-      });
-    });
-    detailPage.drawText(documentSettings.defaultMessage || '첨부 파일을 확인해 주세요.', {
-      x: margin,
-      y: 42,
-      size: 9,
-      font,
-      color: gray,
-    });
-  }
-
-  const sealBytes = getImageBytes(await loadImageDataUrl(documentSettings.sealDataUrl));
-  if (sealBytes) {
-    const seal = sealBytes.isJpg ? await pdfDoc.embedJpg(sealBytes.bytes) : await pdfDoc.embedPng(sealBytes.bytes);
-    const scale = Math.min(46 / seal.width, 46 / seal.height);
-    page.drawImage(seal, { x: width - margin - seal.width * scale, y: 34, width: seal.width * scale, height: seal.height * scale });
-  }
-
-  const pdfBytes = await pdfDoc.save();
-  return new Blob([pdfBytes], { type: 'application/pdf' });
+  });
 }
 
 function blobToBase64(blob) {
@@ -526,29 +409,69 @@ function makeClosingContactText(settings) {
   ].filter(Boolean).join('\n');
 }
 
-function createMailHtml(target, templates, currentUser, documentSettings = normalizeClosingDocumentSettings()) {
-  const bodyHtml = escapeMailHtml(getTargetMailBody(target, templates)).replace(/\n/g, '<br>');
-  const summaryHtml = `
-    <div style="margin:0 0 20px;padding:14px 16px;border:1px solid #f4d35e;border-radius:8px;background:#fff8cc">
-      <div style="margin-bottom:8px;font-size:15px;font-weight:700;color:#5b4600">매출 마감 요약</div>
-      <div style="font-weight:700;color:#2f2a1c">공급가액: ${escapeMailHtml(formatClosingCurrency(getTargetSupplyAmount(target)))}</div>
-      <div style="font-weight:700;color:#2f2a1c">부가세: ${escapeMailHtml(formatClosingCurrency(getTargetTaxAmount(target)))}</div>
-      <div style="font-weight:700;color:#2f2a1c">합계: ${escapeMailHtml(formatClosingCurrency(getTargetTotalAmount(target)))}</div>
-      <div style="margin-top:6px;color:#5f573b">과세구분: ${escapeMailHtml(getTaxTypeLabel(target.taxStatus))}</div>
-    </div>
-  `;
+function createMailHtml(
+  target,
+  templates,
+  currentUser,
+  documentSettings = normalizeClosingDocumentSettings()
+) {
+  const rawBody = getTargetMailBody(target, templates);
+
+  // 서식 편집기에서 저장된 HTML인지 확인
+  const isHtml = /<\/?[a-z][\s\S]*>/i.test(rawBody);
+
+  // HTML이면 서식을 그대로 사용하고,
+  // 기존 일반 텍스트라면 줄바꿈만 <br>로 변환
+  const bodyHtml = isHtml
+    ? rawBody
+    : escapeMailHtml(rawBody).replace(/\n/g, '<br>');
+
+  // 명함 이미지가 없거나 깨질 경우 사용할 텍스트 연락처
   const contactHtml = documentSettings.emailSignature.showTextContact
-    ? `<div style="margin-top:20px;white-space:pre-line">${escapeMailHtml(makeClosingContactText(documentSettings))}</div>`
+    ? `
+      <div style="
+        margin-top:20px;
+        white-space:pre-line;
+        color:#64748b;
+        font-size:13px;
+        line-height:1.7;
+      ">
+        ${escapeMailHtml(makeClosingContactText(documentSettings))}
+      </div>
+    `
     : '';
+
+  // 명함 이미지는 기존 CID 방식 그대로 유지
   const cardHtml = documentSettings.emailSignature.showBusinessCard
-    ? '<div style="margin-top:28px;width:600px;max-width:100%"><img src="cid:asterworks-business-card" alt="회사 담당자 명함" width="600" style="display:block;width:100%;height:auto;border:0;border-radius:12px"></div>'
+    ? `
+      <div style="margin-top:28px;width:600px;max-width:100%;">
+        <img
+          src="cid:asterworks-business-card"
+          alt="회사 담당자 명함"
+          width="600"
+          style="
+            display:block;
+            width:100%;
+            height:auto;
+            border:0;
+            border-radius:12px;
+          "
+        >
+      </div>
+    `
     : '';
 
   return `
-    <div style="font-family:Arial,'Noto Sans KR',sans-serif;color:#334155;font-size:14px;line-height:1.75">
-      ${summaryHtml}
+    <div style="
+      font-family:Arial,'Noto Sans KR',sans-serif;
+      color:#334155;
+      font-size:14px;
+      line-height:1.75;
+    ">
       <div>${bodyHtml}</div>
+
       ${contactHtml}
+
       ${cardHtml}
     </div>
   `;
@@ -684,10 +607,7 @@ function getMailSubject(target, templates) {
 }
 
 async function createClosingXlsxBlob(target, mailTemplates, documentSettings) {
-  console.log('🔥 documentSettings:', documentSettings);
-console.log('🖼 logo:', documentSettings.logoDataUrl);
-console.log('🔴 seal:', documentSettings.sealDataUrl);
-
+  const pixelsPerCm = 96 / 2.54; // ExcelJS 이미지 크기 단위는 픽셀
   const ExcelModule = await import('exceljs');
   const ExcelJS = ExcelModule.default ?? ExcelModule;
 
@@ -820,14 +740,14 @@ console.log('🔴 seal:', documentSettings.sealDataUrl);
       try {
         const logoId = workbook.addImage({
           base64: logoDataUrl,
-          extension: 'png',
+          extension: logoDataUrl.startsWith('data:image/jpeg') ? 'jpeg' : 'png',
         });
 
         worksheet.addImage(logoId, {
-          tl: { col: 0.15, row: 0.25 }, // A1 근처
+          tl: { col: 0.15, row: 0.05 }, // A1 근처
           ext: {
-            width: 112,
-            height: 36,
+            width: 4.96 * pixelsPerCm,
+            height: 1.59 * pixelsPerCm,
           },
           editAs: 'oneCell',
         });
@@ -1084,6 +1004,7 @@ const sealStartRow = tableEndRow + 2;
 worksheet.getRow(sealStartRow).height = 20;
 worksheet.getRow(sealStartRow + 1).height = 20;
 worksheet.getRow(sealStartRow + 2).height = 20;
+worksheet.getRow(sealStartRow + 3).height = 20;
 
 const sealDataUrl = await loadImageDataUrl(
   documentSettings.sealDataUrl
@@ -1093,18 +1014,18 @@ if (sealDataUrl) {
   try {
     const sealId = workbook.addImage({
       base64: sealDataUrl,
-      extension: 'png',
+      extension: sealDataUrl.startsWith('data:image/jpeg') ? 'jpeg' : 'png',
     });
 
     worksheet.addImage(sealId, {
-      // E:F 영역
+      // F열 안쪽
       tl: {
-        col: 5.25,
+        col: 5.05,
         row: sealStartRow - 1,
       },
       ext: {
-        width: 48,
-        height: 48,
+        width: 2.65 * pixelsPerCm,
+        height: 2.65 * pixelsPerCm,
       },
       editAs: 'oneCell',
     });
@@ -1140,7 +1061,7 @@ if (sealDataUrl) {
   // F열까지 / 실제 문서가 끝나는 행까지
   const lastRow = Math.max(
     worksheet.lastRow?.number || 1,
-    sealStartRow + 2
+    sealStartRow + 3
   );
 
   worksheet.pageSetup.printArea = `A1:F${lastRow}`;
@@ -1166,13 +1087,24 @@ if (sealDataUrl) {
 
 async function createGeneratedFiles(targets, mailTemplates, documentSettings) {
   const createdAt = new Date().toISOString();
-  const fileGroups = [];
+  const workbooks = [];
+  const usedNames = new Set();
 
   for (const target of targets) {
-    const baseName = sanitizeFileName(`${target.company}_${target.deadline}_마감요청`);
+    const preferredName = sanitizeFileName(`${target.company}_${target.deadline}_마감요청`);
+    let baseName = preferredName;
+    for (let suffix = 2; usedNames.has(baseName.toLowerCase()); suffix += 1) {
+      baseName = `${preferredName.slice(0, 76)}_${suffix}`;
+    }
+    usedNames.add(baseName.toLowerCase());
     const xlsxBlob = await createClosingXlsxBlob(target, mailTemplates, documentSettings);
-    const pdfBlob = await createClosingPdfBlob(target, mailTemplates, documentSettings);
-    fileGroups.push({
+    workbooks.push({ target, baseName, xlsxBlob });
+  }
+
+  const pdfBlobs = await createClosingPdfBlobs(workbooks.map((item) => item.xlsxBlob));
+  return workbooks.map(({ target, baseName, xlsxBlob }, index) => {
+    const pdfBlob = pdfBlobs[index];
+    return {
       targetId: target.id,
       company: target.company,
       createdAt,
@@ -1192,10 +1124,8 @@ async function createGeneratedFiles(targets, mailTemplates, documentSettings) {
           mimeType: pdfBlob.type,
         },
       ],
-    });
-  }
-
-  return fileGroups;
+    };
+  });
 }
 
 async function createEmailDraftEml({ emailTargets, generatedFileGroups, mailSettings, currentUser, mailTemplates, documentSettings }) {
@@ -1537,24 +1467,39 @@ function MailTemplateModal({ templates, onChange, onClose }) {
 }
 
 function TargetMailNoteModal({ target, templates, onChange, onClose }) {
+  const editorRef = React.useRef(null);
+
   if (!target) return null;
 
   const defaultSubject = getTargetMailSubject(target, {
     ...templates,
     targetSubjects: Object.fromEntries(
-      Object.entries(templates.targetSubjects ?? {}).filter(([targetId]) => targetId !== target.id)
+      Object.entries(templates.targetSubjects ?? {}).filter(
+        ([targetId]) => targetId !== target.id
+      )
     ),
   });
+
   const defaultBody = getTargetMailBody(target, {
     ...templates,
     targetBodies: Object.fromEntries(
-      Object.entries(templates.targetBodies ?? {}).filter(([targetId]) => targetId !== target.id)
+      Object.entries(templates.targetBodies ?? {}).filter(
+        ([targetId]) => targetId !== target.id
+      )
     ),
   });
-  const subjectValue = Object.prototype.hasOwnProperty.call(templates.targetSubjects ?? {}, target.id)
+
+  const subjectValue = Object.prototype.hasOwnProperty.call(
+    templates.targetSubjects ?? {},
+    target.id
+  )
     ? templates.targetSubjects[target.id]
     : defaultSubject;
-  const bodyValue = Object.prototype.hasOwnProperty.call(templates.targetBodies ?? {}, target.id)
+
+  const bodyValue = Object.prototype.hasOwnProperty.call(
+    templates.targetBodies ?? {},
+    target.id
+  )
     ? templates.targetBodies[target.id]
     : defaultBody;
 
@@ -1593,40 +1538,176 @@ function TargetMailNoteModal({ target, templates, onChange, onClose }) {
       targetBodies: nextTargetBodies,
       targetNotes: nextTargetNotes,
     });
+
+    if (editorRef.current) {
+      editorRef.current.innerText = defaultBody;
+    }
   };
+
+  const applyCommand = (command, value = null) => {
+    editorRef.current?.focus();
+    document.execCommand(command, false, value);
+
+    if (editorRef.current) {
+      updateTargetBody(editorRef.current.innerHTML);
+    }
+  };
+
+  const handleEditorInput = () => {
+    if (!editorRef.current) return;
+    updateTargetBody(editorRef.current.innerHTML);
+  };
+
+  const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(bodyValue);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/40 px-4">
       <div className="flex max-h-[88vh] w-full max-w-4xl flex-col rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
+
         <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-700/60">
           <div className="min-w-0">
-            <h2 className="truncate text-lg font-bold text-gray-900 dark:text-gray-100">{target.company} 메일 문구 수정</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{target.email} · {getSendType(target)}</p>
+            <h2 className="truncate text-lg font-bold text-gray-900 dark:text-gray-100">
+              {target.company} 메일 문구 수정
+            </h2>
+
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {target.email} · {getSendType(target)}
+            </p>
           </div>
+
           <div className="flex shrink-0 gap-2">
-            <button className="btn btn-secondary" type="button" onClick={resetTargetCopy}>기본값</button>
-            <button className="btn btn-secondary" type="button" onClick={onClose}>닫기</button>
+            <button
+              className="btn btn-secondary"
+              type="button"
+              onClick={resetTargetCopy}
+            >
+              기본값
+            </button>
+
+            <button
+              className="btn btn-secondary"
+              type="button"
+              onClick={onClose}
+            >
+              닫기
+            </button>
           </div>
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+
+          {/* 메일 제목 */}
           <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-900 dark:text-gray-100">메일 제목</span>
+            <span className="mb-2 block text-sm font-bold text-gray-900 dark:text-gray-100">
+              메일 제목
+            </span>
+
             <input
               className="form-input w-full"
               value={subjectValue}
-              onChange={(event) => updateTargetSubject(event.target.value)}
+              onChange={(event) =>
+                updateTargetSubject(event.target.value)
+              }
             />
           </label>
 
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-900 dark:text-gray-100">메일 본문 전체</span>
-            <textarea
-              className="form-textarea min-h-80 w-full resize-y leading-6"
-              value={bodyValue}
-              onChange={(event) => updateTargetBody(event.target.value)}
-            />
-          </label>
+          {/* 메일 본문 */}
+          <div className="block">
+            <span className="mb-2 block text-sm font-bold text-gray-900 dark:text-gray-100">
+              메일 본문 전체
+            </span>
+
+            <div className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-600">
+
+              {/* 서식 도구 */}
+              <div className="flex flex-wrap items-center gap-1 border-b border-gray-200 bg-gray-50 px-2 py-2 dark:border-gray-600 dark:bg-gray-700">
+
+                <select
+                  className="rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800"
+                  defaultValue=""
+                  onChange={(event) => {
+                    if (!event.target.value) return;
+
+                    applyCommand(
+                      'fontSize',
+                      event.target.value
+                    );
+
+                    event.target.value = '';
+                  }}
+                >
+                  <option value="">글자 크기</option>
+                  <option value="2">작게</option>
+                  <option value="3">보통</option>
+                  <option value="4">크게</option>
+                  <option value="5">아주 크게</option>
+                </select>
+
+                <button
+                  type="button"
+                  title="굵게"
+                  className="rounded px-3 py-1.5 text-sm font-bold hover:bg-gray-200 dark:hover:bg-gray-600"
+                  onClick={() => applyCommand('bold')}
+                >
+                  B
+                </button>
+
+                <label
+                  className="flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs hover:bg-gray-200 dark:hover:bg-gray-600"
+                  title="글자색"
+                >
+                  글자색
+                  <input
+                    type="color"
+                    className="h-6 w-6 cursor-pointer border-0 bg-transparent p-0"
+                    defaultValue="#000000"
+                    onChange={(event) =>
+                      applyCommand('foreColor', event.target.value)
+                    }
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  title="노란색으로 강조"
+                  className="rounded bg-yellow-200 px-3 py-1.5 text-xs font-semibold text-yellow-950 hover:bg-yellow-300"
+                  onClick={() =>
+                    applyCommand('hiliteColor', '#fff2a8')
+                  }
+                >
+                  노란색 강조
+                </button>
+
+                <button
+                  type="button"
+                  title="선택 영역의 서식 제거"
+                  className="rounded px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-600"
+                  onClick={() => applyCommand('removeFormat')}
+                >
+                  서식 제거
+                </button>
+              </div>
+
+              {/* 실제 메일 편집 영역 */}
+              <div
+                ref={editorRef}
+                className="min-h-80 bg-white p-4 text-sm leading-7 text-gray-900 outline-none"
+                contentEditable
+                suppressContentEditableWarning
+                onInput={handleEditorInput}
+                dangerouslySetInnerHTML={{
+                  __html: looksLikeHtml
+                    ? bodyValue
+                    : escapeMailHtml(bodyValue).replace(/\n/g, '<br>'),
+                }}
+              />
+            </div>
+
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              메일에서 강조할 문장을 드래그한 뒤 굵게, 글자색,
+              노란색 강조 등을 적용할 수 있습니다.
+            </p>
+          </div>
         </div>
       </div>
     </div>

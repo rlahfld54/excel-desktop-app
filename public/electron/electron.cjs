@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, Notification, safeStorage } = requi
 const { shell } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { execFile } = require("node:child_process");
 const nodemailer = require("nodemailer");
 const {
   backupDatabase,
@@ -691,8 +692,9 @@ function registerIpcHandlers() {
 
     const settings = await readAppSettings();
     const folderName = `${payload.folderName || "closing_attachments"}_${formatTimestamp()}`;
-    const targetFolder = path.join(settings.exportPath, "ClosingAttachments", folderName);
-    await fs.mkdir(targetFolder, { recursive: true });
+    const parentFolder = path.join(settings.exportPath, "ClosingAttachments");
+    await fs.mkdir(parentFolder, { recursive: true });
+    const targetFolder = await fs.mkdtemp(path.join(parentFolder, `${folderName}_`));
 
     const savedFiles = [];
     for (const file of files) {
@@ -706,6 +708,48 @@ function registerIpcHandlers() {
       folderPath: targetFolder,
       savedFiles,
     };
+  });
+
+  ipcMain.handle("files:excel-to-pdf", async (_, payload = {}) => {
+    const inputs = Array.isArray(payload.files) ? payload.files : [];
+    if (inputs.length === 0 || inputs.some((value) => !value)) {
+      return { ok: false, message: "변환할 Excel 파일이 없습니다." };
+    }
+    if (process.platform !== "win32") return { ok: false, message: "Excel PDF 내보내기는 Windows에서 사용할 수 있습니다." };
+
+    const tempFolder = await fs.mkdtemp(path.join(app.getPath("temp"), "closing-pdf-"));
+    try {
+      for (let index = 0; index < inputs.length; index += 1) {
+        const bytes = Buffer.from(String(inputs[index]), "base64");
+        if (bytes.length === 0) throw new Error(`${index + 1}번째 Excel 파일이 비어 있습니다.`);
+        await fs.writeFile(path.join(tempFolder, `${index}.xlsx`), bytes);
+      }
+      const scriptPath = app.isPackaged
+        ? path.join(process.resourcesPath, "app.asar.unpacked", "public", "electron", "export-excel-pdf.ps1")
+        : path.join(__dirname, "export-excel-pdf.ps1");
+      await new Promise((resolve, reject) => {
+        execFile("powershell.exe", [
+          "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+          "-File", scriptPath, "-FolderPath", tempFolder, "-FileCount", String(inputs.length),
+        ], { windowsHide: true, timeout: 120000 + inputs.length * 15000 }, (error, stdout, stderr) => {
+          if (error) reject(new Error(String(stderr || stdout || error.message).trim()));
+          else resolve();
+        });
+      });
+      const files = [];
+      for (let index = 0; index < inputs.length; index += 1) {
+        const pdf = await fs.readFile(path.join(tempFolder, `${index}.pdf`));
+        if (pdf.subarray(0, 5).toString() !== "%PDF-") {
+          throw new Error(`${index + 1}번째 Excel 파일의 PDF가 올바르지 않습니다.`);
+        }
+        files.push(pdf.toString("base64"));
+      }
+      return { ok: true, files };
+    } catch (error) {
+      return { ok: false, message: `Excel PDF 내보내기 실패: ${error?.message || "알 수 없는 오류"}` };
+    } finally {
+      await fs.rm(tempFolder, { recursive: true, force: true });
+    }
   });
 
   ipcMain.handle("files:open-location", async (_, filePath) => {

@@ -9,12 +9,27 @@ import { addActivityLog, getOfflineProfile, saveOfflineProfile, saveSession, sav
 import { hydrateTeamTodos } from '../utils/todoSchedule';
 import { useToast } from '../components/common';
 
+const savedLoginKey = 'excel-workspace:saved-login';
+
+function getSavedLogin() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(savedLoginKey) || 'null');
+    if (saved?.username && saved?.password) return saved;
+  } catch {
+    // Ignore malformed local preferences.
+  }
+  return import.meta.env.DEV
+    ? { username: import.meta.env.VITE_LOCAL_LOGIN_USER || '', password: import.meta.env.VITE_LOCAL_LOGIN_PASSWORD || '' }
+    : { username: '', password: '' };
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [users, setUsers] = useState([]);
-  const [userId, setUserId] = useState('');
-  const [password, setPassword] = useState('');
+  const [savedLogin] = useState(getSavedLogin);
+  const [userId, setUserId] = useState(savedLogin.username);
+  const [password, setPassword] = useState(savedLogin.password);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -30,10 +45,10 @@ export default function LoginPage() {
       const activeUsers = (result.users ?? []).filter((user) => user.status !== 'INACTIVE');
       setUsers(activeUsers);
       saveUsers(activeUsers);
-      setUserId(activeUsers[0]?.id ?? '');
+      setUserId(activeUsers.find((user) => user.id === savedLogin.username)?.id ?? activeUsers[0]?.id ?? '');
     }
     loadUsers().catch((error) => setError(error.message));
-  }, [usesSharedLogin]);
+  }, [usesSharedLogin, savedLogin.username]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -72,6 +87,8 @@ export default function LoginPage() {
         setError(result?.message || '아이디 또는 비밀번호가 틀렸습니다.');
         return;
       }
+
+      localStorage.setItem(savedLoginKey, JSON.stringify({ username: userId.trim(), password }));
 
       // 로그인 입력값은 서버 계정명과 같으므로, 숫자 DB PK와 혼동하지 않도록
       // 로컬/오프라인 프로필에는 명시적으로 사용자명을 보존한다.
