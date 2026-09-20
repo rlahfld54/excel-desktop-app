@@ -106,6 +106,54 @@ function getDatabase(app) {
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
+
+  -- =========================
+-- 거래처 별칭 매핑
+-- 엑셀 원본 거래처를 표준 거래처에 연결
+-- =========================
+CREATE TABLE IF NOT EXISTS customer_alias_mappings (
+  mapping_id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+  sync_key TEXT NOT NULL UNIQUE,
+
+  source_type TEXT NOT NULL DEFAULT 'SALES_UPLOAD',
+  source_customer_code TEXT NOT NULL DEFAULT '',
+  source_customer_name TEXT NOT NULL DEFAULT '',
+
+  customer_code TEXT NOT NULL,
+
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  memo TEXT,
+
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY(customer_code)
+    REFERENCES customers(customer_code),
+
+  UNIQUE(
+    source_type,
+    source_customer_code,
+    source_customer_name
+  ),
+
+  CHECK(
+    TRIM(source_customer_code) <> ''
+    OR TRIM(source_customer_name) <> ''
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_alias_mapping_source
+ON customer_alias_mappings(
+  source_type,
+  source_customer_code,
+  source_customer_name,
+  status
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_alias_mapping_customer
+ON customer_alias_mappings(customer_code, status);
+
   -- =========================
   -- 제품 마스터
   -- 실제 비교 기준은 product_code
@@ -1950,7 +1998,30 @@ function getMasterData(database) {
     `,
       )
       .all(),
-    customerAliases: [],
+    customerAliases: database
+  .prepare(
+    `
+    SELECT
+      mappings.mapping_id AS mappingId,
+      mappings.sync_key AS syncKey,
+      mappings.source_type AS sourceType,
+      mappings.source_customer_code AS sourceCustomerCode,
+      mappings.source_customer_name AS sourceCustomerName,
+      mappings.customer_code AS customerCode,
+      customers.customer_name AS customerName,
+      mappings.status,
+      mappings.memo,
+      mappings.created_at AS createdAt,
+      mappings.updated_at AS updatedAt
+    FROM customer_alias_mappings AS mappings
+    LEFT JOIN customers
+      ON customers.customer_code = mappings.customer_code
+    ORDER BY
+      mappings.updated_at DESC,
+      mappings.mapping_id DESC
+    `,
+  )
+  .all(),
     products: database
       .prepare(
         `

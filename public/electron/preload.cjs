@@ -10,8 +10,6 @@ contextBridge.exposeInMainWorld("versions", {
   node: () => process.versions.node,
   chrome: () => process.versions.chrome,
   electron: () => process.versions.electron,
-  ping: () => ipcRenderer.invoke("ping"),
-  // we can also expose variables, not just functions
 });
 
 contextBridge.exposeInMainWorld("api", {
@@ -45,8 +43,21 @@ contextBridge.exposeInMainWorld("api", {
   markNotificationRead: (notificationId) => ipcRenderer.invoke("notifications:mark-read", notificationId),
   clearNotifications: () => invokeWorkspaceMutation("notifications:clear"),
   getRecentFiles: () => ipcRenderer.invoke("recent-files:get"),
-  getMasterData: () => ipcRenderer.invoke("master-data:get"),
-  queryContacts: (options) => ipcRenderer.invoke("contacts:query", options),
+getMasterData: () => ipcRenderer.invoke("master-data:get"),
+
+saveCustomerAliasMapping: (payload) =>
+  invokeWorkspaceMutation(
+    "customer-alias-mappings:save",
+    payload,
+  ),
+
+setCustomerAliasMappingStatus: (payload) =>
+  invokeWorkspaceMutation(
+    "customer-alias-mappings:set-status",
+    payload,
+  ),
+
+queryContacts: (options) => ipcRenderer.invoke("contacts:query", options),
   saveContact: (payload) => invokeWorkspaceMutation("contacts:save", payload),
   deleteContact: (contactId) => invokeWorkspaceMutation("contacts:delete", contactId),
   importContacts: (contacts) => invokeWorkspaceMutation("contacts:import", contacts),
