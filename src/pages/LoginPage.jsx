@@ -121,16 +121,7 @@ export default function LoginPage() {
       accessToken: result.token,
       user: selectedUser,
       });
-    // 새 PC도 기존 AWS 기준정보를 먼저 받아야 로컬 SQLite가 같은 업무 데이터를
-    // 보여 준다. 실패해도 로그인 자체는 막지 않아 오프라인 작업은 가능하다.
-      if (usesSharedLogin && window.api?.applyCloudWorkspace) {
-      const cloudWorkspace = await sharedDataService.downloadWorkspace();
-      if (cloudWorkspace.ok) {
-        await window.api.applyCloudWorkspace(cloudWorkspace.data?.snapshot ?? {});
-      }
-      }
-      // 클라우드 스냅샷이 SQLite에 적용된 뒤 메모리 일정도 다시 읽어야
-      // 첫 화면부터 AWS에 있던 일정/투두가 보인다.
+      // 로그인 중에는 AWS 전체 데이터를 받아 적용하지 않는다. 종료 시 동기화한다.
       await hydrateTeamTodos();
       if (usesSharedLogin && window.api?.completeSetup) {
       await window.api.completeSetup({ lastCloudSyncAt: new Date().toISOString() });

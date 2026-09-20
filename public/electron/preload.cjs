@@ -63,6 +63,11 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("workspace:data-changed", listener);
     return () => ipcRenderer.removeListener("workspace:data-changed", listener);
   },
+  onBeforeQuitSync: (callback) => {
+    const listener = () => callback((result) => ipcRenderer.send("workspace:sync-before-quit:done", result));
+    ipcRenderer.on("workspace:sync-before-quit", listener);
+    return () => ipcRenderer.removeListener("workspace:sync-before-quit", listener);
+  },
   getAppSettings: () => ipcRenderer.invoke("app-settings:get"),
   saveAppSettings: (settings) => ipcRenderer.invoke("app-settings:save", settings),
   getCacheSummary: () => ipcRenderer.invoke('cache:summary'),

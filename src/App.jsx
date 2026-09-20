@@ -169,45 +169,29 @@ function App() {
   }, [showToast]);
 
   useEffect(() => {
-    if (!isSharedApiEnabled() || !window.api?.onWorkspaceDataChanged) return undefined;
-    let timer;
-    let syncing = false;
-
+    if (!window.api?.onBeforeQuitSync) return undefined;
     const syncWorkspace = async () => {
-      timer = undefined;
-      if (syncing || !navigator.onLine || !getSession()?.accessToken) return;
-      if (!window.api?.exportWorkspaceForCloud || !window.api?.applyCloudWorkspace) return;
-      syncing = true;
+      if (!isSharedApiEnabled() || !navigator.onLine || !getSession()?.accessToken) {
+        return { ok: false, skipped: true };
+      }
       try {
+        const capability = await sharedDataService.downloadWorkspace();
+        if (!capability.ok || capability.data?.syncVersion !== 2) {
+          throw new Error('AWS 연락처 ID 동기화 서버가 아직 준비되지 않았습니다. 로컬 변경은 보존했습니다.');
+        }
         const local = await window.api.exportWorkspaceForCloud();
         const result = await sharedDataService.syncWorkspace(local.payload);
         if (!result.ok) throw new Error(result.message || 'AWS 동기화 요청이 거부되었습니다.');
         await window.api.applyCloudWorkspace(result.data?.snapshot ?? {});
         await hydrateTeamTodos();
-        window.dispatchEvent(new CustomEvent('excel-workspace:data-synced'));
+        return { ok: true };
       } catch (error) {
-        showToast({
-          type: 'error',
-          title: 'AWS 동기화에 실패했습니다',
-          message: error?.message || '변경 내용은 이 PC SQLite에 남아 있습니다. 인터넷 연결과 AWS 설정을 확인해 주세요.',
-        });
-      } finally {
-        syncing = false;
+        return { ok: false, message: error?.message || 'AWS 동기화에 실패했습니다.' };
       }
     };
-
-    const scheduleSync = () => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(syncWorkspace, 1200);
-    };
-
-    const unsubscribe = window.api.onWorkspaceDataChanged(scheduleSync);
-    window.addEventListener('online', scheduleSync);
-    return () => {
-      window.clearTimeout(timer);
-      unsubscribe?.();
-      window.removeEventListener('online', scheduleSync);
-    };
+    return window.api.onBeforeQuitSync((done) => {
+      void syncWorkspace().then(done);
+    });
   }, []);
 
   useEffect(() => {

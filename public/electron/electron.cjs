@@ -14,6 +14,7 @@ const {
 } = require("../database/localDb.cjs");
 // 2. 설정값 / 환경 구분
 const isDev = !app.isPackaged;
+console.log('[main] 코드 로드됨', new Date().toISOString());
 
 function getSettingsPath() {
   return path.join(app.getPath("userData"), "app-settings.json");
@@ -638,6 +639,12 @@ function createWindow() {
 
   win.maximize();
 
+  win.on("close", (event) => {
+    if (allowQuit || !databaseReady) return;
+    event.preventDefault();
+    app.quit();
+  });
+
   if (isDev) {
     win.loadURL("http://localhost:5173");
     // win.webContents.openDevTools({ mode: "detach" });
@@ -648,6 +655,27 @@ function createWindow() {
 
   win.webContents.on("render-process-gone", (_, details) => {
     requestEmergencyBackup(`화면 프로세스 종료: ${details.reason}`);
+  });
+}
+
+function requestRendererWorkspaceSync() {
+  const [win] = BrowserWindow.getAllWindows();
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
+    return Promise.resolve({ ok: false, skipped: true });
+  }
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      ipcMain.removeListener("workspace:sync-before-quit:done", handleDone);
+      resolve({ ok: false, timedOut: true });
+    }, 15000);
+    const handleDone = (event, result) => {
+      if (event.sender !== win.webContents) return;
+      clearTimeout(timeout);
+      ipcMain.removeListener("workspace:sync-before-quit:done", handleDone);
+      resolve(result ?? { ok: false });
+    };
+    ipcMain.on("workspace:sync-before-quit:done", handleDone);
+    win.webContents.send("workspace:sync-before-quit");
   });
 }
 
@@ -684,17 +712,30 @@ function registerIpcHandlers() {
     return { canceled: false, filePath };
   });
 
-  ipcMain.handle("files:save-generated", async (_, payload = {}) => {
+    ipcMain.handle("files:save-generated", async (_, payload = {}) => {
     const files = Array.isArray(payload.files) ? payload.files.map(normalizeGeneratedFile).filter((file) => file.buffer.length > 0) : [];
     if (files.length === 0) {
       return { ok: false, message: "저장할 파일이 없습니다." };
     }
 
     const settings = await readAppSettings();
-    const folderName = `${payload.folderName || "closing_attachments"}_${formatTimestamp()}`;
+    const safeBaseName = path.basename(String(payload.folderName || "closing_attachments"))
+      .replace(/[\\/:*?"<>|]/g, "_");
+    const baseFolderName = `${safeBaseName}_${formatTimestamp()}`;
     const parentFolder = path.join(settings.exportPath, "ClosingAttachments");
     await fs.mkdir(parentFolder, { recursive: true });
-    const targetFolder = await fs.mkdtemp(path.join(parentFolder, `${folderName}_`));
+
+    // 같은 초에 두 번 생성해 이름이 겹치면 _2, _3 을 붙임
+    let targetFolder = path.join(parentFolder, baseFolderName);
+    for (let suffix = 2; ; suffix += 1) {
+      try {
+        await fs.mkdir(targetFolder);
+        break;
+      } catch (error) {
+        if (error?.code !== "EEXIST") throw error;
+        targetFolder = path.join(parentFolder, `${baseFolderName}_${suffix}`);
+      }
+    }
 
     const savedFiles = [];
     for (const file of files) {
@@ -985,6 +1026,12 @@ function registerIpcHandlers() {
   ipcMain.handle("gmail:send-test", async (_, payload = {}) => {
     const gmailAddress = String(payload.gmailAddress ?? "").trim();
     const appPassword = String(payload.appPassword ?? "").replace(/\s+/g, "");
+    console.log('[gmail:send-closing] 자격증명 확인', {
+  gmailAddress,
+  passwordLength: appPassword.length,
+  head: appPassword.slice(0, 2),
+  tail: appPassword.slice(-2),
+});
     const testEmail = String(payload.testEmail ?? "").trim();
 
     if (!isEmail(gmailAddress) || !gmailAddress.toLowerCase().endsWith("@gmail.com")) {
@@ -1038,6 +1085,13 @@ function registerIpcHandlers() {
     const gmailAddress = String(payload.gmailAddress ?? "").trim();
     const appPassword = String(payload.appPassword ?? "").replace(/\s+/g, "");
     const messages = Array.isArray(payload.messages) ? payload.messages : [];
+
+     console.log('[gmail:send-closing] 자격증명 확인', {   // ← 여기
+    gmailAddress,
+    passwordLength: appPassword.length,
+    head: appPassword.slice(0, 2),
+    tail: appPassword.slice(-2),
+  });
 
     if (!isEmail(gmailAddress) || !gmailAddress.toLowerCase().endsWith("@gmail.com")) {
       return { ok: false, message: "Gmail 주소를 확인하세요.", results: [] };
@@ -1201,10 +1255,14 @@ app.on("before-quit", (event) => {
   if (shutdownStarted) return;
   shutdownStarted = true;
 
-  void createSafetyBackup(
+  void requestRendererWorkspaceSync().then((result) => {
+    if (!result?.ok && !result?.skipped) console.error("Shutdown AWS sync failed", result);
+  }).catch((error) => {
+    console.error("Shutdown AWS sync failed", error);
+  }).then(() => createSafetyBackup(
     "shutdown",
     `앱 종료 시 자동 백업 - ${toDisplayDate(new Date())}`,
-  ).then((backup) => writeRuntimeState({
+  )).then((backup) => writeRuntimeState({
     clean: true,
     startedAt: currentRunStartedAt,
     closedAt: new Date().toISOString(),

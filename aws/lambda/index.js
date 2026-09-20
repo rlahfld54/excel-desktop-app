@@ -502,9 +502,14 @@ async function migrateWorkspace(body, actor) {
       [row.uploadKey,row.rowNo,row.transactionDate || null,row.rawCustomerName || null,row.rawProductName || null,row.customerCode || null,row.productCode || null,row.quantity || null,row.unitPrice || null,row.salesAmount || null,row.validationStatus || 'PENDING',row.reviewStatus || 'WAITING',row.ownerName || null]);
     }
     for (const row of rows('contacts')) {
-      const found = await client.query(`SELECT contact_id FROM contacts WHERE COALESCE(customer_code,'')=COALESCE($1,'') AND COALESCE(recipient_email,'')=COALESCE($2,'') AND recipient_name=$3 LIMIT 1`, [row.customerCode || null,row.recipientEmail || null,row.recipientName]);
-      if (found.rows[0]) await client.query(`UPDATE contacts SET customer_name=$1,business_number=$2,department_name=$3,recipient_phone=$4,preferred_channel=$5,status=$6,memo=$7,updated_by=$8,updated_at=now(),version=version+1 WHERE contact_id=$9`, [row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor,found.rows[0].contact_id]);
-      else await client.query(`INSERT INTO contacts (customer_code,customer_name,business_number,department_name,recipient_name,recipient_email,recipient_phone,preferred_channel,status,memo,created_by,updated_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)`, [row.customerCode || null,row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientName,row.recipientEmail || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor]);
+      let found = row.syncKey ? await client.query('SELECT contact_id FROM contacts WHERE sync_key=$1', [row.syncKey]) : { rows: [] };
+      if (!found.rows[0]) found = await client.query(`SELECT contact_id FROM contacts WHERE COALESCE(customer_code,'')=COALESCE($1,'') AND COALESCE(recipient_email,'')=COALESCE($2,'') AND recipient_name=$3 LIMIT 1`, [row.customerCode || null,row.recipientEmail || null,row.recipientName]);
+      if (!found.rows[0] && row.createdAt) {
+        const byCreatedAt = await client.query("SELECT contact_id FROM contacts WHERE created_at=$1::timestamptz AND COALESCE(customer_code,'')=COALESCE($2,'') LIMIT 2", [row.createdAt,row.customerCode || null]);
+        if (byCreatedAt.rows.length === 1) found = byCreatedAt;
+      }
+      if (found.rows[0]) await client.query(`UPDATE contacts SET sync_key=COALESCE($1,sync_key),customer_code=$2,customer_name=$3,business_number=$4,department_name=$5,recipient_name=$6,recipient_email=$7,recipient_phone=$8,preferred_channel=$9,status=$10,memo=$11,updated_by=$12,updated_at=now(),version=version+1 WHERE contact_id=$13`, [row.syncKey || null,row.customerCode || null,row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientName,row.recipientEmail || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor,found.rows[0].contact_id]);
+      else await client.query(`INSERT INTO contacts (sync_key,customer_code,customer_name,business_number,department_name,recipient_name,recipient_email,recipient_phone,preferred_channel,status,memo,created_by,updated_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)`, [row.syncKey || null,row.customerCode || null,row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientName,row.recipientEmail || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor]);
     }
     const extended = await saveExtendedWorkspace(client, source, actor);
     summary.customers=rows('customers').length; summary.products=rows('products').length; summary.salesUploads=rows('salesUploads').length; summary.sales=rows('sales').length; summary.contacts=rows('contacts').length;
@@ -552,7 +557,7 @@ async function workspaceSnapshot(client = getPool()) {
 // Pull -> merge -> push back a single authoritative snapshot. The timestamp is
 // retained from the writer, so the next PC can make the same deterministic choice.
 async function syncWorkspace(method, body, actor) {
-  if (method === 'GET') return response(200, { ok: true, snapshot: await workspaceSnapshot() });
+  if (method === 'GET') return response(200, { ok: true, syncVersion: 2, snapshot: await workspaceSnapshot() });
   if (method !== 'POST') return response(405, { message: 'Method not allowed.' });
 
   const client = await getPool().connect();
@@ -598,12 +603,17 @@ async function syncWorkspace(method, body, actor) {
     }
     for (const row of rows('contacts')) {
       if (!String(row.recipientName || '').trim()) continue;
-      const found = await client.query(`SELECT contact_id,updated_at FROM contacts WHERE COALESCE(customer_code,'')=COALESCE($1,'') AND COALESCE(recipient_email,'')=COALESCE($2,'') AND recipient_name=$3 LIMIT 1`, [row.customerCode || null,row.recipientEmail || null,row.recipientName]);
+      let found = row.syncKey ? await client.query('SELECT contact_id,updated_at FROM contacts WHERE sync_key=$1', [row.syncKey]) : { rows: [] };
+      if (!found.rows[0]) found = await client.query(`SELECT contact_id,updated_at FROM contacts WHERE COALESCE(customer_code,'')=COALESCE($1,'') AND COALESCE(recipient_email,'')=COALESCE($2,'') AND recipient_name=$3 LIMIT 1`, [row.customerCode || null,row.recipientEmail || null,row.recipientName]);
+      if (!found.rows[0] && row.createdAt) {
+        const byCreatedAt = await client.query("SELECT contact_id,updated_at FROM contacts WHERE created_at=$1::timestamptz AND COALESCE(customer_code,'')=COALESCE($2,'') LIMIT 2", [row.createdAt,row.customerCode || null]);
+        if (byCreatedAt.rows.length === 1) found = byCreatedAt;
+      }
       if (found.rows[0] && !isNewerOrSame(row.updatedAt, found.rows[0].updated_at)) continue;
       if (found.rows[0]) {
-        await client.query(`UPDATE contacts SET customer_name=$1,business_number=$2,department_name=$3,recipient_phone=$4,preferred_channel=$5,status=$6,memo=$7,updated_by=$8,updated_at=COALESCE($9::timestamptz,now()),version=version+1 WHERE contact_id=$10`, [row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor,row.updatedAt || null,found.rows[0].contact_id]);
+        await client.query(`UPDATE contacts SET sync_key=COALESCE($1,sync_key),customer_code=$2,customer_name=$3,business_number=$4,department_name=$5,recipient_name=$6,recipient_email=$7,recipient_phone=$8,preferred_channel=$9,status=$10,memo=$11,updated_by=$12,updated_at=COALESCE($13::timestamptz,now()),version=version+1 WHERE contact_id=$14`, [row.syncKey || null,row.customerCode || null,row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientName,row.recipientEmail || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor,row.updatedAt || null,found.rows[0].contact_id]);
       } else {
-        await client.query(`INSERT INTO contacts (customer_code,customer_name,business_number,department_name,recipient_name,recipient_email,recipient_phone,preferred_channel,status,memo,created_by,updated_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,COALESCE($12::timestamptz,now()),COALESCE($13::timestamptz,now()))`, [row.customerCode || null,row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientName,row.recipientEmail || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor,row.createdAt || null,row.updatedAt || null]);
+        await client.query(`INSERT INTO contacts (sync_key,customer_code,customer_name,business_number,department_name,recipient_name,recipient_email,recipient_phone,preferred_channel,status,memo,created_by,updated_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,COALESCE($13::timestamptz,now()),COALESCE($14::timestamptz,now()))`, [row.syncKey || null,row.customerCode || null,row.customerName || row.customerCode || '미지정',row.businessNumber || null,row.departmentName || null,row.recipientName,row.recipientEmail || null,row.recipientPhone || null,row.preferredChannel || 'EMAIL',row.status || 'ACTIVE',row.memo || null,actor,row.createdAt || null,row.updatedAt || null]);
       }
       summary.contacts += 1;
     }
@@ -612,7 +622,7 @@ async function syncWorkspace(method, body, actor) {
     summary.archives = extended.archives;
     const snapshot = await workspaceSnapshot(client);
     await client.query('COMMIT');
-    return response(200, { ok: true, summary, snapshot });
+    return response(200, { ok: true, syncVersion: 2, summary, snapshot });
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
 }
 

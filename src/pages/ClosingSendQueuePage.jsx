@@ -8,6 +8,17 @@ import { getBusinessCard, makeSignatureText } from '../utils/businessCard';
 import { validateDateRange } from '../utils/queryValidation';
 import { getCurrentMonthRange, isWithinDateRange } from '../utils/dataFormat';
 import { CLOSING_COLUMNS, getTaxTypeLabel, normalizeClosingDocumentSettings, formatClosingCurrency } from '../utils/closingDocumentSettings';
+import {
+  Bold,
+  Italic,
+  Underline,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Highlighter,
+  RemoveFormatting,
+  Palette,
+} from "lucide-react";
 
 const closingDays = ['10일', '25일', '30일'];
 const temporaryRecipientEmail = 'rlahfld54@naver.com';
@@ -399,14 +410,37 @@ function escapeMailHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
-function makeClosingContactText(settings) {
-  const manager = settings.manager || {};
+function isHtmlContent(value) {
+  return /<\/?[a-z][\s\S]*>/i.test(String(value ?? ''));
+}
+
+// 화면 표시용: 일반 텍스트면 줄바꿈을 <br>로, HTML이면 그대로
+function toDisplayHtml(body) {
+  return isHtmlContent(body)
+    ? body
+    : escapeMailHtml(body).replace(/\n/g, '<br>');
+}
+
+// 텍스트 메일용: HTML 태그를 제거하고 순수 글자만
+function htmlToPlainText(body) {
+  if (!isHtmlContent(body)) return String(body ?? '');
+  const withBreaks = String(body)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(div|p|li|h[1-6])>/gi, '\n');
+  const doc = new DOMParser().parseFromString(withBreaks, 'text/html');
+  return (doc.body.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function makeClosingContactText(user, documentSettings) {
+  const card = getBusinessCard(user, documentSettings);
+
   return [
-    manager.name ? `담당자: ${manager.name}` : '',
-    manager.phone ? `연락처: ${manager.phone}` : '',
-    manager.email ? `이메일: ${manager.email}` : '',
-    settings.companyName ? `회사명: ${settings.companyName}` : '',
-  ].filter(Boolean).join('\n');
+    card.name ? `담당자: ${card.name}` : '',
+    card.phone ? `연락처: ${card.phone}` : '',
+    card.email ? `이메일: ${card.email}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function createMailHtml(
@@ -436,7 +470,9 @@ function createMailHtml(
         font-size:13px;
         line-height:1.7;
       ">
-        ${escapeMailHtml(makeClosingContactText(documentSettings))}
+        ${escapeMailHtml(
+  makeClosingContactText(currentUser, documentSettings)
+)}
       </div>
     `
     : '';
@@ -558,39 +594,51 @@ function getTargetMailSubject(target, templates = makeDefaultMailTemplates()) {
   return `${target.company} ${sendType} ${templates.subjectSuffix || '의 건'}`;
 }
 
-function getTargetMailBody(target, templates = makeDefaultMailTemplates()) {
+function getTargetMailBody(target, templates) {
   if (Object.prototype.hasOwnProperty.call(templates.targetBodies ?? {}, target.id)) {
     return templates.targetBodies[target.id];
   }
 
   const sendType = getSendType(target);
-  const commonBody = templates.commonByType?.[sendType] || getDefaultTemplateBySendType(sendType);
-  const targetNote = templates.targetNotes?.[target.id]?.trim();
+  const commonBody =
+    templates.commonByType?.[sendType] ||
+    getDefaultTemplateBySendType(sendType);
 
-  return [
+  const targetNote =
+    templates.targetNotes?.[target.id] || "";
+
+  const spacing = Number(templates.bodySpacing ?? 1);
+  const gap = "\n".repeat(spacing + 1);
+
+  const sections = [
     getContactLabel(target),
-    '',
-    templates.greeting || '안녕하세요. 담당자입니다.',
-    '',
+
+    templates.greeting || "안녕하세요. 담당자입니다.",
+
     commonBody,
-    '',
-    `마감일: ${target.deadline}`,
-    `공급가액: ${formatClosingCurrency(getTargetSupplyAmount(target))}`,
-    `부가세: ${formatClosingCurrency(getTargetTaxAmount(target))}`,
-    `합계: ${formatClosingCurrency(getTargetTotalAmount(target))}`,
-    `과세구분: ${getTaxTypeLabel(target.taxStatus)}`,
-    `확인 유형: ${sendType}`,
-    targetNote ? ['', '[추가 안내]', targetNote].join('\n') : '',
-    '',
-    templates.closing || '감사합니다.',
-  ].filter(Boolean).join('\n');
+
+    [
+      `마감일: ${target.deadline}`,
+      `공급가액: ${formatClosingCurrency(getTargetSupplyAmount(target))}`,
+      `부가세: ${formatClosingCurrency(getTargetTaxAmount(target))}`,
+      `합계: ${formatClosingCurrency(getTargetTotalAmount(target))}`,
+    ].join("\n"),
+
+    targetNote
+      ? ["[추가 안내]", targetNote].join("\n")
+      : "",
+
+    templates.closing || "감사합니다.",
+  ].filter(Boolean);
+
+  return sections.join(gap);
 }
 
 function createCombinedMailBody({ emailTargets, templates, currentUser, documentSettings = normalizeClosingDocumentSettings() }) {
   return [
     ...emailTargets.flatMap((target, index) => [
       index > 0 ? '\n------------------------------' : '',
-      getTargetMailBody(target, templates),
+      htmlToPlainText(getTargetMailBody(target, templates)),
     ]),
     documentSettings.defaultMessage,
     documentSettings.emailSignature.showTextContact ? makeClosingContactText(documentSettings) : '',
@@ -1218,10 +1266,10 @@ function makePreflightChecks({ mailSettings, mailTemplates, selectedTargets, ema
       ok: isGenerated,
       detail: isGenerated ? '엑셀/PDF 첨부 생성 상태 확인' : '첨부 생성 단계에서 먼저 생성하세요.',
     },
-    {
+        {
       label: '과세 정보',
-      ok: selectedTargets.length > 0 && selectedTargets.every((target) => !hasTaxIssue(target)),
-      detail: selectedTargets.some(hasTaxIssue) ? '과세 유형 또는 부가세 금액을 확인하세요.' : '거래처 과세 유형과 부가세를 확인했습니다.',
+      ok: true,
+      detail: '과세 정보는 발송 조건에서 제외되었습니다.',
     },
     {
       label: '제목/본문',
@@ -1443,6 +1491,25 @@ function MailTemplateModal({ templates, onChange, onClose }) {
               <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">마무리 문구</span>
               <input className="form-input w-full" value={templates.closing} onChange={(event) => updateField('closing', event.target.value)} />
             </label>
+
+            <label className="block">
+  <span className="mb-1 block text-xs font-semibold text-gray-500 dark:text-gray-400">
+    문단 간격
+  </span>
+
+  <select
+    className="form-select w-full"
+    value={templates.bodySpacing ?? 1}
+    onChange={(event) =>
+      updateField("bodySpacing", Number(event.target.value))
+    }
+  >
+    <option value={0}>간격 없음</option>
+    <option value={1}>한 줄 띄우기</option>
+    <option value={2}>두 줄 띄우기</option>
+  </select>
+</label>
+
           </section>
 
           <section className="mt-5">
@@ -1466,8 +1533,34 @@ function MailTemplateModal({ templates, onChange, onClose }) {
   );
 }
 
+
 function TargetMailNoteModal({ target, templates, onChange, onClose }) {
   const editorRef = React.useRef(null);
+  const initialHtmlRef = React.useRef(null);
+  const savedRangeRef = React.useRef(null);
+
+  const saveSelection = () => {
+    const sel = window.getSelection();
+
+    if (
+      sel &&
+      sel.rangeCount > 0 &&
+      editorRef.current?.contains(sel.anchorNode)
+    ) {
+      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
+
+  const restoreSelection = () => {
+    const range = savedRangeRef.current;
+    if (!range) return;
+
+    const sel = window.getSelection();
+    if (!sel) return;
+
+    sel.removeAllRanges();
+    sel.addRange(range);
+  };
 
   if (!target) return null;
 
@@ -1524,9 +1617,17 @@ function TargetMailNoteModal({ target, templates, onChange, onClose }) {
   };
 
   const resetTargetCopy = () => {
-    const nextTargetSubjects = { ...(templates.targetSubjects ?? {}) };
-    const nextTargetBodies = { ...(templates.targetBodies ?? {}) };
-    const nextTargetNotes = { ...(templates.targetNotes ?? {}) };
+    const nextTargetSubjects = {
+      ...(templates.targetSubjects ?? {}),
+    };
+
+    const nextTargetBodies = {
+      ...(templates.targetBodies ?? {}),
+    };
+
+    const nextTargetNotes = {
+      ...(templates.targetNotes ?? {}),
+    };
 
     delete nextTargetSubjects[target.id];
     delete nextTargetBodies[target.id];
@@ -1539,40 +1640,75 @@ function TargetMailNoteModal({ target, templates, onChange, onClose }) {
       targetNotes: nextTargetNotes,
     });
 
-    if (editorRef.current) {
-      editorRef.current.innerText = defaultBody;
-    }
-  };
-
-  const applyCommand = (command, value = null) => {
-    editorRef.current?.focus();
-    document.execCommand(command, false, value);
+    initialHtmlRef.current = toDisplayHtml(defaultBody);
 
     if (editorRef.current) {
-      updateTargetBody(editorRef.current.innerHTML);
+      editorRef.current.innerHTML = initialHtmlRef.current;
     }
+
+    savedRangeRef.current = null;
   };
 
-  const handleEditorInput = () => {
-    if (!editorRef.current) return;
-    updateTargetBody(editorRef.current.innerHTML);
-  };
+const applyCommand = (command, value = null) => {
+  const editor = editorRef.current;
+  if (!editor) return;
 
-  const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(bodyValue);
+  editor.focus();
+
+  if (savedRangeRef.current) {
+    restoreSelection();
+  }
+
+  document.execCommand("styleWithCSS", false, true);
+  document.execCommand(command, false, value);
+
+  saveSelection();
+};
+
+const handleEditorInput = () => {
+  if (!editorRef.current) return;
+
+  updateTargetBody(editorRef.current.innerHTML);
+  saveSelection();
+};
+
+React.useEffect(() => {
+  if (!target || !editorRef.current) return;
+
+  const html = toDisplayHtml(bodyValue);
+
+  editorRef.current.innerHTML = html;
+  initialHtmlRef.current = html;
+  savedRangeRef.current = null;
+}, [target.id]);
+
+  if (initialHtmlRef.current === null) {
+    initialHtmlRef.current = toDisplayHtml(bodyValue);
+  }
+
+  const toolButtonClass =
+    "flex h-8 w-8 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-gray-200 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-600 dark:hover:text-white";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/40 px-4">
-      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
+      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
 
-        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-700/60">
+        {/* 상단 */}
+        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-gray-700">
           <div className="min-w-0">
             <h2 className="truncate text-lg font-bold text-gray-900 dark:text-gray-100">
               {target.company} 메일 문구 수정
             </h2>
 
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {target.email} · {getSendType(target)}
-            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <span>{target.email}</span>
+
+              <span className="text-gray-300 dark:text-gray-600">
+                ·
+              </span>
+
+              <span>{getSendType(target)}</span>
+            </div>
           </div>
 
           <div className="flex shrink-0 gap-2">
@@ -1594,7 +1730,8 @@ function TargetMailNoteModal({ target, templates, onChange, onClose }) {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+        {/* 내용 */}
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
 
           {/* 메일 제목 */}
           <label className="block">
@@ -1613,100 +1750,217 @@ function TargetMailNoteModal({ target, templates, onChange, onClose }) {
 
           {/* 메일 본문 */}
           <div className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-900 dark:text-gray-100">
-              메일 본문 전체
-            </span>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                메일 본문
+              </span>
+            </div>
 
-            <div className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-600">
+            <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-600">
 
-              {/* 서식 도구 */}
-              <div className="flex flex-wrap items-center gap-1 border-b border-gray-200 bg-gray-50 px-2 py-2 dark:border-gray-600 dark:bg-gray-700">
+              {/* 툴바 */}
+              <div className="flex flex-wrap items-center gap-1 border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-600 dark:bg-gray-700">
 
+                {/* 글자 크기 */}
                 <select
-                  className="rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800"
-                  defaultValue=""
-                  onChange={(event) => {
-                    if (!event.target.value) return;
+  className="h-8 w-24 shrink-0 rounded-md border border-gray-300 bg-white px-2 text-xs font-medium text-gray-700 outline-none hover:border-gray-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+  defaultValue=""
+  title="글자 크기"
+  onMouseDown={() => {
+    saveSelection();
+  }}
+  onChange={(event) => {
+    const value = event.target.value;
 
-                    applyCommand(
-                      'fontSize',
-                      event.target.value
-                    );
+    if (!value) return;
 
-                    event.target.value = '';
-                  }}
-                >
-                  <option value="">글자 크기</option>
-                  <option value="2">작게</option>
-                  <option value="3">보통</option>
-                  <option value="4">크게</option>
-                  <option value="5">아주 크게</option>
-                </select>
+    applyCommand("fontSize", value);
 
+    event.target.value = "";
+  }}
+>
+  <option value="">글자 크기</option>
+  <option value="2">작게</option>
+  <option value="3">보통</option>
+  <option value="4">크게</option>
+  <option value="5">아주 크게</option>
+</select>
+
+                <div className="mx-1 h-5 w-px bg-gray-300 dark:bg-gray-600" />
+
+                {/* 굵게 */}
                 <button
                   type="button"
                   title="굵게"
-                  className="rounded px-3 py-1.5 text-sm font-bold hover:bg-gray-200 dark:hover:bg-gray-600"
-                  onClick={() => applyCommand('bold')}
+                  className={toolButtonClass}
+                  onMouseDown={(event) =>
+                    event.preventDefault()
+                  }
+                  onClick={() => applyCommand("bold")}
                 >
-                  B
+                  <Bold size={16} strokeWidth={2.2} />
                 </button>
 
+                {/* 기울임 */}
+                <button
+                  type="button"
+                  title="기울임"
+                  className={toolButtonClass}
+                  onMouseDown={(event) =>
+                    event.preventDefault()
+                  }
+                  onClick={() => applyCommand("italic")}
+                >
+                  <Italic size={16} />
+                </button>
+
+                {/* 밑줄 */}
+                <button
+                  type="button"
+                  title="밑줄"
+                  className={toolButtonClass}
+                  onMouseDown={(event) =>
+                    event.preventDefault()
+                  }
+                  onClick={() => applyCommand("underline")}
+                >
+                  <Underline size={16} />
+                </button>
+
+                <div className="mx-1 h-5 w-px bg-gray-300 dark:bg-gray-600" />
+
+                {/* 글자색 */}
                 <label
-                  className="flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs hover:bg-gray-200 dark:hover:bg-gray-600"
+                  className={`${toolButtonClass} relative cursor-pointer`}
                   title="글자색"
                 >
-                  글자색
+                  <Palette size={16} />
+
                   <input
                     type="color"
-                    className="h-6 w-6 cursor-pointer border-0 bg-transparent p-0"
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                     defaultValue="#000000"
                     onChange={(event) =>
-                      applyCommand('foreColor', event.target.value)
+                      applyCommand(
+                        "foreColor",
+                        event.target.value
+                      )
                     }
                   />
                 </label>
 
+                {/* 형광펜 */}
                 <button
                   type="button"
-                  title="노란색으로 강조"
-                  className="rounded bg-yellow-200 px-3 py-1.5 text-xs font-semibold text-yellow-950 hover:bg-yellow-300"
+                  title="노란색 강조"
+                  className={toolButtonClass}
+                  onMouseDown={(event) =>
+                    event.preventDefault()
+                  }
                   onClick={() =>
-                    applyCommand('hiliteColor', '#fff2a8')
+                    applyCommand(
+                      "hiliteColor",
+                      "#fff2a8"
+                    )
                   }
                 >
-                  노란색 강조
+                  <Highlighter size={16} />
                 </button>
 
+                <div className="mx-1 h-5 w-px bg-gray-300 dark:bg-gray-600" />
+
+                {/* 왼쪽 정렬 */}
                 <button
                   type="button"
-                  title="선택 영역의 서식 제거"
-                  className="rounded px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-600"
-                  onClick={() => applyCommand('removeFormat')}
+                  title="왼쪽 정렬"
+                  className={toolButtonClass}
+                  onMouseDown={(event) =>
+                    event.preventDefault()
+                  }
+                  onClick={() =>
+                    applyCommand("justifyLeft")
+                  }
                 >
-                  서식 제거
+                  <AlignLeft size={16} />
+                </button>
+
+                {/* 가운데 정렬 */}
+                <button
+                  type="button"
+                  title="가운데 정렬"
+                  className={toolButtonClass}
+                  onMouseDown={(event) =>
+                    event.preventDefault()
+                  }
+                  onClick={() =>
+                    applyCommand("justifyCenter")
+                  }
+                >
+                  <AlignCenter size={16} />
+                </button>
+
+                {/* 오른쪽 정렬 */}
+                <button
+                  type="button"
+                  title="오른쪽 정렬"
+                  className={toolButtonClass}
+                  onMouseDown={(event) =>
+                    event.preventDefault()
+                  }
+                  onClick={() =>
+                    applyCommand("justifyRight")
+                  }
+                >
+                  <AlignRight size={16} />
+                </button>
+
+                <div className="mx-1 h-5 w-px bg-gray-300 dark:bg-gray-600" />
+
+                {/* 서식 제거 */}
+                <button
+                  type="button"
+                  title="서식 제거"
+                  className={`${toolButtonClass} hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-300`}
+                  onMouseDown={(event) =>
+                    event.preventDefault()
+                  }
+                  onClick={() =>
+                    applyCommand("removeFormat")
+                  }
+                >
+                  <RemoveFormatting size={16} />
                 </button>
               </div>
 
               {/* 실제 메일 편집 영역 */}
               <div
-                ref={editorRef}
-                className="min-h-80 bg-white p-4 text-sm leading-7 text-gray-900 outline-none"
-                contentEditable
-                suppressContentEditableWarning
-                onInput={handleEditorInput}
-                dangerouslySetInnerHTML={{
-                  __html: looksLikeHtml
-                    ? bodyValue
-                    : escapeMailHtml(bodyValue).replace(/\n/g, '<br>'),
-                }}
-              />
-            </div>
+  ref={editorRef}
+  className="min-h-80 bg-white p-5 text-sm leading-7 text-gray-900 outline-none"
+  contentEditable
+  suppressContentEditableWarning
+  onInput={handleEditorInput}
+  onKeyUp={saveSelection}
+  onMouseUp={saveSelection}
+  onBlur={() => {
+    saveSelection();
 
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              메일에서 강조할 문장을 드래그한 뒤 굵게, 글자색,
-              노란색 강조 등을 적용할 수 있습니다.
-            </p>
+    if (editorRef.current) {
+      updateTargetBody(editorRef.current.innerHTML);
+    }
+  }}
+/>
+
+              {/* 하단 상태 */}
+              <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-600 dark:bg-gray-700">
+                <span className="text-xs text-gray-400 dark:text-gray-500">
+                  실제 발송되는 메일 본문을 편집합니다.
+                </span>
+
+                <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500 dark:bg-gray-600 dark:text-gray-300">
+                  HTML
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1920,8 +2174,8 @@ export default function ClosingSendQueuePage() {
     [selectedTargets, editingTargetId]
   );
   const isPreflightReady = preflightChecks.every((check) => check.ok);
-  const isActualSendReady = preflightChecks
-    .filter((check) => check.label !== '테스트 수신자')
+    const isActualSendReady = preflightChecks
+    .filter((check) => !['테스트 수신자', '과세 정보'].includes(check.label))
     .every((check) => check.ok)
     && emailTargets.every((target) => isEmail(target.email));
   const visibleTargetIds = useMemo(
@@ -1990,12 +2244,9 @@ export default function ClosingSendQueuePage() {
     }
   };
 
-  const handleMailTemplatesChange = (nextTemplates) => {
+   const handleMailTemplatesChange = (nextTemplates) => {
     setMailTemplates(nextTemplates);
     setPreflightChecked(false);
-    setGeneratedFileGroups([]);
-    setIsGenerated(false);
-    setMailDraftStatus('메일 문구가 바뀌었습니다. 첨부 파일을 다시 생성하면 PDF/XLSX에도 새 문구가 반영됩니다.');
   };
 
   const toggleTarget = (id) => {
@@ -2260,7 +2511,44 @@ export default function ClosingSendQueuePage() {
       });
       return;
     }
-    if (!isActualSendReady) {
+        if (!isActualSendReady) {
+          console.log('[발송 직전 자격증명]', {
+  gmailAddress: mailSettings.gmailAddress,
+  passwordLength: mailSettings.appPassword.replace(/\s+/g, '').length,
+  head: mailSettings.appPassword.slice(0, 2),
+  tail: mailSettings.appPassword.slice(-2),
+});
+      // 어떤 항목이 실패했는지 콘솔에 표시
+      console.group('[handleComplete] 발송 준비 실패 원인');
+      console.table(
+        preflightChecks.map((check) => ({
+          항목: check.label,
+          통과: check.ok,
+          상세: check.detail,
+        })),
+      );
+      console.log('과세 검사:', selectedTargets.map((target) => ({
+  company: target.company,
+  taxStatus: target.taxStatus,
+  supply: getTargetSupplyAmount(target),
+  tax: getTargetTaxAmount(target),
+  hasTaxIssue: hasTaxIssue(target),
+})));
+      console.log('테스트 수신자 항목은 실제 발송에서 제외됨');
+      console.log('거래처 이메일 검사:', emailTargets.map((target) => ({
+        company: target.company,
+        email: target.email,
+        valid: isEmail(target.email),
+      })));
+      console.log('isGenerated:', isGenerated, '/ generatedFileGroups:', generatedFileGroups.length);
+      console.log('mailSettings:', {
+        gmailAddress: mailSettings.gmailAddress,
+        appPasswordLength: mailSettings.appPassword.trim().length,
+      });
+      console.groupEnd();
+
+      
+
       setPreflightChecked(true);
       setStatusText('Gmail 주소, 앱 비밀번호, 거래처 이메일, 첨부 생성 상태를 확인하세요.');
       return;
@@ -2292,7 +2580,13 @@ export default function ClosingSendQueuePage() {
 
       for (const target of emailTargets) {
         const fileGroup = fileGroupByTarget.get(target.id);
-        const files = [...(fileGroup?.files ?? []), businessCardFile, businessCardImageFile].filter(Boolean);
+
+        const documentFiles = fileGroup?.files ?? [];
+        if (documentFiles.length === 0 || documentFiles.some((file) => !file.blob || file.blob.size === 0)) {
+          throw new Error(`${target.company}: PDF/XLSX 첨부를 찾을 수 없습니다. 3단계에서 첨부 파일을 다시 생성하세요.`);
+        }
+
+        const files = [...documentFiles, businessCardFile, businessCardImageFile].filter(Boolean);
         const attachments = [];
         for (const file of files) {
           attachments.push({
@@ -2685,7 +2979,14 @@ export default function ClosingSendQueuePage() {
                     </div>
                   </div>
                   <p className="mt-3 truncate text-xs font-semibold text-gray-400 dark:text-gray-500">{getMailSubject(target, mailTemplates)}</p>
-                  <p className="mt-2 whitespace-pre-line rounded-md bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-600 dark:bg-gray-900/30 dark:text-gray-300">{getTargetMailBody(target, mailTemplates)}</p>
+
+<div
+  className="mt-2 rounded-md bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-600 dark:bg-gray-900/30 dark:text-gray-300"
+  dangerouslySetInnerHTML={{ __html: toDisplayHtml(getTargetMailBody(target, mailTemplates)) }}
+/>
+
+
+
                 </button>
               ))}
             </div>
@@ -2794,6 +3095,7 @@ export default function ClosingSendQueuePage() {
       )}
       {editingTarget && (
         <TargetMailNoteModal
+        key={editingTarget.id}
           target={editingTarget}
           templates={mailTemplates}
           onChange={handleMailTemplatesChange}

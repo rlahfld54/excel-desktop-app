@@ -319,6 +319,7 @@ CREATE TABLE IF NOT EXISTS user_todo_state (
 
 CREATE TABLE IF NOT EXISTS contacts (
   contact_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sync_key TEXT,
   customer_code TEXT,
   department_name TEXT,
   recipient_name TEXT,
@@ -413,6 +414,13 @@ ON email_history(package_id, status);
   ensureColumn(db, "products", "unit_price", "REAL NOT NULL DEFAULT 0");
   ensureColumn(db, "products", "currency", "TEXT NOT NULL DEFAULT 'KRW'");
   ensureColumn(db, "customers", "closing_json", "TEXT");
+  ensureColumn(db, "contacts", "sync_key", "TEXT");
+  const contactsWithoutSyncKey = db.prepare("SELECT contact_id FROM contacts WHERE sync_key IS NULL").all();
+  const setContactSyncKey = db.prepare("UPDATE contacts SET sync_key = ? WHERE contact_id = ?");
+  db.transaction(() => {
+    contactsWithoutSyncKey.forEach(({ contact_id }) => setContactSyncKey.run(crypto.randomUUID(), contact_id));
+  })();
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_sync_key ON contacts(sync_key)");
   ensureColumn(db, "users", "department_name", "TEXT");
   ensureColumn(db, "workspace_snapshots", "file_path", "TEXT");
   ensureColumn(
@@ -1984,36 +1992,28 @@ function getFilteredContacts(database, options = {}) {
   const page = Math.max(Number(options.page) || 1, 1);
   const offset = (page - 1) * pageSize;
   const params = {
-    customer: `%${String(options.customer ?? "")
-      .trim()
-      .toLowerCase()}%`,
-    contact: `%${String(options.contact ?? "")
-      .trim()
-      .toLowerCase()}%`,
-    email: `%${String(options.email ?? "")
-      .trim()
-      .toLowerCase()}%`,
-    phone: `%${String(options.phone ?? "")
-      .trim()
-      .toLowerCase()}%`,
     channel: String(options.channel ?? "ALL"),
     status: String(options.status ?? "ALL"),
     limit: pageSize,
     offset,
   };
+  const searchConditions = [];
+  const addSearchCondition = (key, value, columns) => {
+    const query = String(value ?? '').trim().toLowerCase();
+    if (!query) return;
+    params[key] = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
+    searchConditions.push(`(${columns.map((column) => `lower(COALESCE(${column}, '')) LIKE @${key} ESCAPE '\\'`).join(' OR ')})`);
+  };
+  addSearchCondition('customer', options.customer, ['customers.customer_name', 'contacts.customer_code']);
+  addSearchCondition('contact', options.contact, ['contacts.recipient_name']);
+  addSearchCondition('email', options.email, ['contacts.recipient_email']);
+  addSearchCondition('phone', options.phone, ['contacts.recipient_phone']);
   const where = [
-    `(
-      @customer = '%%'
-      OR lower(COALESCE(customers.customer_name, '')) LIKE @customer
-      OR lower(COALESCE(contacts.customer_code, '')) LIKE @customer
-    )`,
-    "(@contact = '%%' OR lower(COALESCE(contacts.recipient_name, '')) LIKE @contact)",
-    "(@email = '%%' OR lower(COALESCE(contacts.recipient_email, '')) LIKE @email)",
-    "(@phone = '%%' OR lower(COALESCE(contacts.recipient_phone, '')) LIKE @phone)",
     "UPPER(COALESCE(contacts.status, '')) <> 'INACTIVE'",
     "(@channel = 'ALL' OR contacts.preferred_channel = @channel)",
     "(@status = 'ALL' OR contacts.status = @status)",
   ].join(" AND ");
+  const filteredWhere = `${where}${searchConditions.length ? ` AND (${searchConditions.join(' OR ')})` : ''}`;
 
   const total =
     database
@@ -2021,7 +2021,7 @@ function getFilteredContacts(database, options = {}) {
         `SELECT COUNT(*) AS count
          FROM contacts
          LEFT JOIN customers ON customers.customer_code = contacts.customer_code
-         WHERE ${where}`,
+         WHERE ${filteredWhere}`,
       )
       .get(params)?.count ?? 0;
 
@@ -2042,7 +2042,7 @@ function getFilteredContacts(database, options = {}) {
          contacts.memo
        FROM contacts
        LEFT JOIN customers ON customers.customer_code = contacts.customer_code
-       WHERE ${where}
+       WHERE ${filteredWhere}
        ORDER BY contacts.contact_id DESC
        LIMIT @limit OFFSET @offset`,
     )
@@ -2424,6 +2424,9 @@ function initializeDatabase(app) {
 
 function saveLocalContact(database, payload = {}) {
   const contactId = Number(payload.contactId);
+  if (!Number.isSafeInteger(contactId) || contactId <= 0) {
+    throw new Error('수정할 담당자 ID가 필요합니다.');
+  }
   const row = {
     customerCode: String(payload.customerCode ?? '').trim() || null,
     customerName: String(payload.customerName ?? '').trim(),
@@ -2439,17 +2442,16 @@ function saveLocalContact(database, payload = {}) {
   };
   if (!row.customerName || !row.recipientName) throw new Error('거래처명과 담당자명은 필수입니다.');
   const write = database.transaction(() => {
+    const existing = database.prepare("SELECT 1 FROM contacts WHERE contact_id = ? AND UPPER(COALESCE(status, '')) <> 'INACTIVE'").get(contactId);
+    if (!existing) throw new Error('수정할 담당자를 찾을 수 없습니다.');
     if (row.customerCode) {
       database.prepare(`INSERT INTO customers (customer_code,customer_name,business_number,tax_status,status,memo)
         VALUES (@customerCode,@customerName,@businessNumber,@taxStatus,'ACTIVE',NULL)
         ON CONFLICT(customer_code) DO UPDATE SET customer_name=excluded.customer_name,business_number=excluded.business_number,tax_status=excluded.tax_status,updated_at=CURRENT_TIMESTAMP`).run(row);
     }
-    if (Number.isInteger(contactId) && contactId > 0) {
-      const result = database.prepare(`UPDATE contacts SET customer_code=@customerCode,department_name=@departmentName,recipient_name=@recipientName,recipient_email=@recipientEmail,recipient_phone=@recipientPhone,preferred_channel=@preferredChannel,status=@status,memo=@memo,updated_at=CURRENT_TIMESTAMP WHERE contact_id=@contactId`).run({ ...row, contactId });
-      if (!result.changes) throw new Error('수정할 담당자를 찾을 수 없습니다.');
-      return contactId;
-    }
-    return Number(database.prepare(`INSERT INTO contacts (customer_code,department_name,recipient_name,recipient_email,recipient_phone,preferred_channel,status,memo) VALUES (@customerCode,@departmentName,@recipientName,@recipientEmail,@recipientPhone,@preferredChannel,@status,@memo)`).run(row).lastInsertRowid);
+    const result = database.prepare(`UPDATE contacts SET customer_code=@customerCode,department_name=@departmentName,recipient_name=@recipientName,recipient_email=@recipientEmail,recipient_phone=@recipientPhone,preferred_channel=@preferredChannel,status=@status,memo=@memo,updated_at=CURRENT_TIMESTAMP WHERE contact_id=@contactId`).run({ ...row, contactId });
+    if (!result.changes) throw new Error('수정할 담당자를 찾을 수 없습니다.');
+    return contactId;
   });
   const savedId = write();
   return database.prepare(`SELECT contacts.contact_id AS contactId,contacts.customer_code AS customerCode,customers.customer_name AS customerName,customers.business_number AS businessNumber,customers.tax_status AS taxStatus,contacts.department_name AS departmentName,contacts.recipient_name AS recipientName,contacts.recipient_email AS recipientEmail,contacts.recipient_phone AS recipientPhone,contacts.preferred_channel AS preferredChannel,contacts.status,contacts.memo FROM contacts LEFT JOIN customers ON customers.customer_code=contacts.customer_code WHERE contacts.contact_id=?`).get(savedId);
@@ -2463,6 +2465,13 @@ function deleteLocalContact(database, contactId) {
 }
 
 function exportWorkspaceForCloud(database) {
+  const contactsWithoutSyncKey = database.prepare("SELECT contact_id FROM contacts WHERE sync_key IS NULL").all();
+  if (contactsWithoutSyncKey.length) {
+    const setContactSyncKey = database.prepare("UPDATE contacts SET sync_key = ? WHERE contact_id = ?");
+    database.transaction(() => {
+      contactsWithoutSyncKey.forEach(({ contact_id }) => setContactSyncKey.run(crypto.randomUUID(), contact_id));
+    })();
+  }
   const uploadKey = (id) => `local-upload-${id}`;
   const archive = (tableName, keyColumn, updatedColumn = 'updated_at') => database.prepare(`SELECT * FROM ${tableName}`).all().map((row) => ({
     table: tableName,
@@ -2475,7 +2484,7 @@ function exportWorkspaceForCloud(database) {
     products: database.prepare(`SELECT product_code AS "productCode", product_name AS "productName", unit, unit_price AS "unitPrice", currency, status, memo, created_at AS "createdAt", updated_at AS "updatedAt" FROM products`).all(),
     salesUploads: database.prepare(`SELECT upload_id AS id, cloud_upload_key AS "cloudUploadKey", file_name AS "fileName", closing_month AS "closingMonth", uploaded_department_code AS "uploadedDepartmentCode", uploaded_at AS "uploadedAt", status, memo FROM sales_uploads`).all().map((row) => ({ ...row, uploadKey: row.cloudUploadKey || uploadKey(row.id) })),
     sales: database.prepare(`SELECT upload_id AS "uploadId", row_no AS "rowNo", transaction_date AS "transactionDate", raw_customer_name AS "rawCustomerName", raw_product_name AS "rawProductName", customer_code AS "customerCode", product_code AS "productCode", quantity, unit_price AS "unitPrice", sales_amount AS "salesAmount", validation_status AS "validationStatus", review_status AS "reviewStatus", owner_name AS "ownerName" FROM sales`).all().map((row) => ({ ...row, uploadKey: uploadKey(row.uploadId) })),
-    contacts: database.prepare(`SELECT c.customer_code AS "customerCode", COALESCE(u.customer_name, c.customer_code, '미지정') AS "customerName", u.business_number AS "businessNumber", c.department_name AS "departmentName", c.recipient_name AS "recipientName", c.recipient_email AS "recipientEmail", c.recipient_phone AS "recipientPhone", c.preferred_channel AS "preferredChannel", c.status, c.memo, c.created_at AS "createdAt", c.updated_at AS "updatedAt" FROM contacts c LEFT JOIN customers u ON u.customer_code=c.customer_code`).all(),
+    contacts: database.prepare(`SELECT c.sync_key AS "syncKey", c.customer_code AS "customerCode", COALESCE(u.customer_name, c.customer_code, '미지정') AS "customerName", u.business_number AS "businessNumber", c.department_name AS "departmentName", c.recipient_name AS "recipientName", c.recipient_email AS "recipientEmail", c.recipient_phone AS "recipientPhone", c.preferred_channel AS "preferredChannel", c.status, c.memo, c.created_at AS "createdAt", c.updated_at AS "updatedAt" FROM contacts c LEFT JOIN customers u ON u.customer_code=c.customer_code`).all(),
     closingStatuses: database.prepare(`SELECT closing_month AS "closingMonth", customer_code AS "customerCode", owner_name AS "ownerName", deadline, contact_confirmed AS "contactConfirmed", amount_confirmed AS "amountConfirmed", confirmed_amount AS "confirmedAmount", tax_issued AS "taxIssued", tax_matched AS "taxMatched", request_ready AS "requestReady", request_sent AS "requestSent", closing_sheet_sent AS "closingSheetSent", reason, memo, history_json AS "historyJson", created_at AS "createdAt", updated_at AS "updatedAt" FROM closing_status`).all().map((row) => ({ ...row, historyJson: fromJson(row.historyJson, []) })),
     archives: [
       ...archive('validation_issues', 'issue_id', 'created_at'),
@@ -2493,7 +2502,7 @@ function exportWorkspaceForCloud(database) {
 }
 
 // AWS가 병합한 최신 스냅샷을 로컬 SQLite에 반영한다. PC별 숫자 ID는 달라질 수
-// 있으므로 담당자는 거래처 코드 + 이메일 + 이름 조합으로 같은 레코드를 판단한다.
+// 있으므로 담당자는 고정 sync_key로 찾고, 이전 데이터에만 기존 필드 매칭을 사용한다.
 function applyCloudWorkspace(database, payload = {}) {
   const customers = Array.isArray(payload.customers) ? payload.customers : [];
   const products = Array.isArray(payload.products) ? payload.products : [];
@@ -2523,12 +2532,15 @@ function applyCloudWorkspace(database, payload = {}) {
       AND COALESCE(recipient_email, '') = COALESCE(@recipientEmail, '')
       AND recipient_name = @recipientName LIMIT 1
   `);
+  const findContactBySyncKey = database.prepare('SELECT contact_id AS contactId FROM contacts WHERE sync_key = ?');
+  const findContactsByCreatedAt = database.prepare("SELECT contact_id AS contactId FROM contacts WHERE strftime('%s', created_at) = strftime('%s', @createdAt) AND COALESCE(customer_code, '') = COALESCE(@customerCode, '') LIMIT 2");
   const insertContact = database.prepare(`
-    INSERT INTO contacts (customer_code, department_name, recipient_name, recipient_email, recipient_phone, preferred_channel, status, memo, created_at, updated_at)
-    VALUES (@customerCode, @departmentName, @recipientName, @recipientEmail, @recipientPhone, @preferredChannel, @status, @memo, COALESCE(@createdAt, CURRENT_TIMESTAMP), COALESCE(@updatedAt, CURRENT_TIMESTAMP))
+    INSERT INTO contacts (sync_key, customer_code, department_name, recipient_name, recipient_email, recipient_phone, preferred_channel, status, memo, created_at, updated_at)
+    VALUES (@syncKey, @customerCode, @departmentName, @recipientName, @recipientEmail, @recipientPhone, @preferredChannel, @status, @memo, COALESCE(@createdAt, CURRENT_TIMESTAMP), COALESCE(@updatedAt, CURRENT_TIMESTAMP))
   `);
   const updateContact = database.prepare(`
-    UPDATE contacts SET department_name=@departmentName, recipient_email=@recipientEmail,
+    UPDATE contacts SET sync_key=COALESCE(@syncKey, sync_key), customer_code=@customerCode,
+      department_name=@departmentName, recipient_name=@recipientName, recipient_email=@recipientEmail,
       recipient_phone=@recipientPhone, preferred_channel=@preferredChannel, status=@status,
       memo=@memo, updated_at=COALESCE(@updatedAt, CURRENT_TIMESTAMP) WHERE contact_id=@contactId
   `);
@@ -2632,6 +2644,7 @@ function applyCloudWorkspace(database, payload = {}) {
     }));
     contacts.forEach((row) => {
       const normalized = {
+        syncKey: row.syncKey || null,
         customerCode: row.customerCode ?? null, departmentName: row.departmentName ?? null,
         recipientName: row.recipientName ?? '', recipientEmail: row.recipientEmail ?? null,
         recipientPhone: row.recipientPhone ?? null, preferredChannel: row.preferredChannel || 'EMAIL',
@@ -2641,9 +2654,13 @@ function applyCloudWorkspace(database, payload = {}) {
       if (normalized.customerCode && !database.prepare('SELECT 1 FROM customers WHERE customer_code = ?').get(normalized.customerCode)) {
         upsertCustomer.run({ customerCode: normalized.customerCode, customerName: row.customerName || normalized.customerCode, businessNumber: row.businessNumber ?? null, taxStatus: 'UNKNOWN', status: 'ACTIVE', memo: null, closingJson: null, createdAt: normalized.createdAt, updatedAt: normalized.updatedAt });
       }
-      const existing = findContact.get(normalized);
+      let existing = (normalized.syncKey && findContactBySyncKey.get(normalized.syncKey)) || findContact.get(normalized);
+      if (!existing && normalized.createdAt) {
+        const byCreatedAt = findContactsByCreatedAt.all(normalized);
+        if (byCreatedAt.length === 1) [existing] = byCreatedAt;
+      }
       if (existing) updateContact.run({ ...normalized, contactId: existing.contactId });
-      else insertContact.run(normalized);
+      else insertContact.run({ ...normalized, syncKey: normalized.syncKey || crypto.randomUUID() });
     });
     closingStatuses.forEach((row) => upsertClosingStatus.run({
       closingMonth: row.closingMonth, customerCode: row.customerCode, ownerName: row.ownerName ?? null,
@@ -3728,6 +3745,7 @@ module.exports = {
   changeLocalUserPassword,
   getDatabaseForInternalUse: getDatabase,
   getFilteredSalesData,
+  getFilteredContacts,
   getDatabasePath,
   getUserTodoState,
   importBootstrapData,
@@ -3737,6 +3755,8 @@ module.exports = {
   syncCloudUser,
   registerDatabaseIpc,
   saveUserTodoState,
+  saveLocalContact,
   updateLocalUser,
   deleteLocalUser,
+  deleteLocalContact,
 };
