@@ -1,9 +1,9 @@
 import { parseNumber } from './dataFormat';
 
 export const blockingValidationTypes = [
+  '거래일 누락',
   '거래처명 누락',
   '거래처 코드 누락',
-  '중복 의심',
   '금액 불일치',
   '단가 불일치',
   '품목 코드 누락',
@@ -11,6 +11,7 @@ export const blockingValidationTypes = [
 ];
 
 export const reviewValidationTypes = [
+  '중복 의심',
   '거래처 검토 필요',
   '품목 검토 필요',
   '대량 거래 확인',
@@ -115,7 +116,11 @@ export function validateBeforeInsert(columns, rows, options = {}) {
     const amount = parseNumber(getCell(row, indexes, 'amount'));
     const status = getCell(row, indexes, 'status');
     const note = getCell(row, indexes, 'note');
+    const transactionDate = getCell(row, indexes, 'date');
 
+    if (!transactionDate) {
+      addIssue(issuesByRow, rowIndex, '거래일 누락', '거래일이 비어 있습니다. 거래일을 입력해야 저장할 수 있습니다.', 'block');
+    }
     if (!customerName && !customerCode) {
       addIssue(issuesByRow, rowIndex, '거래처 검토 필요', '거래처명과 거래처코드가 모두 비어 있어 담당자 검토가 필요합니다.', 'review');
     } else {
@@ -142,7 +147,7 @@ export function validateBeforeInsert(columns, rows, options = {}) {
     const duplicateKey = getDuplicateKey(row, indexes);
     if (duplicateKey.replaceAll('|', '') !== '') {
       if (seenRows.has(duplicateKey)) {
-        addIssue(issuesByRow, rowIndex, '중복 의심', `${seenRows.get(duplicateKey) + 1}번 행과 거래일, 거래처, 품목, 수량, 금액이 같습니다.`, 'block');
+        addIssue(issuesByRow, rowIndex, '중복 의심', `${seenRows.get(duplicateKey) + 1}번 행과 거래일, 거래처, 품목, 수량, 금액이 같습니다. 실제 중복 거래인지 확인해주세요.`, 'review');
       } else {
         seenRows.set(duplicateKey, rowIndex);
       }

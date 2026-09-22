@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld("api", {
   clearNotifications: () => invokeWorkspaceMutation("notifications:clear"),
   getRecentFiles: () => ipcRenderer.invoke("recent-files:get"),
 getMasterData: () => ipcRenderer.invoke("master-data:get"),
+  saveProduct: (payload) => invokeWorkspaceMutation("products:save", payload),
 
 saveCustomerAliasMapping: (payload) =>
   invokeWorkspaceMutation(
@@ -54,6 +55,12 @@ saveCustomerAliasMapping: (payload) =>
 setCustomerAliasMappingStatus: (payload) =>
   invokeWorkspaceMutation(
     "customer-alias-mappings:set-status",
+    payload,
+  ),
+
+importCustomerAliasMappings: (payload) =>
+  invokeWorkspaceMutation(
+    "customer-alias-mappings:import",
     payload,
   ),
 

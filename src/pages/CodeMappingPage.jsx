@@ -3,9 +3,13 @@ import React, { useMemo, useState } from 'react';
 import { Modal, StatusBadge } from '../components/common';
 import PageShell from './PageShell';
 import { addNotification } from '../utils/appNotifications';
+import { parseSpreadsheetFile } from '../utils/fileParsers';
+import { previewCustomerAliasImport } from '../utils/customerAliasImport';
+import { exportCustomerAliasTemplateToXlsx } from '../utils/spreadsheetExport';
 
 const emptyMasterData = {
   customers: [],
+  customerAliases: [],
   products: [],
   productAliases: [],
   prices: [],
@@ -95,9 +99,8 @@ export default function CodeMappingPage() {
   const [loadState, setLoadState] = useState('조회 버튼을 눌러 SQLite 기준 데이터를 불러오세요.');
   const [activeView, setActiveView] = useState('customers');
   const [isLoading, setIsLoading] = useState(false);
+  const [hasLoadedMasterData, setHasLoadedMasterData] = useState(false);
   const [activeSection, setActiveSection] = useState('masterData');
-  // UI 1단계 테스트용 임시 state. 다음 단계에서 SQLite customer_alias_mappings CRUD로 교체한다.
-  const [customerAliases, setCustomerAliases] = useState([]);
   const [aliasSearch, setAliasSearch] = useState('');
   const [aliasStatusFilter, setAliasStatusFilter] = useState('ALL');
   const [aliasModalOpen, setAliasModalOpen] = useState(false);
@@ -106,6 +109,14 @@ export default function CodeMappingPage() {
   const [customerSearch, setCustomerSearch] = useState('');
   const [aliasErrors, setAliasErrors] = useState({});
   const [aliasMessage, setAliasMessage] = useState('');
+  const [isAliasSaving, setIsAliasSaving] = useState(false);
+  const [changingAliasId, setChangingAliasId] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importStrategy, setImportStrategy] = useState('SKIP');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [isParsingImport, setIsParsingImport] = useState(false);
+  const customerAliases = masterData.customerAliases ?? [];
 
   const metrics = useMemo(() => {
     const aliasCount = masterData.productAliases.length;
@@ -121,14 +132,14 @@ export default function CodeMappingPage() {
     ];
   }, [masterData]);
 
-  const loadMasterData = async () => {
+  const loadMasterData = async ({ notify = true } = {}) => {
     if (!window.api?.getMasterData || isLoading) {
       if (!window.api?.getMasterData) setLoadState('SQLite 조회는 Electron 데스크톱 앱에서만 사용할 수 있습니다.');
       return;
     }
 
     setIsLoading(true);
-    addNotification({
+    if (notify) addNotification({
       title: '기준 데이터 조회 시작',
       message: '거래처/제품/단가 기준 데이터를 불러오는 중입니다.',
       level: 'INFO',
@@ -139,6 +150,7 @@ export default function CodeMappingPage() {
       const data = await window.api.getMasterData();
       const nextData = {
         customers: data?.customers ?? [],
+        customerAliases: data?.customerAliases ?? [],
         products: data?.products ?? [],
         productAliases: data?.productAliases ?? [],
         prices: data?.prices ?? [],
@@ -146,18 +158,21 @@ export default function CodeMappingPage() {
         contacts: data?.contacts ?? [],
       };
       setMasterData(nextData);
+      setHasLoadedMasterData(true);
       setLoadState('SQLite에서 기준 데이터를 불러왔습니다.');
-      addNotification({
+      if (notify) addNotification({
         title: '기준 데이터 조회 완료',
         message: 'SQLite에서 기준 데이터를 불러왔습니다.',
         level: 'SUCCESS',
         target: '코드 매핑',
         href: '/validate/code-mapping',
       });
+      return nextData;
     } catch (error) {
       setMasterData(emptyMasterData);
+      setHasLoadedMasterData(false);
       setLoadState(`SQLite 조회 실패: ${error.message}`);
-      addNotification({
+      if (notify) addNotification({
         title: 'SQLite 조회 실패',
         message: error.message,
         level: 'WARN',
@@ -255,8 +270,9 @@ export default function CodeMappingPage() {
   });
   const candidateCustomers = masterData.customers.filter((customer) => {
     const query = customerSearch.trim().toLowerCase();
-    return !query || [customer.customerCode, customer.customerName]
-      .some((value) => String(value ?? '').toLowerCase().includes(query));
+    const selectable = customer.status === 'ACTIVE' || (editingAlias && customer.customerCode === editingAlias.customerCode);
+    return selectable && (customer.customerCode === aliasForm.customerCode || !query || [customer.customerCode, customer.customerName]
+      .some((value) => String(value ?? '').toLowerCase().includes(query)));
   });
   const openAliasModal = (alias = null) => {
     setEditingAlias(alias);
@@ -265,7 +281,8 @@ export default function CodeMappingPage() {
     setAliasErrors({});
     setAliasModalOpen(true);
   };
-  const saveAlias = () => {
+  const saveAlias = async () => {
+    if (isAliasSaving) return;
     const errors = {};
     if (!aliasForm.sourceType) errors.sourceType = '업로드 출처를 선택해주세요.';
     if (!aliasForm.sourceCustomerCode.trim() && !aliasForm.sourceCustomerName.trim()) errors.source = '원본 거래처코드 또는 거래처명 중 하나를 입력해주세요.';
@@ -273,31 +290,117 @@ export default function CodeMappingPage() {
     setAliasErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
-    const nextAlias = {
-      ...aliasForm,
-      sourceCustomerCode: aliasForm.sourceCustomerCode.trim(),
-      sourceCustomerName: aliasForm.sourceCustomerName.trim(),
-      mappingId: editingAlias?.mappingId ?? Date.now(),
-      updatedAt: new Date().toISOString(),
-    };
-    setCustomerAliases((current) => editingAlias
-      ? current.map((item) => item.mappingId === editingAlias.mappingId ? nextAlias : item)
-      : [...current, nextAlias]);
-    setAliasModalOpen(false);
-    setAliasMessage('화면에 임시 반영되었습니다. 새로고침하면 사라집니다.');
+    if (!window.api?.saveCustomerAliasMapping) {
+      setAliasErrors({ form: '거래처 별칭 저장은 Electron 데스크톱 앱에서 사용할 수 있습니다.' });
+      return;
+    }
+    setIsAliasSaving(true);
+    try {
+      const result = await window.api.saveCustomerAliasMapping({
+        mappingId: editingAlias?.mappingId,
+        sourceType: aliasForm.sourceType,
+        sourceCustomerCode: aliasForm.sourceCustomerCode,
+        sourceCustomerName: aliasForm.sourceCustomerName,
+        customerCode: aliasForm.customerCode,
+        status: aliasForm.status,
+        memo: aliasForm.memo,
+      });
+      if (result?.ok === false) throw new Error(result.message || '저장에 실패했습니다.');
+      const message = editingAlias ? '거래처 별칭 매핑을 수정했습니다.' : '거래처 별칭 매핑을 등록했습니다.';
+      setAliasModalOpen(false);
+      setEditingAlias(null);
+      setAliasForm({ ...emptyAliasForm });
+      await loadMasterData({ notify: false });
+      setAliasMessage(message);
+      addNotification({ title: message, message, level: 'SUCCESS', target: '코드 매핑', href: '/validate/code-mapping' });
+    } catch (error) {
+      const message = error.message || '';
+      setAliasErrors({ form: /거래처|매핑|출처|상태/.test(message) && !/SQLITE_|SqliteError|database/i.test(message) ? message : '거래처 별칭 매핑을 저장하지 못했습니다.' });
+    } finally {
+      setIsAliasSaving(false);
+    }
   };
-  const toggleAliasStatus = (alias) => {
-    setCustomerAliases((current) => current.map((item) => item.mappingId === alias.mappingId
-      ? { ...item, status: item.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE', updatedAt: new Date().toISOString() }
-      : item));
-    setAliasMessage('상태가 화면에 임시 반영되었습니다.');
+  const toggleAliasStatus = async (alias) => {
+    if (changingAliasId !== null) return;
+    if (!window.api?.setCustomerAliasMappingStatus) {
+      setAliasMessage('거래처 별칭 상태 변경은 Electron 데스크톱 앱에서 사용할 수 있습니다.');
+      return;
+    }
+    setChangingAliasId(alias.mappingId);
+    try {
+      const status = alias.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+      const result = await window.api.setCustomerAliasMappingStatus({ mappingId: alias.mappingId, status });
+      if (result?.ok === false) throw new Error(result.message || '상태 변경에 실패했습니다.');
+      await loadMasterData({ notify: false });
+      const message = status === 'INACTIVE' ? '거래처 별칭 매핑을 미사용 처리했습니다.' : '거래처 별칭 매핑을 다시 사용하도록 변경했습니다.';
+      setAliasMessage(message);
+      addNotification({ title: message, message, level: 'SUCCESS', target: '코드 매핑', href: '/validate/code-mapping' });
+    } catch {
+      setAliasMessage('거래처 별칭 매핑 상태를 변경하지 못했습니다.');
+    } finally {
+      setChangingAliasId(null);
+    }
+  };
+  const downloadAliasTemplate = async () => {
+    try {
+      const currentData = hasLoadedMasterData ? masterData : await loadMasterData({ notify: false });
+      if (!currentData) throw new Error('기준 거래처를 불러오지 못했습니다.');
+      await exportCustomerAliasTemplateToXlsx(currentData.customers);
+    } catch (error) {
+      if (error.name !== 'AbortError') setAliasMessage(`양식을 만들지 못했습니다: ${error.message}`);
+    }
+  };
+  const selectAliasImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || isParsingImport) return;
+    setIsParsingImport(true);
+    setImportError('');
+    try {
+      const [parsed, latestData] = await Promise.all([parseSpreadsheetFile(file), loadMasterData({ notify: false })]);
+      if (!latestData) throw new Error('기준 데이터를 불러오지 못했습니다.');
+      const preview = previewCustomerAliasImport(parsed, latestData.customers, latestData.customerAliases);
+      setImportPreview({ ...preview, fileName: file.name });
+      setImportStrategy('SKIP');
+    } catch (error) {
+      setImportPreview(null);
+      setAliasMessage(`파일을 확인해주세요: ${error.message}`);
+    } finally {
+      setIsParsingImport(false);
+    }
+  };
+  const saveAliasImport = async () => {
+    if (!importPreview || importPreview.errorCount || isImporting) return;
+    if (!window.api?.importCustomerAliasMappings) {
+      setImportError('일괄 등록은 Electron 데스크톱 앱에서 사용할 수 있습니다.');
+      return;
+    }
+    setIsImporting(true);
+    setImportError('');
+    try {
+      const result = await window.api.importCustomerAliasMappings({
+        rows: importPreview.rows.map(({ rowNumber, sourceType, sourceCustomerCode, sourceCustomerName, customerCode, status, memo }) => ({ rowNumber, sourceType, sourceCustomerCode, sourceCustomerName, customerCode, status, memo })),
+        duplicateStrategy: importStrategy,
+      });
+      if (result?.ok === false) throw new Error(result.message || '일괄 등록에 실패했습니다.');
+      setImportPreview(null);
+      await loadMasterData({ notify: false });
+      const message = `거래처 별칭 매핑을 일괄 등록했습니다. 신규 ${result.insertedCount}건, 수정 ${result.updatedCount}건, 건너뜀 ${result.skippedCount}건`;
+      setAliasMessage(message);
+      addNotification({ title: '거래처 별칭 매핑 일괄 등록', message, level: 'SUCCESS', target: '코드 매핑', href: '/validate/code-mapping' });
+    } catch (error) {
+      const message = error.message || '';
+      setImportError(/행 ·|중복|거래처|업로드 출처|상태/.test(message) && !/SQLITE_|SqliteError|database/i.test(message) ? message : '엑셀 파일에서 수정이 필요한 데이터가 발견되었습니다.');
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   return (
     <PageShell title="코드 매핑" description="등록된 거래처명, 제품명, 단가 기준과 매핑 후보를 확인합니다.">
       <div className="mb-4 flex gap-1 border-b border-gray-200 dark:border-gray-700" role="tablist" aria-label="코드 매핑 관리 영역">
         {[['masterData', '기준 데이터'], ['customerAliases', '거래처 별칭 매핑']].map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={activeSection === id} className={`border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${activeSection === id ? 'border-teal-500 text-teal-700 dark:border-teal-400 dark:text-teal-200' : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100'}`} onClick={() => setActiveSection(id)}>{label}</button>
+          <button key={id} type="button" role="tab" aria-selected={activeSection === id} className={`border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${activeSection === id ? 'border-teal-500 text-teal-700 dark:border-teal-400 dark:text-teal-200' : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100'}`} onClick={() => { setActiveSection(id); if (id === 'customerAliases' && !hasLoadedMasterData && !isLoading) loadMasterData({ notify: false }); }}>{label}</button>
         ))}
       </div>
 
@@ -315,7 +418,7 @@ export default function CodeMappingPage() {
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{loadState}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="btn btn-secondary" type="button" onClick={loadMasterData} disabled={isLoading}>
+            <button className="btn btn-secondary" type="button" onClick={() => loadMasterData()} disabled={isLoading}>
               {isLoading ? '조회 중...' : '조회'}
             </button>
           </div>
@@ -344,8 +447,7 @@ export default function CodeMappingPage() {
 
       {activeSection === 'customerAliases' && <>
         <section className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
-          <div><h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">거래처 별칭 매핑</h2><p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">엑셀에 입력된 거래처 코드와 거래처명을 등록된 기준 거래처에 연결합니다.<br />한 번 저장한 매핑은 다음 업로드부터 자동으로 적용할 수 있습니다.</p></div>
-          <button className="btn btn-primary" type="button" onClick={() => openAliasModal()}>새 매핑 등록</button>
+          <div><h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">거래처 별칭 매핑</h2><p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">엑셀에 입력된 거래처 코드와 거래처명을 등록된 기준 거래처에 연결합니다.<br />매핑은 로컬 SQLite에 저장됩니다.</p></div>
         </section>
 
         <div className="mb-4 grid grid-cols-3 gap-3">
@@ -356,21 +458,34 @@ export default function CodeMappingPage() {
           <input className="form-input min-w-64 flex-1" type="search" aria-label="거래처 별칭 검색" placeholder="원본 코드·이름 또는 기준 거래처 검색" value={aliasSearch} onChange={(event) => setAliasSearch(event.target.value)} />
           <select className="form-select" aria-label="매핑 상태" value={aliasStatusFilter} onChange={(event) => setAliasStatusFilter(event.target.value)}><option value="ALL">전체</option><option value="ACTIVE">사용</option><option value="INACTIVE">미사용</option></select>
           <button className="btn btn-secondary" type="button" onClick={() => { setAliasSearch(''); setAliasStatusFilter('ALL'); }}>초기화</button>
+          <div className="flex flex-wrap gap-2 xl:ml-auto"><button className="btn btn-secondary" type="button" onClick={downloadAliasTemplate}>양식 다운로드</button><label className={`btn btn-secondary cursor-pointer ${isParsingImport || !hasLoadedMasterData ? 'pointer-events-none opacity-50' : ''}`}>{isParsingImport ? '파일 읽는 중...' : '엑셀 일괄 등록'}<input className="sr-only" type="file" accept=".xlsx,.csv" onChange={selectAliasImportFile} disabled={isParsingImport || !hasLoadedMasterData} /></label><button className="btn btn-primary" type="button" onClick={() => openAliasModal()}>새 매핑 등록</button></div>
         </div>
         {aliasMessage && <p role="status" className="mb-3 text-sm text-gray-500 dark:text-gray-400">{aliasMessage}</p>}
 
-        {customerAliases.length === 0 ? <section className="rounded-lg border border-gray-200 bg-white px-4 py-10 text-center dark:border-gray-700/60 dark:bg-gray-800"><h3 className="font-semibold text-gray-900 dark:text-gray-100">등록된 거래처 별칭 매핑이 없습니다.</h3><p className="mt-2 text-sm text-gray-500 dark:text-gray-400">엑셀에서 사용하는 거래처명과 거래처코드를 기준 거래처에 연결하면 다음 업로드부터 자동으로 인식할 수 있습니다.</p><button className="btn btn-secondary mt-5" type="button" onClick={() => openAliasModal()}>첫 매핑 등록</button></section>
-          : <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-gray-700/60 dark:bg-gray-800"><table className="min-w-[920px] w-full border-separate border-spacing-0 text-sm"><thead><tr>{['업로드 출처', '원본 거래처코드', '원본 거래처명', '연결된 기준 거래처', '상태', '수정일', '관리'].map((heading) => <th key={heading} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-400">{heading}</th>)}</tr></thead><tbody>{filteredAliases.length === 0 ? <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-500">검색 조건에 맞는 매핑이 없습니다.</td></tr> : filteredAliases.map((alias) => <tr key={alias.mappingId} className="group"><td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">{sourceLabel(alias.sourceType)}</td><td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60">{alias.sourceCustomerCode || '—'}</td><td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60">{alias.sourceCustomerName || '—'}</td><td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60">{alias.customerCode} · {alias.customerName}</td><td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60"><StatusBadge status={alias.status} /></td><td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60">{new Date(alias.updatedAt).toLocaleDateString('ko-KR')}</td><td className="whitespace-nowrap border-b border-gray-200 px-3 py-2 dark:border-gray-700/60"><button className="text-accent-700 hover:underline dark:text-accent-300" type="button" onClick={() => openAliasModal(alias)}>수정</button><button className="ml-3 text-gray-600 hover:underline dark:text-gray-300" type="button" onClick={() => toggleAliasStatus(alias)}>{alias.status === 'ACTIVE' ? '미사용' : '다시 사용'}</button></td></tr>)}</tbody></table></div>}
+        {customerAliases.length === 0 ? <section className="rounded-lg border border-gray-200 bg-white px-4 py-10 text-center dark:border-gray-700/60 dark:bg-gray-800"><h3 className="font-semibold text-gray-900 dark:text-gray-100">등록된 거래처 별칭 매핑이 없습니다.</h3><p className="mt-2 text-sm text-gray-500 dark:text-gray-400">엑셀에서 사용하는 거래처명과 거래처코드를 기준 거래처에 연결해 관리할 수 있습니다.</p><button className="btn btn-secondary mt-5" type="button" onClick={() => openAliasModal()}>첫 매핑 등록</button></section>
+      : <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-gray-700/60 dark:bg-gray-800"><table className="min-w-[920px] w-full border-separate border-spacing-0 text-sm"><thead><tr>{['업로드 출처', '원본 거래처코드', '원본 거래처명', '연결된 기준 거래처', '상태', '수정일', '관리'].map((heading) => <th key={heading} className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-400">{heading}</th>)}</tr></thead><tbody>{filteredAliases.length === 0 ? <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-500">검색 조건에 맞는 매핑이 없습니다.</td></tr> : filteredAliases.map((alias) => <tr key={alias.mappingId} className="group"><td className="border-b border-r border-gray-200 px-3 py-2 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:group-hover:bg-accent-500/10">{sourceLabel(alias.sourceType)}</td><td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60">{alias.sourceCustomerCode || '—'}</td><td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60">{alias.sourceCustomerName || '—'}</td><td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60">{alias.customerCode} · {alias.customerName}</td><td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60"><StatusBadge status={alias.status} /></td><td className="border-b border-r border-gray-200 px-3 py-2 dark:border-gray-700/60">{new Date(alias.updatedAt).toLocaleDateString('ko-KR')}</td><td className="whitespace-nowrap border-b border-gray-200 px-3 py-2 dark:border-gray-700/60"><button className="text-accent-700 hover:underline dark:text-accent-300" type="button" onClick={() => openAliasModal(alias)}>수정</button><button className="ml-3 text-gray-600 hover:underline dark:text-gray-300" type="button" onClick={() => toggleAliasStatus(alias)} disabled={changingAliasId !== null}>{changingAliasId === alias.mappingId ? '변경 중...' : alias.status === 'ACTIVE' ? '미사용' : '다시 사용'}</button></td></tr>)}</tbody></table></div>}
       </>}
 
-      <Modal open={aliasModalOpen} title={editingAlias ? '거래처 별칭 매핑 수정' : '거래처 별칭 매핑 등록'} description="원본 거래처 정보를 기준 거래처에 연결합니다. 이 단계에서는 화면에만 임시 반영됩니다." size="lg" onClose={() => setAliasModalOpen(false)}>
+      <Modal open={Boolean(importPreview)} title="거래처 별칭 일괄 등록 검증" description={importPreview?.fileName ?? ''} size="4xl" onClose={() => { if (!isImporting) setImportPreview(null); }}>
+        {importPreview && <div className="space-y-4 p-5 text-sm">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{[['전체 행', importPreview.totalCount], ['신규', importPreview.newCount], ['기존 매핑', importPreview.existingCount], ['경고', importPreview.warningCount], ['오류', importPreview.errorCount]].map(([label, count]) => <div key={label} className="rounded-md bg-gray-50 p-3 dark:bg-gray-900/50"><p className="text-xs text-gray-500">{label}</p><p className="mt-1 text-lg font-bold">{count}</p></div>)}</div>
+          <fieldset className="flex flex-wrap gap-4"><legend className="mb-2 font-semibold">기존 데이터 처리</legend><label className="flex items-center gap-2"><input type="radio" name="alias-import-strategy" checked={importStrategy === 'SKIP'} onChange={() => setImportStrategy('SKIP')} />기존 매핑 건너뛰기</label><label className="flex items-center gap-2"><input type="radio" name="alias-import-strategy" checked={importStrategy === 'UPDATE'} onChange={() => setImportStrategy('UPDATE')} />기존 매핑 덮어쓰기</label></fieldset>
+          {importPreview.errorCount > 0 && <p role="alert" className="font-semibold text-red-700 dark:text-red-300">오류가 있는 행을 수정한 파일로 다시 업로드해주세요. 오류가 있으면 전체 저장을 진행하지 않습니다.</p>}
+          {importError && <p role="alert" className="text-red-700 dark:text-red-300">{importError}</p>}
+          <div className="max-h-96 overflow-auto rounded-md border border-gray-200 dark:border-gray-700"><table className="min-w-[980px] w-full text-left text-xs"><thead className="sticky top-0 bg-gray-50 dark:bg-gray-900"><tr>{['행', '업로드 출처', '원본 거래처코드', '원본 거래처명', '기준 거래처', '처리 예정', '검증 결과'].map((heading) => <th key={heading} className="border-b px-3 py-2">{heading}</th>)}</tr></thead><tbody>{importPreview.rows.map((row) => <tr key={row.rowNumber} className="border-b border-gray-100 dark:border-gray-700"><td className="px-3 py-2">{row.rowNumber}</td><td className="px-3 py-2">{row.sourceType}</td><td className="px-3 py-2">{row.sourceCustomerCode || '—'}</td><td className="px-3 py-2">{row.sourceCustomerName || '—'}</td><td className="px-3 py-2">{row.customerCode} {row.customerName && `· ${row.customerName}`}</td><td className="px-3 py-2">{row.errors.length ? '오류' : row.existing ? importStrategy === 'SKIP' ? '건너뛰기' : '기존 매핑 수정' : '신규 등록'}</td><td className={`px-3 py-2 ${row.errors.length ? 'text-red-700 dark:text-red-300' : row.warnings.length ? 'text-amber-700 dark:text-amber-300' : 'text-teal-700 dark:text-teal-300'}`}>{[...row.errors, ...row.warnings].join(' / ') || '정상'}</td></tr>)}</tbody></table></div>
+          <div className="flex justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-700"><button className="btn btn-secondary" type="button" onClick={() => setImportPreview(null)} disabled={isImporting}>취소</button><button className="btn btn-primary" type="button" onClick={saveAliasImport} disabled={isImporting || importPreview.errorCount > 0}>{isImporting ? '저장 중...' : `${importPreview.totalCount}행 일괄 저장`}</button></div>
+        </div>}
+      </Modal>
+
+      <Modal open={aliasModalOpen} title={editingAlias ? '거래처 별칭 매핑 수정' : '거래처 별칭 매핑 등록'} description="원본 거래처 정보를 기준 거래처에 연결하고 로컬 SQLite에 저장합니다." size="lg" onClose={() => setAliasModalOpen(false)}>
         <div className="space-y-4 p-5 text-sm">
           <label className="block font-semibold text-gray-700 dark:text-gray-200">업로드 출처<select className="form-select mt-1 w-full" value={aliasForm.sourceType} onChange={(event) => setAliasForm((current) => ({ ...current, sourceType: event.target.value }))}>{sourceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>{aliasErrors.sourceType && <span className="mt-1 block text-xs text-red-600">{aliasErrors.sourceType}</span>}</label>
           <div className="grid gap-3 sm:grid-cols-2"><label className="block font-semibold text-gray-700 dark:text-gray-200">원본 거래처코드<input className="form-input mt-1 w-full" value={aliasForm.sourceCustomerCode} onChange={(event) => setAliasForm((current) => ({ ...current, sourceCustomerCode: event.target.value }))} placeholder="예: 00123, DS-01" /></label><label className="block font-semibold text-gray-700 dark:text-gray-200">원본 거래처명<input className="form-input mt-1 w-full" value={aliasForm.sourceCustomerName} onChange={(event) => setAliasForm((current) => ({ ...current, sourceCustomerName: event.target.value }))} placeholder="예: (주)대성, 대성 본사" /></label></div>
           {aliasErrors.source && <p className="text-xs text-red-600">{aliasErrors.source}</p>}
           <div><div className="flex items-center justify-between"><label htmlFor="alias-customer-search" className="font-semibold text-gray-700 dark:text-gray-200">기준 거래처</label><button type="button" className="text-xs text-accent-700 underline dark:text-accent-300" onClick={loadMasterData} disabled={isLoading}>{isLoading ? '불러오는 중...' : '기준 데이터 불러오기'}</button></div><input id="alias-customer-search" className="form-input mt-1 w-full" type="search" placeholder="거래처코드 또는 거래처명 검색" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} /><select className="form-select mt-2 w-full" size={Math.min(5, Math.max(candidateCustomers.length, 2))} aria-label="기준 거래처 선택" value={aliasForm.customerCode} onChange={(event) => { const customer = masterData.customers.find((item) => item.customerCode === event.target.value); setAliasForm((current) => ({ ...current, customerId: customer?.customerId ?? customer?.id ?? '', customerCode: customer?.customerCode ?? '', customerName: customer?.customerName ?? '' })); }}><option value="">거래처 선택</option>{candidateCustomers.map((customer) => <option key={customer.customerCode} value={customer.customerCode}>{customer.customerCode} · {customer.customerName}</option>)}</select>{masterData.customers.length === 0 && <p className="mt-1 text-xs text-gray-500">기준 데이터를 불러온 뒤 거래처를 선택하세요.</p>}{aliasErrors.customer && <p className="mt-1 text-xs text-red-600">{aliasErrors.customer}</p>}</div>
           {editingAlias && <label className="block font-semibold text-gray-700 dark:text-gray-200">상태<select className="form-select mt-1 w-full" value={aliasForm.status} onChange={(event) => setAliasForm((current) => ({ ...current, status: event.target.value }))}><option value="ACTIVE">사용</option><option value="INACTIVE">미사용</option></select></label>}
-          <div className="flex justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-700"><button className="btn btn-secondary" type="button" onClick={() => setAliasModalOpen(false)}>취소</button><button className="btn btn-primary" type="button" onClick={saveAlias}>화면에 임시 반영</button></div>
+          {aliasErrors.form && <p role="alert" className="text-sm text-red-600">{aliasErrors.form}</p>}
+          <div className="flex justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-700"><button className="btn btn-secondary" type="button" onClick={() => setAliasModalOpen(false)}>취소</button><button className="btn btn-primary" type="button" onClick={saveAlias} disabled={isAliasSaving}>{isAliasSaving ? '저장 중...' : '저장'}</button></div>
         </div>
       </Modal>
     </PageShell>

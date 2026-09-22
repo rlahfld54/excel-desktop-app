@@ -39,6 +39,10 @@ function getStatusIndex(columns) {
 function getDateIndex(columns) {
   return columns.findIndex((column) => ['거래일', '일자', '날짜', '마감일'].includes(column));
 }
+function formatTransactionDate(value) {
+  const text = String(value ?? '').slice(0, 10);
+  return text.replaceAll('-', '/');
+}
 
 function getColumnIndex(columns, aliases) {
   return columns.findIndex((column) => aliases.includes(column));
@@ -63,7 +67,9 @@ export default function DataTablePage() {
     status: '전체',
     customer: '',
     product: '',
-    owner: currentUser.name || currentUser.id || '전체',
+    owner: currentUser.role === 'ADMIN'
+  ? '전체'
+  : currentUser.name || currentUser.id || '전체',
     pageSize: 50,
   }));
   const [page, setPage] = useState(1);
@@ -227,6 +233,7 @@ export default function DataTablePage() {
           return;
         }
       } catch (error) {
+        console.error('[DataTablePage] 조회 오류', error);
         setRows([]);
         setServerTotal(0);
         setQueryMessage(`SQLite 조회 실패: ${error.message}`);
@@ -354,9 +361,12 @@ export default function DataTablePage() {
                     <td className="border-b border-r border-gray-200 bg-gray-50 px-2 py-2 text-center text-xs text-gray-400 dark:border-gray-700/60 dark:bg-gray-900/30">{rowIndex + 1}</td>
                     {columns.map((column, cellIndex) => {
                       const cell = row[cellIndex] ?? '';
+                      const displayCell = cellIndex === dateIndex
+                        ? formatTransactionDate(cell)
+                        : cell;
                       return (
-                        <td key={`${rowIndex}-${column}`} className="h-8 max-w-64 truncate border-b border-r border-gray-200 px-3 py-1.5 text-gray-700 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-200 dark:group-hover:bg-accent-500/10" title={cell}>
-                          {cellIndex === statusIndex ? <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(cell)}`}>{cell}</span> : cell}
+                        <td key={`${rowIndex}-${column}`} className="h-8 max-w-64 truncate border-b border-r border-gray-200 px-3 py-1.5 text-gray-700 group-hover:bg-accent-50/60 dark:border-gray-700/60 dark:text-gray-200 dark:group-hover:bg-accent-500/10" title={displayCell}>
+                          {cellIndex === statusIndex ? <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(cell)}`}>{cell}</span> : displayCell}
                         </td>
                       );
                     })}

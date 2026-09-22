@@ -14,7 +14,6 @@ const {
 } = require("../database/localDb.cjs");
 // 2. 설정값 / 환경 구분
 const isDev = !app.isPackaged;
-console.log('[main] 코드 로드됨', new Date().toISOString());
 
 function getSettingsPath() {
   return path.join(app.getPath("userData"), "app-settings.json");

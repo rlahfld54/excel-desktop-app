@@ -687,7 +687,7 @@ function addTemplateSheet(workbook, template) {
   const sampleRows = Array.isArray(template.sampleRows) ? template.sampleRows : [];
   const rules = Array.isArray(template.rules) ? template.rules : [];
   const columns = [...requiredColumns, ...optionalColumns];
-  const worksheet = workbook.addWorksheet(template.title.slice(0, 30));
+  const worksheet = workbook.addWorksheet(template.dashboard ? 'Raw Data' : template.title.slice(0, 30));
 
   worksheet.columns = columns.map((column) => ({
     header: column,
@@ -699,6 +699,52 @@ function addTemplateSheet(workbook, template) {
   worksheet.spliceRows(2, 0, [template.description]);
   worksheet.mergeCells(2, 1, 2, columns.length);
   worksheet.addRows(sampleRows);
+  const dataStartRow = 4;
+  const dataRowCount = Math.max(Number(template.dataRows) || sampleRows.length, sampleRows.length);
+  while (worksheet.rowCount < dataStartRow + dataRowCount - 1) worksheet.addRow([]);
+
+  Object.entries(template.formulaColumns ?? {}).forEach(([columnIndex, formulaFactory]) => {
+    for (let row = dataStartRow; row < dataStartRow + dataRowCount; row += 1) {
+      const formula = formulaFactory(row);
+      worksheet.getCell(row, Number(columnIndex)).value = {
+        formula: formula.startsWith('=') ? formula.slice(1) : formula,
+      };
+    }
+  });
+
+  if (template.formulaColumns) {
+    worksheet.getColumn(4).numFmt = '#,##0';
+    worksheet.getColumn(5).numFmt = '#,##0';
+    worksheet.getColumn(6).numFmt = '#,##0';
+    worksheet.getColumn(7).numFmt = '#,##0';
+    worksheet.getColumn(8).numFmt = '#,##0';
+    worksheet.getColumn(9).numFmt = '#,##0';
+    worksheet.getColumn(10).numFmt = '#,##0;[Red]-#,##0';
+    worksheet.getColumn(11).numFmt = '0.0%;[Red]-0.0%';
+
+    const lastDataRow = dataStartRow + dataRowCount - 1;
+    worksheet.addConditionalFormatting({
+      ref: `K${dataStartRow}:K${lastDataRow}`,
+      rules: [
+        {
+          type: 'cellIs',
+          operator: 'greaterThanOrEqual',
+          formulae: [0.2],
+          style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }, font: { color: { argb: 'FFB91C1C' } } },
+        },
+        {
+          type: 'cellIs',
+          operator: 'lessThanOrEqual',
+          formulae: [-0.2],
+          style: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }, font: { color: { argb: 'FF1D4ED8' } } },
+        },
+      ],
+    });
+    worksheet.addConditionalFormatting({
+      ref: `J${dataStartRow}:J${lastDataRow}`,
+      rules: [{ type: 'dataBar', color: 'FF0F766E', gradient: true }],
+    });
+  }
   styleTemplateWorksheet(worksheet, accent);
 
   requiredColumns.forEach((_, index) => {
@@ -734,12 +780,46 @@ function addTemplateSheet(workbook, template) {
       };
     });
   });
+
+  if (template.dashboard) {
+    const dashboard = workbook.addWorksheet(template.dashboard.title.slice(0, 30));
+    dashboard.columns = [
+      { header: 'KPI', key: 'kpi', width: 28 },
+      { header: '값', key: 'value', width: 24 },
+    ];
+    dashboard.mergeCells('A1:B1');
+    dashboard.getCell('A1').value = template.dashboard.title;
+    dashboard.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
+    dashboard.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: accent } };
+    dashboard.getCell('A1').alignment = { vertical: 'middle', horizontal: 'center' };
+    dashboard.getRow(1).height = 30;
+    dashboard.addRow([]);
+    dashboard.addRow(['지표', '계산값']);
+    dashboard.getRow(3).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    dashboard.getRow(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF111827' } };
+    template.dashboard.kpis.forEach(([label, formula, numberFormat]) => {
+      const row = dashboard.addRow([label, { formula: formula.startsWith('=') ? formula.slice(1) : formula }]);
+      row.getCell(2).numFmt = numberFormat;
+      row.getCell(1).font = { bold: true };
+      row.eachCell((cell) => {
+        cell.alignment = { vertical: 'middle' };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        };
+      });
+    });
+    dashboard.views = [{ state: 'frozen', ySplit: 3 }];
+  }
 }
 
 export async function exportUploadTemplateToXlsx(template) {
   const ExcelModule = await import('exceljs');
   const ExcelJS = ExcelModule.default ?? ExcelModule;
   const workbook = new ExcelJS.Workbook();
+  workbook.calcProperties = { fullCalcOnLoad: true, forceFullCalc: true };
   workbook.creator = 'Excel Desktop App';
   workbook.created = new Date();
   workbook.modified = new Date();
@@ -758,4 +838,41 @@ export async function exportAllUploadTemplatesToXlsx(templates) {
   templates.forEach((template) => addTemplateSheet(workbook, template));
 
   return saveWorkbook(workbook, '엑셀_첨부_표준_양식_전체.xlsx');
+}
+
+export async function exportCustomerAliasTemplateToXlsx(customers = []) {
+  const ExcelModule = await import('exceljs');
+  const ExcelJS = ExcelModule.default ?? ExcelModule;
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Excel Desktop App';
+  const input = workbook.addWorksheet('매핑입력');
+  input.columns = [
+    { header: '업로드출처', key: 'sourceType', width: 22 },
+    { header: '원본거래처코드', key: 'sourceCustomerCode', width: 24 },
+    { header: '원본거래처명', key: 'sourceCustomerName', width: 30 },
+    { header: '기준거래처코드', key: 'customerCode', width: 24 },
+    { header: '상태', key: 'status', width: 18 },
+    { header: '메모', key: 'memo', width: 36 },
+  ];
+  styleTableWorksheet(input);
+  input.getColumn(2).numFmt = '@';
+  input.getColumn(4).numFmt = '@';
+  for (let row = 2; row <= 1001; row += 1) {
+    input.getCell(`A${row}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['"SALES_UPLOAD,CONTACT_UPLOAD,MANUAL"'] };
+    input.getCell(`E${row}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['"ACTIVE,INACTIVE"'] };
+  }
+  const reference = workbook.addWorksheet('기준거래처목록');
+  reference.columns = [
+    { header: '거래처코드', key: 'customerCode', width: 24 },
+    { header: '거래처명', key: 'customerName', width: 32 },
+    { header: '사업자번호', key: 'businessNumber', width: 24 },
+    { header: '상태', key: 'status', width: 18 },
+  ];
+  customers.forEach((customer) => reference.addRow(customer));
+  styleTableWorksheet(reference);
+  reference.getColumn(1).numFmt = '@';
+  reference.getColumn(3).numFmt = '@';
+  reference.getCell('F1').value = 'ACTIVE 거래처만 매핑 대상으로 선택할 수 있습니다.';
+  reference.getColumn(6).width = 52;
+  return saveWorkbook(workbook, '거래처_별칭_매핑_업로드_양식.xlsx');
 }

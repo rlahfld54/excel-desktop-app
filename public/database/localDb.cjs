@@ -1066,9 +1066,19 @@ function getFilteredSalesData(database, options = {}) {
     limit: pageSize,
     offset,
   };
+  console.log('[localDb] 매출 조회 조건', {
+    startDate,
+    endDate,
+    customer: customerSearch,
+    product: productSearch,
+    owner: params.owner,
+    status: params.status,
+    page,
+    pageSize,
+  });
   const where = [
-    "(@startDate = '' OR transaction_date >= @startDate)",
-    "(@endDate = '' OR transaction_date <= @endDate)",
+    "(@startDate = '' OR substr(replace(COALESCE(transaction_date, ''), '/', '-'), 1, 10) >= @startDate)",
+    "(@endDate = '' OR substr(replace(COALESCE(transaction_date, ''), '/', '-'), 1, 10) <= @endDate)",
     "(@status = '전체' OR validation_status = @status)",
     `(
       @customer = '%%'
@@ -1087,6 +1097,10 @@ function getFilteredSalesData(database, options = {}) {
     database
       .prepare(`SELECT COUNT(*) AS count FROM sales WHERE ${where}`)
       .get(params)?.count ?? 0;
+  console.log('[localDb] 매출 조회 결과', {
+    total,
+    normalizedDateRange: `${startDate} ~ ${endDate}`,
+  });
   const rows = database
     .prepare(
       `
@@ -1123,8 +1137,8 @@ function getFilteredSalesData(database, options = {}) {
     .prepare(
       `SELECT DISTINCT owner_name AS ownerName
        FROM sales
-       WHERE (@startDate = '' OR transaction_date >= @startDate)
-         AND (@endDate = '' OR transaction_date <= @endDate)
+       WHERE (@startDate = '' OR substr(replace(COALESCE(transaction_date, ''), '/', '-'), 1, 10) >= @startDate)
+         AND (@endDate = '' OR substr(replace(COALESCE(transaction_date, ''), '/', '-'), 1, 10) <= @endDate)
          AND TRIM(COALESCE(owner_name, '')) <> ''
        ORDER BY owner_name ASC`,
     )
@@ -1140,8 +1154,8 @@ function getFilteredSalesData(database, options = {}) {
          MAX(uploads.uploaded_at) AS savedAt
        FROM sales
        JOIN sales_uploads uploads ON uploads.upload_id = sales.upload_id
-       WHERE (@startDate = '' OR sales.transaction_date >= @startDate)
-         AND (@endDate = '' OR sales.transaction_date <= @endDate)`,
+       WHERE (@startDate = '' OR substr(replace(COALESCE(sales.transaction_date, ''), '/', '-'), 1, 10) >= @startDate)
+         AND (@endDate = '' OR substr(replace(COALESCE(sales.transaction_date, ''), '/', '-'), 1, 10) <= @endDate)`,
     )
     .get(params);
 
@@ -2056,6 +2070,193 @@ function getMasterData(database) {
       )
       .all(),
   };
+}
+
+function saveProduct(database, payload = {}) {
+  const productCode = String(payload.productCode ?? "").trim();
+  const productName = String(payload.productName ?? "").trim();
+  if (!productCode || !productName) {
+    throw new Error("품목코드와 품목명이 필요합니다.");
+  }
+
+  database.prepare(`
+    INSERT INTO products (
+      product_code, product_name, unit, unit_price, currency, status, memo
+    )
+    VALUES (@productCode, @productName, @unit, @unitPrice, @currency, 'ACTIVE', @memo)
+    ON CONFLICT(product_code) DO UPDATE SET
+      product_name = excluded.product_name,
+      unit = excluded.unit,
+      unit_price = excluded.unit_price,
+      currency = excluded.currency,
+      status = 'ACTIVE',
+      memo = excluded.memo,
+      updated_at = CURRENT_TIMESTAMP
+  `).run({
+    productCode,
+    productName,
+    unit: String(payload.unit ?? "EA").trim() || "EA",
+    unitPrice: Number.isFinite(Number(payload.unitPrice))
+      ? Number(payload.unitPrice)
+      : 0,
+    currency: String(payload.currency ?? "KRW").trim() || "KRW",
+    memo: payload.memo ? String(payload.memo) : "업로드 검증 중 신규 등록",
+  });
+
+  return database.prepare(`
+    SELECT product_code AS productCode, product_name AS productName,
+           unit, unit_price AS unitPrice, currency, status, memo
+    FROM products
+    WHERE product_code = ?
+  `).get(productCode);
+}
+
+function normalizeAliasText(value) {
+  return String(value ?? '').trim();
+}
+
+function getCustomerAliasMapping(database, mappingId) {
+  return database.prepare(`
+    SELECT mappings.mapping_id AS mappingId, mappings.sync_key AS syncKey,
+      mappings.source_type AS sourceType,
+      mappings.source_customer_code AS sourceCustomerCode,
+      mappings.source_customer_name AS sourceCustomerName,
+      mappings.customer_code AS customerCode, customers.customer_name AS customerName,
+      mappings.status, mappings.memo,
+      mappings.created_at AS createdAt, mappings.updated_at AS updatedAt
+    FROM customer_alias_mappings AS mappings
+    LEFT JOIN customers ON customers.customer_code = mappings.customer_code
+    WHERE mappings.mapping_id = ?
+  `).get(mappingId);
+}
+
+function validateCustomerAliasInput(database, payload = {}, existingCustomerCode = null) {
+  const row = {
+    sourceType: normalizeAliasText(payload.sourceType) || 'SALES_UPLOAD',
+    sourceCustomerCode: normalizeAliasText(payload.sourceCustomerCode),
+    sourceCustomerName: normalizeAliasText(payload.sourceCustomerName),
+    customerCode: normalizeAliasText(payload.customerCode),
+    status: normalizeAliasText(payload.status) || 'ACTIVE',
+    memo: normalizeAliasText(payload.memo) || null,
+  };
+  if (!['SALES_UPLOAD', 'CONTACT_UPLOAD', 'MANUAL'].includes(row.sourceType)) throw new Error('올바른 업로드 출처를 선택해주세요.');
+  if (!row.sourceCustomerCode && !row.sourceCustomerName) throw new Error('원본 거래처코드 또는 거래처명 중 하나를 입력해주세요.');
+  if (!row.customerCode) throw new Error('기준 거래처를 선택해주세요.');
+  if (!['ACTIVE', 'INACTIVE'].includes(row.status)) throw new Error('올바른 상태를 선택해주세요.');
+  const customer = database.prepare('SELECT status FROM customers WHERE customer_code = ?').get(row.customerCode);
+  if (!customer) throw new Error('기준 거래처코드를 찾을 수 없습니다.');
+  if (customer.status !== 'ACTIVE' && existingCustomerCode !== row.customerCode) {
+    throw new Error('사용 중인 기준 거래처만 선택할 수 있습니다.');
+  }
+  return row;
+}
+
+function saveCustomerAliasMapping(database, payload = {}) {
+  const mappingId = payload.mappingId == null || payload.mappingId === '' ? null : Number(payload.mappingId);
+  if (mappingId !== null && (!Number.isSafeInteger(mappingId) || mappingId <= 0)) throw new Error('수정할 거래처 별칭 매핑을 찾을 수 없습니다.');
+  const previous = mappingId === null ? null : getCustomerAliasMapping(database, mappingId);
+  if (mappingId !== null && !previous) throw new Error('수정할 거래처 별칭 매핑을 찾을 수 없습니다.');
+  const { sourceType, sourceCustomerCode, sourceCustomerName, customerCode, status, memo } =
+    validateCustomerAliasInput(database, payload, previous?.customerCode);
+  const duplicate = database.prepare(`SELECT mapping_id FROM customer_alias_mappings
+    WHERE source_type = ? AND source_customer_code = ? AND source_customer_name = ?
+    AND (? IS NULL OR mapping_id <> ?)`).get(sourceType, sourceCustomerCode, sourceCustomerName, mappingId, mappingId);
+  if (duplicate) throw new Error('같은 업로드 출처와 원본 거래처 정보로 등록된 매핑이 이미 있습니다.');
+  try {
+    if (mappingId === null) {
+      const result = database.prepare(`INSERT INTO customer_alias_mappings
+        (sync_key, source_type, source_customer_code, source_customer_name, customer_code, status, memo)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(crypto.randomUUID(), sourceType, sourceCustomerCode, sourceCustomerName, customerCode, status, memo);
+      return getCustomerAliasMapping(database, result.lastInsertRowid);
+    }
+    const result = database.prepare(`UPDATE customer_alias_mappings SET
+      source_type = ?, source_customer_code = ?, source_customer_name = ?,
+      customer_code = ?, status = ?, memo = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE mapping_id = ?`).run(sourceType, sourceCustomerCode, sourceCustomerName, customerCode, status, memo, mappingId);
+    if (!result.changes) throw new Error('수정할 거래처 별칭 매핑을 찾을 수 없습니다.');
+    return getCustomerAliasMapping(database, mappingId);
+  } catch (error) {
+    if (error.code?.startsWith('SQLITE_CONSTRAINT_UNIQUE')) {
+      throw new Error('같은 업로드 출처와 원본 거래처 정보로 등록된 매핑이 이미 있습니다.');
+    }
+    throw error;
+  }
+}
+
+function setCustomerAliasMappingStatus(database, payload = {}) {
+  const mappingId = Number(payload.mappingId);
+  const status = normalizeAliasText(payload.status);
+  if (!Number.isSafeInteger(mappingId) || mappingId <= 0) throw new Error('상태를 변경할 거래처 별칭 매핑을 찾을 수 없습니다.');
+  if (!['ACTIVE', 'INACTIVE'].includes(status)) throw new Error('올바른 상태를 선택해주세요.');
+  const result = database.prepare(`UPDATE customer_alias_mappings SET status = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE mapping_id = ?`).run(status, mappingId);
+  if (!result.changes) throw new Error('상태를 변경할 거래처 별칭 매핑을 찾을 수 없습니다.');
+  return getCustomerAliasMapping(database, mappingId);
+}
+
+function importCustomerAliasMappings(database, payload = {}) {
+  const rows = payload.rows;
+  const duplicateStrategy = payload.duplicateStrategy || 'SKIP';
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error('등록할 매핑 데이터가 없습니다.');
+  if (!['SKIP', 'UPDATE'].includes(duplicateStrategy)) throw new Error('올바른 기존 매핑 처리 방식을 선택해주세요.');
+
+  const insert = database.prepare(`INSERT INTO customer_alias_mappings
+    (sync_key, source_type, source_customer_code, source_customer_name, customer_code, status, memo)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`);
+  const update = database.prepare(`UPDATE customer_alias_mappings SET
+    customer_code = ?, status = ?, memo = ?, updated_at = CURRENT_TIMESTAMP WHERE mapping_id = ?`);
+  const findExisting = database.prepare(`SELECT mapping_id AS mappingId, customer_code AS customerCode
+    FROM customer_alias_mappings
+    WHERE source_type = ? AND source_customer_code = ? AND source_customer_name = ?`);
+
+  return database.transaction(() => {
+    const seen = new Set();
+    const checked = rows.map((input, index) => {
+      let row;
+      try {
+        const identity = {
+          sourceType: normalizeAliasText(input?.sourceType) || 'SALES_UPLOAD',
+          sourceCustomerCode: normalizeAliasText(input?.sourceCustomerCode),
+          sourceCustomerName: normalizeAliasText(input?.sourceCustomerName),
+        };
+        const existing = findExisting.get(identity.sourceType, identity.sourceCustomerCode, identity.sourceCustomerName);
+        row = validateCustomerAliasInput(database, input ?? {});
+        const key = JSON.stringify([row.sourceType, row.sourceCustomerCode, row.sourceCustomerName]);
+        if (seen.has(key)) throw new Error('같은 원본 거래처 정보가 파일 안에 중복되어 있습니다.');
+        seen.add(key);
+        return { row, existing };
+      } catch (error) {
+        throw new Error(`${Number(input?.rowNumber) || index + 2}행 · ${error.message}`);
+      }
+    });
+
+    let insertedCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+    const mappingIds = [];
+    checked.forEach(({ row, existing }) => {
+      if (existing && duplicateStrategy === 'SKIP') {
+        skippedCount += 1;
+        mappingIds.push(existing.mappingId);
+      } else if (existing) {
+        update.run(row.customerCode, row.status, row.memo, existing.mappingId);
+        updatedCount += 1;
+        mappingIds.push(existing.mappingId);
+      } else {
+        const result = insert.run(crypto.randomUUID(), row.sourceType, row.sourceCustomerCode,
+          row.sourceCustomerName, row.customerCode, row.status, row.memo);
+        insertedCount += 1;
+        mappingIds.push(result.lastInsertRowid);
+      }
+    });
+    return {
+      totalCount: rows.length,
+      insertedCount,
+      updatedCount,
+      skippedCount,
+      mappings: mappingIds.map((id) => getCustomerAliasMapping(database, id)),
+    };
+  })();
 }
 
 function getFilteredContacts(database, options = {}) {
@@ -3506,6 +3707,29 @@ function registerDatabaseIpc(ipcMain, app) {
     };
   });
 
+  ipcMain.handle("products:save", (_, payload) => {
+    const database = getDatabase(app);
+    return {
+      ok: true,
+      product: saveProduct(database, payload),
+    };
+  });
+
+  ipcMain.handle("customer-alias-mappings:save", (_, payload) => ({
+    ok: true,
+    mapping: saveCustomerAliasMapping(getDatabase(app), payload),
+  }));
+
+  ipcMain.handle("customer-alias-mappings:set-status", (_, payload) => ({
+    ok: true,
+    mapping: setCustomerAliasMappingStatus(getDatabase(app), payload),
+  }));
+
+  ipcMain.handle("customer-alias-mappings:import", (_, payload) => ({
+    ok: true,
+    ...importCustomerAliasMappings(getDatabase(app), payload),
+  }));
+
   ipcMain.handle("contacts:query", (_, options) => {
     const database = getDatabase(app);
     return getFilteredContacts(database, options);
@@ -3694,6 +3918,19 @@ function registerDatabaseIpc(ipcMain, app) {
           review_count = @reviewCount
       WHERE id = @snapshotId
     `);
+    const hasCustomer = database.prepare(
+      "SELECT 1 FROM customers WHERE customer_code = ?",
+    );
+    const hasProduct = database.prepare(
+      "SELECT 1 FROM products WHERE product_code = ?",
+    );
+    const findProductByName = database.prepare(`
+      SELECT product_code
+      FROM products
+      WHERE lower(replace(replace(product_name, ' ', ''), char(9), '')) =
+        lower(replace(replace(?, ' ', ''), char(9), ''))
+      LIMIT 1
+    `);
 
     const transaction = database.transaction(() => {
       const savedAt = data?.savedAt ?? new Date().toISOString();
@@ -3732,21 +3969,47 @@ function registerDatabaseIpc(ipcMain, app) {
       let reviewCount = 0;
 
       (data?.rows ?? []).forEach((row, rowIndex) => {
-        const status = getCell(row, indexes.status) ?? "PENDING";
+        const status = getCell(row, indexes.status)?.trim() || "PENDING";
         const reviewStatus = data?.rowActions?.[rowIndex] ?? "WAITING";
+        const customerCode = String(
+          getCell(row, indexes.customerCode) ?? "",
+        ).trim();
+        const productCode = String(
+          getCellOr(row, indexes.productCode, 2) ?? "",
+        ).trim();
+        if (customerCode && !hasCustomer.get(customerCode)) {
+          throw new Error(
+            `${rowIndex + 1}행 거래처코드(${customerCode})가 기준정보에 없습니다. 거래처 매핑 후 다시 저장해주세요.`,
+          );
+        }
+        let savedProductCode = productCode || null;
+        if (productCode && !hasProduct.get(productCode)) {
+          const productName = String(
+            getCellOr(row, indexes.productName, 3) ?? "",
+          ).trim();
+          const matchedProduct = productName
+            ? findProductByName.get(productName)
+            : null;
+          if (matchedProduct?.product_code) {
+            savedProductCode = matchedProduct.product_code;
+          } else {
+            throw new Error(
+              `${rowIndex + 1}행 품목코드(${productCode})가 기준정보에 없습니다. 품목명도 기준정보와 일치하지 않아 품목 매핑 후 다시 저장해주세요.`,
+            );
+          }
+        }
         const rowResult = insertRow.run({
           uploadId: upload.lastInsertRowid,
           rowNo: rowIndex + 1,
-          transactionDate: getCellOr(row, indexes.date, 0),
+          transactionDate: getCell(row, indexes.date),
           rawCustomerName: getCellOr(row, indexes.customerName, 1),
           rawProductName: getCellOr(row, indexes.productName, 3),
-          customerCode: getCell(row, indexes.customerCode),
-          productCode: getCellOr(row, indexes.productCode, 2),
+          customerCode: customerCode || null,
+          productCode: savedProductCode,
           quantity: parseNumber(getCellOr(row, indexes.quantity, 4)),
           unitPrice: parseNumber(getCellOr(row, indexes.unitPrice, 5)),
           salesAmount: parseNumber(getCellOr(row, indexes.amount, 6)),
-          validationStatus:
-            status === "PENDING" ? (getCell(row, 7) ?? status) : status,
+          validationStatus: status,
           reviewStatus,
           ownerName: getCellOr(row, indexes.owner, 8),
         });
@@ -3772,7 +4035,7 @@ function registerDatabaseIpc(ipcMain, app) {
                 : "VALIDATION",
             severity: String(message).includes("금액") ? "ERROR" : "WARNING",
             message,
-            assignedDepartmentCode: "GENERAL_AFFAIRS",
+            assignedDepartmentCode: null,
             status: reviewStatus === "approved" ? "RESOLVED" : "OPEN",
           });
         });
@@ -3797,8 +4060,19 @@ function registerDatabaseIpc(ipcMain, app) {
       return snapshot.lastInsertRowid;
     });
 
-    const snapshotId = transaction();
-    return { ok: true, snapshotId };
+    try {
+      const snapshotId = transaction();
+      return { ok: true, snapshotId };
+    } catch (error) {
+      if (error?.code === "SQLITE_CONSTRAINT_FOREIGNKEY") {
+        return {
+          ok: false,
+          message:
+            "업로드 행의 거래처코드 또는 품목코드가 기준정보와 일치하지 않습니다. 매핑 후 다시 저장해주세요.",
+        };
+      }
+      throw error;
+    }
   });
 }
 
@@ -3827,6 +4101,9 @@ module.exports = {
   registerDatabaseIpc,
   saveUserTodoState,
   saveLocalContact,
+  saveCustomerAliasMapping,
+  importCustomerAliasMappings,
+  setCustomerAliasMappingStatus,
   updateLocalUser,
   deleteLocalUser,
   deleteLocalContact,

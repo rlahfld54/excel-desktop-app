@@ -4,6 +4,8 @@ import { Modal } from '../components/common';
 import PageShell from './PageShell';
 import { excelUploadTemplates, uploadValidationTestData } from '../data/excelUploadTemplates';
 import { addActivityLog } from '../utils/authSession';
+import { addNotification } from '../utils/appNotifications';
+import { notifyUser } from '../utils/notifications';
 import { parseSpreadsheetFile } from '../utils/fileParsers';
 import {
   applyValidationStatus,
@@ -21,6 +23,7 @@ import {
 const defaultColumns = ['거래일', '거래처', '품목 코드', '품목명', '수량', '단가', '금액', '검증', '담당자'];
 const emptyMasterData = {
   customers: [],
+  customerAliases: [],
   products: [],
   productAliases: [],
   prices: [],
@@ -114,40 +117,164 @@ function getRecentValue(row, indexes, key) {
   return index >= 0 ? row[index] : '';
 }
 
-function findRecentRowCandidate(row, indexes, recentData) {
+function findHistoricalProductMatches(row, indexes, recentData) {
+  const productCode = normalizeText(
+    getCell(row, indexes.productCode)
+  );
+
+  const productName = normalizeText(
+    getCell(row, indexes.productName)
+  );
+
+  if (!productCode || !productName) {
+    return [];
+  }
+
   const recentColumns = recentData.columns ?? defaultColumns;
+
   const recentIndexes = {
-    customerName: findRecentColumnIndex(recentColumns, ['거래처', '거래처명']),
-    productCode: findRecentColumnIndex(recentColumns, ['품목 코드', '품목코드']),
-    productName: findRecentColumnIndex(recentColumns, ['품목명']),
-    quantity: findRecentColumnIndex(recentColumns, ['수량']),
-    unitPrice: findRecentColumnIndex(recentColumns, ['단가']),
-    amount: findRecentColumnIndex(recentColumns, ['금액']),
+    customerName: findRecentColumnIndex(
+      recentColumns,
+      ['거래처', '거래처명']
+    ),
+    productCode: findRecentColumnIndex(
+      recentColumns,
+      ['품목 코드', '품목코드']
+    ),
+    productName: findRecentColumnIndex(
+      recentColumns,
+      ['품목명']
+    ),
+    quantity: findRecentColumnIndex(
+      recentColumns,
+      ['수량']
+    ),
+    unitPrice: findRecentColumnIndex(
+      recentColumns,
+      ['단가']
+    ),
+    amount: findRecentColumnIndex(
+      recentColumns,
+      ['금액']
+    ),
   };
-  const productName = getCell(row, indexes.productName);
-  const productCode = getCell(row, indexes.productCode);
-  const quantity = toNumber(getCell(row, indexes.quantity));
-  const unitPrice = toNumber(getCell(row, indexes.unitPrice));
-  const amount = toNumber(getCell(row, indexes.amount));
 
-  return (recentData.rows ?? []).reduce((best, recentRow) => {
-    const recentProductName = getRecentValue(recentRow, recentIndexes, 'productName');
-    const recentProductCode = getRecentValue(recentRow, recentIndexes, 'productCode');
-    const recentQuantity = toNumber(getRecentValue(recentRow, recentIndexes, 'quantity'));
-    const recentUnitPrice = toNumber(getRecentValue(recentRow, recentIndexes, 'unitPrice'));
-    const recentAmount = toNumber(getRecentValue(recentRow, recentIndexes, 'amount'));
-    let score = similarity(productName, recentProductName) * 50;
+  return (recentData.rows ?? [])
+    .filter((recentRow) => {
+      const recentCode = normalizeText(
+        getRecentValue(
+          recentRow,
+          recentIndexes,
+          'productCode'
+        )
+      );
 
-    if (productCode && productCode === recentProductCode) score += 30;
-    if (Number.isFinite(unitPrice) && unitPrice === recentUnitPrice) score += 15;
-    if (Number.isFinite(quantity) && quantity === recentQuantity) score += 8;
-    if (Number.isFinite(amount) && amount === recentAmount) score += 8;
+      const recentName = normalizeText(
+        getRecentValue(
+          recentRow,
+          recentIndexes,
+          'productName'
+        )
+      );
 
-    if (!best || score > best.score) {
-      return { score, recentRow, recentIndexes };
+      return (
+        recentCode === productCode &&
+        recentName === productName
+      );
+    })
+    .map((recentRow) => ({
+      row: recentRow,
+      indexes: recentIndexes,
+    }));
+}
+
+
+function getMostFrequentValue(matches, key) {
+  const counts = new Map();
+
+  matches.forEach(({ row, indexes }) => {
+    const value = getRecentValue(row, indexes, key);
+
+    if (
+      value === undefined ||
+      value === null ||
+      String(value).trim() === ''
+    ) {
+      return;
     }
-    return best;
-  }, null);
+
+    const normalized = String(value).trim();
+
+    const current = counts.get(normalized) ?? {
+      value,
+      count: 0,
+    };
+
+    current.count += 1;
+    counts.set(normalized, current);
+  });
+
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count)[0] ?? null;
+}
+
+
+
+function findHistoricalSuggestion(
+  issueType,
+  row,
+  indexes,
+  recentData
+) {
+  const matches = findHistoricalProductMatches(
+    row,
+    indexes,
+    recentData
+  );
+
+  if (!matches.length) return null;
+
+  if (
+    issueType === '단가 불일치' ||
+    issueType === '기타 확인'
+  ) {
+    const result = getMostFrequentValue(
+      matches,
+      'unitPrice'
+    );
+
+    if (result) {
+      return {
+        label:
+          `기존 동일 품목 ${matches.length}건 · `
+          + `단가 ${Number(result.value).toLocaleString('ko-KR')}원 `
+          + `(${result.count}건 사용)`,
+        patch: {
+          unitPrice: result.value,
+        },
+      };
+    }
+  }
+
+  if (issueType === '거래처명 누락') {
+    const result = getMostFrequentValue(
+      matches,
+      'customerName'
+    );
+
+    if (result) {
+      return {
+        label:
+          `기존 동일 품목 ${matches.length}건 · `
+          + `거래처 ${result.value} (${result.count}건)`,
+        patch: {
+          customerName: result.value,
+        },
+      };
+    }
+  }
+
+  return null;
 }
 
 function findProductCandidate(row, indexes, referenceData) {
@@ -212,6 +339,48 @@ function getProductName(product) {
   return product?.productName ?? product?.name ?? '';
 }
 
+function findCustomerAlias({ customerCode, customerName, referenceData }) {
+  const code = String(customerCode ?? '').trim();
+  const name = normalizeText(customerName);
+
+  const alias = (referenceData.customerAliases ?? []).find((item) => {
+    if (item.status && item.status !== 'ACTIVE') return false;
+
+    const aliasCode = String(item.sourceCustomerCode ?? '').trim();
+    const aliasName = normalizeText(item.sourceCustomerName);
+
+    // 코드 + 이름이 둘 다 등록된 매핑
+    if (aliasCode && aliasName) {
+      return aliasCode === code && aliasName === name;
+    }
+
+    // 코드만 등록
+    if (aliasCode) {
+      return aliasCode === code;
+    }
+
+    // 이름만 등록
+    if (aliasName) {
+      return aliasName === name;
+    }
+
+    return false;
+  });
+
+  if (!alias) return null;
+
+  const customer = (referenceData.customers ?? []).find(
+    (item) => getCustomerCode(item) === alias.customerCode
+  );
+
+  if (!customer) return null;
+
+  return {
+    customerCode: getCustomerCode(customer),
+    customerName: getCustomerName(customer),
+  };
+}
+
 function findExactCustomer({ customerCode, customerName, referenceData }) {
   const normalizedName = normalizeText(customerName);
   const customer = (referenceData.customers ?? []).find((item) => (
@@ -265,7 +434,13 @@ function findSuggestion(issueType, row, indexes, referenceData, recentData) {
   const inferredUnitPrice = Number.isFinite(amount) && Number.isFinite(quantity) && quantity !== 0 ? amount / quantity : NaN;
   const productCandidate = findProductCandidate(row, indexes, referenceData);
   const customerCandidate = findCustomerCandidate(row, indexes, referenceData, productCandidate);
-  const recentCandidate = findRecentRowCandidate(row, indexes, recentData);
+  const historicalSuggestion =
+  findHistoricalSuggestion(
+    issueType,
+    row,
+    indexes,
+    recentData
+  );
 
   if (issueType === '거래처명 누락') {
     const exactCustomer = findExactCustomer({ customerCode: getCell(row, indexes.customerCode), customerName, referenceData });
@@ -329,19 +504,9 @@ function findSuggestion(issueType, row, indexes, referenceData, recentData) {
     }
   }
 
-  if (!['거래처명 누락', '거래처 코드 누락', '품목 코드 누락', '품목명 누락'].includes(issueType) && recentCandidate?.score >= 45) {
-    const recentRow = recentCandidate.recentRow;
-    const recentIndexes = recentCandidate.recentIndexes;
-    return {
-      label: `기존 데이터: ${getRecentValue(recentRow, recentIndexes, 'productName')} / ${getRecentValue(recentRow, recentIndexes, 'productCode')}`,
-      patch: {
-        customerName: customerName || getRecentValue(recentRow, recentIndexes, 'customerName'),
-        productCode: productCode || getRecentValue(recentRow, recentIndexes, 'productCode'),
-        productName: productName || getRecentValue(recentRow, recentIndexes, 'productName'),
-        unitPrice: Number.isFinite(unitPrice) ? undefined : getRecentValue(recentRow, recentIndexes, 'unitPrice'),
-      },
-    };
-  }
+  if (historicalSuggestion) {
+  return historicalSuggestion;
+}
 
   return null;
 }
@@ -361,6 +526,7 @@ function IssueEditModal({
   if (!draft || !issueType || !validation) return null;
 
   const editableKeys = [
+    ['date', '거래일'],
     ['customerName', '거래처명'],
     ['customerCode', '거래처코드'],
     ['productName', '품목명'],
@@ -525,23 +691,22 @@ export default function UploadValidationPage() {
   const [draft, setDraft] = useState(null);
   const [validation, setValidation] = useState(null);
   const [activeIssueType, setActiveIssueType] = useState('');
+  const [activeIssueRows, setActiveIssueRows] = useState([]);
   const [statusText, setStatusText] = useState('파일을 선택하면 SQL 저장 전에 반려 항목과 담당자 확인 항목을 먼저 검사합니다.');
   const [templateStatus, setTemplateStatus] = useState('필요한 표준 양식 2개만 제공합니다.');
   const [referenceData, setReferenceData] = useState(() => readLocalMasterData());
   const [recentData, setRecentData] = useState(() => getLatestRowsFallback());
   const [isSaving, setIsSaving] = useState(false);
+  const [saveComplete, setSaveComplete] = useState(null);
   const [showErrorRows, setShowErrorRows] = useState(false);
   const [saveValidOnly, setSaveValidOnly] = useState(false);
   const [needsRevalidation, setNeedsRevalidation] = useState(false);
   const [selectedFixes, setSelectedFixes] = useState({});
   const [expandedFixGroup, setExpandedFixGroup] = useState('');
-  const [mappingSelections, setMappingSelections] = useState({});
-  const [rememberMappings, setRememberMappings] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [fileError, setFileError] = useState(null);
-  const [customerMappings, setCustomerMappings] = useState(() => {
-    try { return JSON.parse(window.localStorage.getItem('upload-customer-mappings') || '{}'); } catch { return {}; }
-  });
+  const [mappingSelections, setMappingSelections] = useState({});
+  const [includeSuspectedDuplicates, setIncludeSuspectedDuplicates] = useState(false);
 
   useEffect(() => {
     const handleCloudSynced = () => {
@@ -563,8 +728,18 @@ export default function UploadValidationPage() {
       if (window.api?.getMasterData) {
         try {
           const data = await window.api.getMasterData();
-          if (data?.customers?.length || data?.products?.length) {
-            nextMasterData = data;
+          if (data) {
+            nextMasterData = {
+              ...emptyMasterData,
+              ...data,
+              customers: data.customers ?? [],
+              customerAliases: data.customerAliases ?? [],
+              products: data.products ?? [],
+              productAliases: data.productAliases ?? [],
+              prices: data.prices ?? [],
+              suggestions: data.suggestions ?? [],
+              contacts: data.contacts ?? [],
+            };
           }
         } catch {
           // SQLite unavailable: keep the screen empty.
@@ -605,6 +780,16 @@ export default function UploadValidationPage() {
       .filter((issue) => issue.type === type);
   };
 
+  const openIssueEditor = (type) => {
+    setActiveIssueRows(getIssuesForType(type));
+    setActiveIssueType(type);
+  };
+
+  const closeIssueEditor = () => {
+    setActiveIssueType('');
+    setActiveIssueRows([]);
+  };
+
   const runValidation = (nextDraft, message, options = {}) => {
     const baseDraft = {
       ...nextDraft,
@@ -636,6 +821,7 @@ export default function UploadValidationPage() {
       validationIssues,
     });
     setValidation(result);
+    setIncludeSuspectedDuplicates(false);
     setNeedsRevalidation(false);
     setStatusText(message || (result.passed
       ? `반려 항목 없이 검증했습니다. 자동 보정 ${autoFixCount.toLocaleString('ko-KR')}행, 담당자 재확인 ${result.reviewCount.toLocaleString('ko-KR')}건을 확인한 뒤 다음 단계로 넘길 수 있습니다.`
@@ -652,22 +838,57 @@ export default function UploadValidationPage() {
       const parsed = await parseSpreadsheetFile(file);
       const parsedIndexes = validateBeforeInsert(parsed.columns, [], { referenceData }).indexes;
       const mappedRows = parsed.rows.map((row) => {
-        const key = JSON.stringify([
-          getCell(row, parsedIndexes.customerCode).trim(),
-          getCell(row, parsedIndexes.customerName).trim(),
-        ]);
-        const customer = (referenceData.customers ?? []).find((item) => getCustomerCode(item) === customerMappings[key]);
-        if (!customer) return row;
-        const next = [...row];
-        if (parsedIndexes.customerCode >= 0) next[parsedIndexes.customerCode] = getCustomerCode(customer);
-        if (parsedIndexes.customerName >= 0) next[parsedIndexes.customerName] = getCustomerName(customer);
-        return next;
-      });
+  const customerCode = getCell(
+    row,
+    parsedIndexes.customerCode
+  ).trim();
+
+  const customerName = getCell(
+    row,
+    parsedIndexes.customerName
+  ).trim();
+
+  // 1. 별칭 매핑 우선
+  const aliasMatch = findCustomerAlias({
+    customerCode,
+    customerName,
+    referenceData,
+  });
+
+  // 2. 이미 기준 거래처와 정확히 일치하면 그대로 사용
+  const exactMatch = findExactCustomer({
+    customerCode,
+    customerName,
+    referenceData,
+  });
+
+  const matchedCustomer = aliasMatch ?? exactMatch;
+
+  if (!matchedCustomer) {
+    return row;
+  }
+
+  const next = [...row];
+
+  if (parsedIndexes.customerCode >= 0) {
+    next[parsedIndexes.customerCode] =
+      matchedCustomer.customerCode;
+  }
+
+  if (parsedIndexes.customerName >= 0) {
+    next[parsedIndexes.customerName] =
+      matchedCustomer.customerName;
+  }
+
+  return next;
+});
+
       setSelectedFixes({});
       setMappingSelections({});
       setExpandedFixGroup('');
       setShowErrorRows(false);
       setSaveValidOnly(false);
+      setIncludeSuspectedDuplicates(false);
       runValidation({ ...parsed, rows: mappedRows, originalRows: parsed.rows.map((row) => [...row]) }, null, { initializeOriginal: true });
     } catch (error) {
   console.error('업로드 파일 검증 실패:', error);
@@ -766,6 +987,10 @@ export default function UploadValidationPage() {
       setStatusText(`반려 ${nextValidation.blockerCount.toLocaleString('ko-KR')}건이 남아 있습니다. 수정 후 다시 저장해주세요.`);
       return;
     }
+    if ((nextValidation.counts['중복 의심'] ?? 0) > 0 && !includeSuspectedDuplicates) {
+      setStatusText('중복 의심 행을 포함해 저장하려면 확인 옵션을 선택해주세요.');
+      return;
+    }
 
     if (!window.api?.saveData) {
       setStatusText('매출 테이블 저장은 Electron 데스크톱 앱에서 사용할 수 있습니다.');
@@ -792,22 +1017,90 @@ export default function UploadValidationPage() {
     setStatusText(`${draft.fileName} 데이터를 매출 테이블에 저장하는 중입니다.`);
 
     try {
-      const result = await window.api.saveData({
+      const savePayload = {
         fileName: draft.fileName,
         columns: stamped.columns,
         rows: rowsToSave,
         rowActions: {},
         validationIssues: issuesToSave,
         savedAt: new Date().toISOString(),
-      });
+      };
+      const productCodeIndex = nextValidation.indexes.productCode;
+      const productNameIndex = nextValidation.indexes.productName;
+      const unitPriceIndex = nextValidation.indexes.unitPrice;
+      const knownProductCodes = new Set(
+        (referenceData.products ?? []).map((product) => getProductCode(product)),
+      );
+      const newProducts = [...new Map(rowsToSave
+        .map((row) => ({
+          productCode: getCell(row, productCodeIndex).trim(),
+          productName: getCell(row, productNameIndex).trim(),
+          unitPrice: toNumber(getCell(row, unitPriceIndex)),
+        }))
+        .filter((product) => product.productCode
+          && product.productName
+          && !knownProductCodes.has(product.productCode))
+        .map((product) => [product.productCode, product])).values()];
+
+      if (newProducts.length > 0) {
+        const productSummary = newProducts
+          .map((product) => `${product.productCode} (${product.productName})`)
+          .join(', ');
+        const shouldRegister = window.confirm(
+          `기준정보에 없는 품목코드가 있습니다.\n\n${productSummary}\n\n신규품목을 등록하시겠습니까?`,
+        );
+        if (!shouldRegister) {
+          setStatusText('신규 품목 등록을 취소했습니다. 품목 매핑 후 다시 저장해주세요.');
+          return;
+        }
+        if (!window.api?.saveProduct) {
+          throw new Error('신규 품목 등록 기능을 사용할 수 없습니다.');
+        }
+        for (const product of newProducts) {
+          const registration = await window.api.saveProduct(product);
+          if (!registration?.ok) {
+            throw new Error(
+              registration?.message
+                || `${product.productCode} 신규 품목 등록에 실패했습니다.`,
+            );
+          }
+        }
+        setReferenceData((current) => ({
+          ...current,
+          products: [
+            ...current.products,
+            ...newProducts.map((product) => ({
+              productCode: product.productCode,
+              productName: product.productName,
+              unit: 'EA',
+              unitPrice: Number.isFinite(product.unitPrice) ? product.unitPrice : 0,
+              status: 'ACTIVE',
+            })),
+          ],
+        }));
+      }
+
+      const result = await window.api.saveData(savePayload);
 
       if (!result?.ok) throw new Error(result?.message || 'SQLite 저장에 실패했습니다.');
 
       addActivityLog('INFO', '업로드 검증 데이터 저장', `${draft.fileName} / ${rowsToSave.length}건`);
-      setStatusText(
-        `${rowsToSave.length.toLocaleString('ko-KR')}건을 매출 테이블에 저장했습니다. AWS 동기화를 대기합니다.`
-        + (nextValidation.reviewCount > 0 ? ` 담당자 재확인 ${nextValidation.reviewCount.toLocaleString('ko-KR')}건도 함께 기록했습니다.` : '')
-      );
+      const savedMessage = `${rowsToSave.length.toLocaleString('ko-KR')}건을 매출 테이블에 저장했습니다. AWS 동기화를 대기합니다.`
+        + (nextValidation.reviewCount > 0 ? ` 담당자 재확인 ${nextValidation.reviewCount.toLocaleString('ko-KR')}건도 함께 기록했습니다.` : '');
+      setStatusText(savedMessage);
+      setSaveComplete({ fileName: draft.fileName, rowCount: rowsToSave.length });
+      addNotification({
+        title: '매출 데이터 저장 완료',
+        message: savedMessage,
+        level: 'SUCCESS',
+        target: '업로드 전 검증',
+        href: '/validate/upload',
+      });
+      await notifyUser({
+        type: 'success',
+        title: '매출 데이터 저장 완료',
+        message: savedMessage,
+      });
     } catch (error) {
       setStatusText(`매출 테이블 저장 실패: ${error.message}`);
     } finally {
@@ -815,19 +1108,26 @@ export default function UploadValidationPage() {
     }
   };
 
-  const handleCellChange = (rowIndex, columnIndex, value) => {
-    if (!draft) return;
-    setDraft((current) => ({
-      ...current,
-      rows: current.rows.map((row, index) => (
-        index === rowIndex
-          ? row.map((cell, cellIndex) => (cellIndex === columnIndex ? value : cell))
-          : row
-      )),
-    }));
-    setStatusText('수정 내용을 임시 검토본에 반영했습니다.');
-    setNeedsRevalidation(true);
-  };
+const handleCellChange = (rowIndex, columnIndex, value) => {
+  if (!draft) return;
+
+  const nextRows = draft.rows.map((row, index) => {
+    if (index !== rowIndex) return row;
+
+    const nextRow = [...row];
+    nextRow[columnIndex] = value;
+
+    return nextRow;
+  });
+
+  runValidation(
+    {
+      ...draft,
+      rows: nextRows,
+    },
+    '수정한 값을 반영하고 검증 결과를 갱신했습니다.'
+  );
+};
 
   const handleApplySuggestion = (rowIndex, patch) => {
     if (!draft || !validation) return;
@@ -900,7 +1200,6 @@ export default function UploadValidationPage() {
     }
   };
 
-  const activeIssueRows = activeIssueType ? getIssuesForType(activeIssueType) : [];
   const proposedFixes = draft && validation ? draft.rows.flatMap((row, rowIndex) => {
     const fix = buildAutoFixPatch(row, validation.indexes, validation.issuesByRow[rowIndex] ?? [], referenceData, recentData);
     return fix ? [{ rowIndex, ...fix }] : [];
@@ -929,11 +1228,6 @@ export default function UploadValidationPage() {
       if (validation.indexes.customerName >= 0) next[validation.indexes.customerName] = getCustomerName(customer);
       return next;
     });
-    if (rememberMappings) {
-      const mappings = { ...customerMappings, ...mappingSelections };
-      setCustomerMappings(mappings);
-      window.localStorage.setItem('upload-customer-mappings', JSON.stringify(mappings));
-    }
     setMappingSelections({});
     runValidation({ ...draft, rows: nextRows }, `${selections.length}개 거래처 매핑을 적용하고 재검증했습니다.`);
   };
@@ -951,7 +1245,8 @@ export default function UploadValidationPage() {
   const normalRows = draft ? draft.rows.length - errorRowIndexes.length - warningRows : 0;
   const wizardStep = !draft ? 0 : proposedFixes.length || customerGroups.length || errorRowIndexes.length || needsRevalidation ? 2 : 3;
   const issueValue = (issue) => {
-    const key = issue.type.includes('거래처명') ? 'customerName'
+    const key = issue.type.includes('거래일') ? 'date'
+      : issue.type.includes('거래처명') ? 'customerName'
       : issue.type.includes('거래처 코드') ? 'customerCode'
         : issue.type.includes('품목명') ? 'productName'
           : issue.type.includes('품목 코드') ? 'productCode'
@@ -968,6 +1263,30 @@ export default function UploadValidationPage() {
 
   return (
     <PageShell title="업로드 전 검증" description="파일을 선택하고, 수정과 거래처 매핑을 확인한 뒤 DB에 저장합니다.">
+      <Modal
+        open={Boolean(saveComplete)}
+        eyebrow="Database save"
+        title="저장 완료"
+        description="검증을 통과한 데이터가 매출 테이블에 저장되었습니다."
+        size="sm"
+        onClose={() => setSaveComplete(null)}
+        showCloseButton={false}
+        footer={(
+          <button className="btn btn-primary" type="button" onClick={() => setSaveComplete(null)}>
+            확인
+          </button>
+        )}
+      >
+        <div className="space-y-3 p-5">
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {saveComplete?.rowCount.toLocaleString('ko-KR')}행 저장 완료
+          </p>
+          <p className="text-sm leading-6 text-gray-600 dark:text-gray-300">
+            {saveComplete?.fileName} 파일의 데이터가 DB에 안전하게 저장되었습니다.
+          </p>
+        </div>
+      </Modal>
+
       <Modal
   open={Boolean(fileError)}
   eyebrow="Excel upload"
@@ -1064,7 +1383,7 @@ export default function UploadValidationPage() {
         issueType={activeIssueType}
         rows={activeIssueRows}
         validation={validation}
-        onClose={() => setActiveIssueType('')}
+        onClose={closeIssueEditor}
         onCellChange={handleCellChange}
         onApplySuggestion={handleApplySuggestion}
         onDownload={handleDownloadIssues}
@@ -1115,6 +1434,12 @@ export default function UploadValidationPage() {
         </section>
       )}
 
+      {draft && (validation?.counts['중복 의심'] ?? 0) > 0 && <section className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
+        <h2 className="font-semibold text-amber-900 dark:text-amber-200">중복 의심 {validation.counts['중복 의심']}행</h2>
+        <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">거래일·거래처·품목·수량·금액이 같은 행입니다. 실제로 별개 거래라면 그대로 등록할 수 있습니다.</p>
+        <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-amber-900 dark:text-amber-200"><input type="checkbox" checked={includeSuspectedDuplicates} onChange={(event) => setIncludeSuspectedDuplicates(event.target.checked)} />중복 의심 행을 확인했으며 모두 포함해 저장합니다</label>
+      </section>}
+
       {fixGroups.length > 0 && <section className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex items-center justify-between"><h2 className="font-bold">자동 수정 제안</h2><span className="text-sm text-accent-700 dark:text-accent-300">{proposedFixes.length}행</span></div>
         <p className="mt-1 text-sm text-gray-500">수정할 항목을 컬럼별로 선택하세요. 상세보기에서 원본과 수정값을 비교할 수 있습니다.</p>
@@ -1139,17 +1464,17 @@ export default function UploadValidationPage() {
           <select className="form-select" aria-label={`${group.code} ${group.name} 기준 거래처`} value={mappingSelections[JSON.stringify([group.code, group.name])] ?? ''} onChange={(event) => setMappingSelections((current) => ({ ...current, [JSON.stringify([group.code, group.name])]: event.target.value }))}><option value="">거래처 선택</option>{(referenceData.customers ?? []).map((customer) => <option key={getCustomerCode(customer)} value={getCustomerCode(customer)}>{getCustomerName(customer)} ({getCustomerCode(customer)})</option>)}</select>
           {(() => { const candidate = findCustomerCandidate(draft.rows[group.index], validation.indexes, referenceData, null); return candidate?.score >= 0.4 ? <button type="button" className="text-xs text-accent-700 underline dark:text-accent-300" onClick={() => setMappingSelections((current) => ({ ...current, [JSON.stringify([group.code, group.name])]: getCustomerCode(candidate.customer) }))}>추천: {getCustomerName(candidate.customer)}</button> : null; })()}
         </div>)}</div>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={rememberMappings} onChange={(event) => setRememberMappings(event.target.checked)} />이 매핑을 저장하고 다음 업로드부터 자동 적용</label><button type="button" className="btn btn-secondary" onClick={applySelectedMappings} disabled={!Object.values(mappingSelections).some(Boolean)}>매핑 적용</button></div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-gray-500 dark:text-gray-400">선택한 매핑은 현재 파일의 검토본에 적용됩니다.</p><button type="button" className="btn btn-secondary" onClick={applySelectedMappings} disabled={!Object.values(mappingSelections).some(Boolean)}>매핑 적용</button></div>
       </section>}
 
       {draft && validation && <section className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex items-center justify-between"><h2 className="font-bold">직접 수정이 필요한 데이터</h2><span className="text-sm text-red-700 dark:text-red-300">{errorRowIndexes.length}행</span></div>
-        {errorRowIndexes.length ? <div className="mt-3 max-h-64 overflow-auto"><table className="min-w-full text-sm"><thead><tr>{['행', '검증 항목', '현재 값', '문제', '수정'].map((heading) => <th key={heading} className="border-b px-3 py-2 text-left">{heading}</th>)}</tr></thead><tbody>{errorRowIndexes.flatMap((index) => (validation.issuesByRow[index] ?? []).filter((issue) => issue.severity === 'block').map((issue) => <tr key={`${index}-${issue.type}`} className="border-b border-gray-100 dark:border-gray-700"><td className="px-3 py-2">{index + 2}</td><td className="px-3 py-2">{issue.type}</td><td className="px-3 py-2">{issueValue(issue)}</td><td className="px-3 py-2">{issue.message}</td><td className="px-3 py-2"><button type="button" className="text-accent-700 underline dark:text-accent-300" onClick={() => setActiveIssueType(issue.type)}>직접 수정</button></td></tr>))}</tbody></table></div> : <p className="mt-3 text-sm text-teal-700 dark:text-teal-300">필수 검증 오류가 없습니다.</p>}
+        {errorRowIndexes.length ? <div className="mt-3 max-h-64 overflow-auto"><table className="min-w-full text-sm"><thead><tr>{['행', '검증 항목', '현재 값', '문제', '수정'].map((heading) => <th key={heading} className="border-b px-3 py-2 text-left">{heading}</th>)}</tr></thead><tbody>{errorRowIndexes.flatMap((index) => (validation.issuesByRow[index] ?? []).filter((issue) => issue.severity === 'block').map((issue) => <tr key={`${index}-${issue.type}`} className="border-b border-gray-100 dark:border-gray-700"><td className="px-3 py-2">{index + 2}</td><td className="px-3 py-2">{issue.type}</td><td className="px-3 py-2">{issueValue(issue)}</td><td className="px-3 py-2">{issue.message}</td><td className="px-3 py-2"><button type="button" className="text-accent-700 underline dark:text-accent-300"         onClick={() => openIssueEditor(issue.type)}>직접 수정</button></td></tr>))}</tbody></table></div> : <p className="mt-3 text-sm text-teal-700 dark:text-teal-300">필수 검증 오류가 없습니다.</p>}
       </section>}
 
       {draft && validation && <details className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800"><summary className="cursor-pointer font-bold">최종 데이터 미리보기</summary><p className="mt-2 text-sm text-gray-500">현재 검토본의 첫 20행입니다.</p><div className="mt-3 max-h-80 overflow-auto"><table className="min-w-full text-sm"><thead><tr>{['행', ...draft.columns, '결과'].map((column, index) => <th key={`${column}-${index}`} className="whitespace-nowrap border-b px-3 py-2 text-left">{column}</th>)}</tr></thead><tbody>{draft.rows.slice(0, 20).map((row, index) => <tr key={index} className="border-b border-gray-100"><td className="px-3 py-2">{index + 2}</td>{draft.columns.map((_, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-3 py-2">{String(row[columnIndex] ?? '')}</td>)}<td className="whitespace-nowrap px-3 py-2">{(validation.issuesByRow[index] ?? []).some((issue) => issue.severity === 'block') ? '오류' : (validation.issuesByRow[index] ?? []).length ? '경고' : '정상'}</td></tr>)}</tbody></table></div></details>}
 
-      {draft && <details className="mb-4"><summary className="cursor-pointer text-sm font-semibold text-gray-600 dark:text-gray-300">검증 항목별 상세 보기</summary><div className="mt-3 grid gap-4 xl:grid-cols-2"><IssueList title="SQL 저장 전 반려" types={blockingValidationTypes} counts={validation?.counts ?? {}} tone="danger" onSelectType={setActiveIssueType} /><IssueList title="담당자 재확인" types={reviewValidationTypes} counts={validation?.counts ?? {}} tone="warning" onSelectType={setActiveIssueType} /></div></details>}
+      {draft && <details className="mb-4"><summary className="cursor-pointer text-sm font-semibold text-gray-600 dark:text-gray-300">검증 항목별 상세 보기</summary><div className="mt-3 grid gap-4 xl:grid-cols-2"><IssueList title="SQL 저장 전 반려" types={blockingValidationTypes} counts={validation?.counts ?? {}} tone="danger" onSelectType={openIssueEditor} /><IssueList title="담당자 재확인" types={reviewValidationTypes} counts={validation?.counts ?? {}} tone="warning" onSelectType={openIssueEditor} /></div></details>}
 
       {!draft && <section className="mb-4 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -1166,7 +1491,7 @@ export default function UploadValidationPage() {
       </section>}
 
       {draft && validation && <div className="sticky bottom-0 z-20 -mx-4 border-t border-gray-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur dark:border-gray-700 dark:bg-gray-900/95 sm:mx-0 sm:rounded-t-lg">
-        <div className="flex flex-wrap items-center justify-between gap-3"><p className={`text-sm font-semibold ${validation.blockerCount || customerGroups.length || needsRevalidation ? 'text-amber-700 dark:text-amber-300' : 'text-teal-700 dark:text-teal-300'}`}>{needsRevalidation ? '수정한 내용이 있습니다. 재검증하세요.' : customerGroups.length ? `거래처 ${customerGroups.length}개를 확인해주세요.` : validation.blockerCount ? `오류 ${errorRowIndexes.length}행이 남아 있어 DB에 저장할 수 없습니다.` : `모든 필수 검증을 통과했습니다. ${draft.rows.length.toLocaleString('ko-KR')}행을 저장할 수 있습니다.`}</p><div className="flex flex-wrap gap-2"><button className="btn btn-secondary" type="button" onClick={() => handleDownloadIssues()}>검증 결과 Excel 다운로드</button><button className="btn btn-secondary" type="button" onClick={() => runValidation(draft)}>재검증</button><button className="btn btn-primary" type="button" onClick={handleSave} disabled={isSaving || needsRevalidation || validation.blockerCount > 0 || customerGroups.length > 0}>{isSaving ? '저장 중...' : `DB에 ${draft.rows.length.toLocaleString('ko-KR')}행 저장`}</button></div></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><p className={`text-sm font-semibold ${validation.blockerCount || customerGroups.length || needsRevalidation || ((validation.counts['중복 의심'] ?? 0) > 0 && !includeSuspectedDuplicates) ? 'text-amber-700 dark:text-amber-300' : 'text-teal-700 dark:text-teal-300'}`}>{needsRevalidation ? '수정한 내용이 있습니다. 재검증하세요.' : customerGroups.length ? `거래처 ${customerGroups.length}개를 확인해주세요.` : validation.blockerCount ? `오류 ${errorRowIndexes.length}행이 남아 있어 DB에 저장할 수 없습니다.` : (validation.counts['중복 의심'] ?? 0) > 0 && !includeSuspectedDuplicates ? '중복 의심 행을 확인하면 저장할 수 있습니다.' : `모든 필수 검증을 통과했습니다. ${draft.rows.length.toLocaleString('ko-KR')}행을 저장할 수 있습니다.`}</p><div className="flex flex-wrap gap-2"><button className="btn btn-secondary" type="button" onClick={() => handleDownloadIssues()}>검증 결과 Excel 다운로드</button><button className="btn btn-secondary" type="button" onClick={() => runValidation(draft)}>재검증</button><button className="btn btn-primary" type="button" onClick={handleSave} disabled={isSaving || needsRevalidation || validation.blockerCount > 0 || customerGroups.length > 0 || ((validation.counts['중복 의심'] ?? 0) > 0 && !includeSuspectedDuplicates)}>{isSaving ? '저장 중...' : `DB에 ${draft.rows.length.toLocaleString('ko-KR')}행 저장`}</button></div></div>
       </div>}
 
     </PageShell>
