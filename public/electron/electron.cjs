@@ -1025,12 +1025,6 @@ function registerIpcHandlers() {
   ipcMain.handle("gmail:send-test", async (_, payload = {}) => {
     const gmailAddress = String(payload.gmailAddress ?? "").trim();
     const appPassword = String(payload.appPassword ?? "").replace(/\s+/g, "");
-    console.log('[gmail:send-closing] 자격증명 확인', {
-  gmailAddress,
-  passwordLength: appPassword.length,
-  head: appPassword.slice(0, 2),
-  tail: appPassword.slice(-2),
-});
     const testEmail = String(payload.testEmail ?? "").trim();
 
     if (!isEmail(gmailAddress) || !gmailAddress.toLowerCase().endsWith("@gmail.com")) {
@@ -1084,13 +1078,6 @@ function registerIpcHandlers() {
     const gmailAddress = String(payload.gmailAddress ?? "").trim();
     const appPassword = String(payload.appPassword ?? "").replace(/\s+/g, "");
     const messages = Array.isArray(payload.messages) ? payload.messages : [];
-
-     console.log('[gmail:send-closing] 자격증명 확인', {   // ← 여기
-    gmailAddress,
-    passwordLength: appPassword.length,
-    head: appPassword.slice(0, 2),
-    tail: appPassword.slice(-2),
-  });
 
     if (!isEmail(gmailAddress) || !gmailAddress.toLowerCase().endsWith("@gmail.com")) {
       return { ok: false, message: "Gmail 주소를 확인하세요.", results: [] };

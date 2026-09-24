@@ -1,8 +1,7 @@
 import React, { useMemo, useState } from 'react';
 
-import { FormField, StatusBadge } from '../components/common';
+import { FormField, SearchButton, StatusBadge } from '../components/common';
 import PageShell from './PageShell';
-
 
 const fields = [
   {
@@ -112,34 +111,43 @@ function ContactForm({ draft = emptyDraft, disabled, onChange, onSubmit, onDelet
   return (
     <form className="space-y-4" onSubmit={onSubmit}>
       <fieldset disabled={disabled} className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        {fields.map((field) => (
-          <FormField key={field.key} label={field.label} required={field.required}>
-            <input
-              className="form-input w-full"
-              type={field.type ?? 'text'}
-              value={draft[field.key] ?? ''}
-              required={field.required}
-              placeholder={field.placeholder}
-              onChange={(e) => update(field.key, e.target.value)}
-            />
-          </FormField>
-        ))}
-      </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {fields.map((field) => (
+            <FormField key={field.key} label={field.label} required={field.required}>
+              <input
+                className="form-input w-full"
+                type={field.type ?? 'text'}
+                value={draft[field.key] ?? ''}
+                required={field.required}
+                placeholder={field.placeholder}
+                onChange={(e) => update(field.key, e.target.value)}
+              />
+            </FormField>
+          ))}
+        </div>
 
-      <FormField label="메모">
-        <textarea
-          className="form-textarea min-h-24 w-full"
-          value={draft.memo ?? ''}
-          onChange={(e) => update('memo', e.target.value)}
-          placeholder="마감일, 연락 시 주의사항, 담당자 특이사항"
-        />
-      </FormField>
+        <FormField label="메모">
+          <textarea
+            className="form-textarea min-h-24 w-full"
+            value={draft.memo ?? ''}
+            onChange={(e) => update('memo', e.target.value)}
+            placeholder="마감일, 연락 시 주의사항, 담당자 특이사항"
+          />
+        </FormField>
       </fieldset>
 
       <div className="grid grid-cols-2 gap-2">
-        <button className="btn btn-primary w-full" type="submit" disabled={disabled}>수정</button>
-        <button className="w-full rounded-md border border-rose-200 px-3 py-2 font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10" type="button" onClick={onDelete} disabled={disabled}>삭제</button>
+        <button className="btn btn-primary w-full" type="submit" disabled={disabled}>
+          수정
+        </button>
+        <button
+          className="w-full rounded-md border border-rose-200 px-3 py-2 font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10"
+          type="button"
+          onClick={onDelete}
+          disabled={disabled}
+        >
+          삭제
+        </button>
       </div>
     </form>
   );
@@ -189,7 +197,8 @@ export default function ContactListPage() {
     const isPageChange = mode === 'page';
     const currentSelectedId = selectedId;
     if (!window.api?.queryContacts || isSearching || isPaging) {
-      if (!window.api?.queryContacts) setNotice('SQLite 조회는 Electron 데스크톱 앱에서만 사용할 수 있습니다.');
+      if (!window.api?.queryContacts)
+        setNotice('SQLite 조회는 Electron 데스크톱 앱에서만 사용할 수 있습니다.');
       return;
     }
 
@@ -213,10 +222,15 @@ export default function ContactListPage() {
       setContacts(nextContacts);
       setServerTotal(Number(data?.total) || 0);
       setParams((current) => ({ ...current, page: Number(data?.page) || targetPage }));
-      setNotice(`SQLite에서 담당자 ${Number(data?.total || 0).toLocaleString('ko-KR')}명을 조회했습니다.`);
+      setNotice(
+        `SQLite에서 담당자 ${Number(data?.total || 0).toLocaleString('ko-KR')}명을 조회했습니다.`,
+      );
 
-      const nextSelected = (keepSelection && nextContacts.find((contact) => contact.contactId === currentSelectedId))
-        || nextContacts[0] || null;
+      const nextSelected =
+        (keepSelection &&
+          nextContacts.find((contact) => contact.contactId === currentSelectedId)) ||
+        nextContacts[0] ||
+        null;
       setSelectedId(nextSelected?.contactId ?? '');
       setDraft(nextSelected ?? emptyDraft);
     } catch (error) {
@@ -243,19 +257,20 @@ export default function ContactListPage() {
     setNotice(`${contact.customerName} 담당자 정보를 선택했습니다.`);
   };
 
-  const buildContactPayload = (contactId) => normalizeContact({
-    ...draft,
-    contactId,
-    customerName: String(draft.customerName ?? '').trim(),
-    customerCode: String(draft.customerCode ?? '').trim(),
-    businessNumber: String(draft.businessNumber ?? '').trim(),
-    departmentName: String(draft.departmentName ?? '').trim(),
-    recipientName: String(draft.recipientName ?? '').trim(),
-    recipientTitle: String(draft.recipientTitle ?? '').trim(),
-    recipientEmail: String(draft.recipientEmail ?? '').trim(),
-    recipientPhone: String(draft.recipientPhone ?? '').trim(),
-    memo: String(draft.memo ?? '').trim(),
-  });
+  const buildContactPayload = (contactId) =>
+    normalizeContact({
+      ...draft,
+      contactId,
+      customerName: String(draft.customerName ?? '').trim(),
+      customerCode: String(draft.customerCode ?? '').trim(),
+      businessNumber: String(draft.businessNumber ?? '').trim(),
+      departmentName: String(draft.departmentName ?? '').trim(),
+      recipientName: String(draft.recipientName ?? '').trim(),
+      recipientTitle: String(draft.recipientTitle ?? '').trim(),
+      recipientEmail: String(draft.recipientEmail ?? '').trim(),
+      recipientPhone: String(draft.recipientPhone ?? '').trim(),
+      memo: String(draft.memo ?? '').trim(),
+    });
 
   const persistContact = async (nextContact) => {
     if (!nextContact.customerName || !nextContact.recipientName) {
@@ -278,9 +293,11 @@ export default function ContactListPage() {
 
       const savedContact = normalizeContact(result.contact);
 
-      setContacts((current) => current.map((contact) => (
-        contact.contactId === savedContact.contactId ? savedContact : contact
-      )));
+      setContacts((current) =>
+        current.map((contact) =>
+          contact.contactId === savedContact.contactId ? savedContact : contact,
+        ),
+      );
       setSelectedId(savedContact.contactId);
       setDraft(savedContact);
       setNotice('담당자 정보가 수정되었습니다.');
@@ -301,58 +318,54 @@ export default function ContactListPage() {
     void persistContact(buildContactPayload(draft.contactId));
   };
 
-const handleDelete = async (contact = selectedContact) => {
-  if (!contact) return;
+  const handleDelete = async (contact = selectedContact) => {
+    if (!contact) return;
 
-  const confirmed = window.confirm(
-    `${contact.customerName} ${contact.recipientName} 담당자를 삭제할까요?`
-  );
-
-  if (!confirmed) return;
-
-  setIsSaving(true);
-
-  try {
-    if (!window.api?.deleteContact) {
-      throw new Error('Electron 데스크톱 앱에서만 삭제할 수 있습니다.');
-    }
-
-    const result = await window.api.deleteContact(contact.contactId);
-
-    if (!result?.ok) {
-      throw new Error('담당자 미사용 처리에 실패했습니다.');
-    }
-
-    const remainingContacts = contacts.filter((item) => item.contactId !== contact.contactId);
-    setContacts(remainingContacts);
-
-    const wasSelected = selectedId === contact.contactId || selectedContact?.contactId === contact.contactId;
-    if (wasSelected) {
-      const nextContact = remainingContacts[0] ?? null;
-      setSelectedId(nextContact?.contactId ?? '');
-      setDraft(nextContact ? normalizeContact(nextContact) : emptyDraft);
-    }
-
-    setServerTotal((current) =>
-      Math.max(current - 1, 0)
+    const confirmed = window.confirm(
+      `${contact.customerName} ${contact.recipientName} 담당자를 삭제할까요?`,
     );
 
-    setNotice(
-      '담당자가 미사용 처리되었습니다.'
-    );
-  } catch (error) {
-    setNotice(
-      `삭제 실패: ${error?.message || '알 수 없는 오류'}`
-    );
-  } finally {
-    setIsSaving(false);
-  }
-};
+    if (!confirmed) return;
 
+    setIsSaving(true);
 
+    try {
+      if (!window.api?.deleteContact) {
+        throw new Error('Electron 데스크톱 앱에서만 삭제할 수 있습니다.');
+      }
+
+      const result = await window.api.deleteContact(contact.contactId);
+
+      if (!result?.ok) {
+        throw new Error('담당자 미사용 처리에 실패했습니다.');
+      }
+
+      const remainingContacts = contacts.filter((item) => item.contactId !== contact.contactId);
+      setContacts(remainingContacts);
+
+      const wasSelected =
+        selectedId === contact.contactId || selectedContact?.contactId === contact.contactId;
+      if (wasSelected) {
+        const nextContact = remainingContacts[0] ?? null;
+        setSelectedId(nextContact?.contactId ?? '');
+        setDraft(nextContact ? normalizeContact(nextContact) : emptyDraft);
+      }
+
+      setServerTotal((current) => Math.max(current - 1, 0));
+
+      setNotice('담당자가 미사용 처리되었습니다.');
+    } catch (error) {
+      setNotice(`삭제 실패: ${error?.message || '알 수 없는 오류'}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
-    <PageShell title="거래처 담당자 관리" description="거래처 담당자를 조회하고, 목록에서 선택해 정보를 수정하거나 삭제합니다.">
+    <PageShell
+      title="거래처 담당자 관리"
+      description="거래처 담당자를 조회하고, 목록에서 선택해 정보를 수정하거나 삭제합니다."
+    >
       <section className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(150px,1fr))_130px_130px_auto] xl:items-end">
           <FormField label="거래처">
@@ -392,31 +405,48 @@ const handleDelete = async (contact = selectedContact) => {
             />
           </FormField>
           <div className="flex gap-2">
-            <button className="btn btn-primary whitespace-nowrap" type="button" onClick={() => handleSearch(1)} disabled={isSearching}>
-              {isSearching ? '조회 중...' : '조회'}
-            </button>
+            <SearchButton onSearch={() => handleSearch(1)} disabled={isSearching} />
           </div>
         </div>
       </section>
 
       <div className="grid grid-cols-12 gap-5">
-        <section className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8" data-table-tools="false">
+        <section
+          className="col-span-12 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-8"
+          data-table-tools="false"
+        >
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700/60">
             <div>
               <h2 className="font-bold text-gray-900 dark:text-gray-100">거래처 담당자 목록</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                전체 {serverTotal.toLocaleString('ko-KR')}명 중 {visibleContacts.length.toLocaleString('ko-KR')}명 표시
+                전체 {serverTotal.toLocaleString('ko-KR')}명 중{' '}
+                {visibleContacts.length.toLocaleString('ko-KR')}명 표시
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {serverTotal > params.pageSize && (
                 <div className="flex items-center gap-2">
-                  <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page <= 1 || isPaging} onClick={() => handleSearch(params.page - 1, 'page')}>이전</button>
-                  <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">{params.page} / {totalPages}</span>
-                  <button className="btn btn-secondary h-8 px-3 text-xs" type="button" disabled={params.page >= totalPages || isPaging} onClick={() => handleSearch(params.page + 1, 'page')}>다음</button>
+                  <button
+                    className="btn btn-secondary h-8 px-3 text-xs"
+                    type="button"
+                    disabled={params.page <= 1 || isPaging}
+                    onClick={() => handleSearch(params.page - 1, 'page')}
+                  >
+                    이전
+                  </button>
+                  <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+                    {params.page} / {totalPages}
+                  </span>
+                  <button
+                    className="btn btn-secondary h-8 px-3 text-xs"
+                    type="button"
+                    disabled={params.page >= totalPages || isPaging}
+                    onClick={() => handleSearch(params.page + 1, 'page')}
+                  >
+                    다음
+                  </button>
                 </div>
               )}
-             
             </div>
           </header>
 
@@ -434,28 +464,52 @@ const handleDelete = async (contact = selectedContact) => {
                   const selected = contact.contactId === selectedContact?.contactId;
 
                   return (
-                    <tr key={contact.contactId} tabIndex={0} aria-selected={selected} onClick={() => handleSelect(contact)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleSelect(contact); } }} className={`cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-teal-500 ${selected ? 'bg-teal-50/70 dark:bg-teal-500/10' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'}`}>
+                    <tr
+                      key={contact.contactId}
+                      tabIndex={0}
+                      aria-selected={selected}
+                      onClick={() => handleSelect(contact)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          handleSelect(contact);
+                        }
+                      }}
+                      className={`cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-teal-500 ${selected ? 'bg-teal-50/70 dark:bg-teal-500/10' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'}`}
+                    >
                       <td className="px-4 py-3">
                         <div className="text-left">
-                          <span className="font-semibold text-gray-900 dark:text-gray-100">{contact.customerName}</span>
-                          <span className="mt-1 block text-xs text-gray-500">{contact.customerCode || '코드 없음'} · {contact.businessNumber || '사업자번호 없음'}</span>
+                          <span className="font-semibold text-gray-900 dark:text-gray-100">
+                            {contact.customerName}
+                          </span>
+                          <span className="mt-1 block text-xs text-gray-500">
+                            {contact.customerCode || '코드 없음'} ·{' '}
+                            {contact.businessNumber || '사업자번호 없음'}
+                          </span>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-gray-700 dark:text-gray-200">
                         <p className="font-medium">{contact.recipientName}</p>
-                        <p className="mt-1 text-xs text-gray-500">{[contact.departmentName, contact.recipientTitle].filter(Boolean).join(' · ') || '부서/직함 없음'}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {[contact.departmentName, contact.recipientTitle]
+                            .filter(Boolean)
+                            .join(' · ') || '부서/직함 없음'}
+                        </p>
                       </td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
                         <p>{contact.recipientEmail || '이메일 없음'}</p>
-                        <p className="mt-1 text-xs text-gray-500">{contact.recipientPhone || '전화번호 없음'}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {contact.recipientPhone || '전화번호 없음'}
+                        </p>
                       </td>
-
                     </tr>
                   );
                 })}
                 {visibleContacts.length === 0 && (
                   <tr>
-                    <td className="px-4 py-10 text-center text-gray-500" colSpan="3">조건에 맞는 담당자가 없습니다.</td>
+                    <td className="px-4 py-10 text-center text-gray-500" colSpan="3">
+                      조건에 맞는 담당자가 없습니다.
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -466,8 +520,12 @@ const handleDelete = async (contact = selectedContact) => {
         <aside className="col-span-12 rounded-lg border border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700/60 dark:bg-gray-800 xl:col-span-4">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">담당자 정보</p>
-              <h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">거래처 담당자 수정</h2>
+              <p className="text-xs font-semibold uppercase text-gray-400 dark:text-gray-500">
+                담당자 정보
+              </p>
+              <h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">
+                거래처 담당자 수정
+              </h2>
             </div>
             <StatusBadge tone="teal">{selectedContact ? '선택됨' : '선택 대기'}</StatusBadge>
           </div>

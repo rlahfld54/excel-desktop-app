@@ -1984,7 +1984,7 @@ function mapClosingCompanyToTarget(row) {
     amountConfirmed: row.amountConfirmed,
     taxIssued: row.taxIssued,
     taxMatched: row.taxMatched,
-    reason: row.requestSent ? '마감 완료' : row.reason,
+    reason: row.amountConfirmed ? '마감 완료' : row.reason,
     amount: row.confirmedAmount || row.salesAmount || 0,
     businessNumber: row.businessNumber || '',
     taxStatus: row.taxStatus || 'UNKNOWN',
@@ -2228,7 +2228,7 @@ export default function ClosingSendQueuePage() {
       ]);
       const searchedTargets = databaseTargets.filter((target) => matchesTargetFilters(target, params));
       setClosingTargets(databaseTargets);
-      setSelectedIds(searchedTargets.filter((item) => item.reason !== '마감 완료').map((item) => item.id));
+      setSelectedIds(searchedTargets.map((item) => item.id));
       setSendRecords(databaseSendRecords);
       setParams((current) => ({ ...current, page: 1 }));
       setCurrentStep(0);
@@ -2518,35 +2518,6 @@ export default function ClosingSendQueuePage() {
   head: mailSettings.appPassword.slice(0, 2),
   tail: mailSettings.appPassword.slice(-2),
 });
-      // 어떤 항목이 실패했는지 콘솔에 표시
-      console.group('[handleComplete] 발송 준비 실패 원인');
-      console.table(
-        preflightChecks.map((check) => ({
-          항목: check.label,
-          통과: check.ok,
-          상세: check.detail,
-        })),
-      );
-      console.log('과세 검사:', selectedTargets.map((target) => ({
-  company: target.company,
-  taxStatus: target.taxStatus,
-  supply: getTargetSupplyAmount(target),
-  tax: getTargetTaxAmount(target),
-  hasTaxIssue: hasTaxIssue(target),
-})));
-      console.log('테스트 수신자 항목은 실제 발송에서 제외됨');
-      console.log('거래처 이메일 검사:', emailTargets.map((target) => ({
-        company: target.company,
-        email: target.email,
-        valid: isEmail(target.email),
-      })));
-      console.log('isGenerated:', isGenerated, '/ generatedFileGroups:', generatedFileGroups.length);
-      console.log('mailSettings:', {
-        gmailAddress: mailSettings.gmailAddress,
-        appPasswordLength: mailSettings.appPassword.trim().length,
-      });
-      console.groupEnd();
-
       
 
       setPreflightChecked(true);

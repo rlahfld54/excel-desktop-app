@@ -1066,16 +1066,6 @@ function getFilteredSalesData(database, options = {}) {
     limit: pageSize,
     offset,
   };
-  console.log('[localDb] 매출 조회 조건', {
-    startDate,
-    endDate,
-    customer: customerSearch,
-    product: productSearch,
-    owner: params.owner,
-    status: params.status,
-    page,
-    pageSize,
-  });
   const where = [
     "(@startDate = '' OR substr(replace(COALESCE(transaction_date, ''), '/', '-'), 1, 10) >= @startDate)",
     "(@endDate = '' OR substr(replace(COALESCE(transaction_date, ''), '/', '-'), 1, 10) <= @endDate)",
@@ -1097,10 +1087,7 @@ function getFilteredSalesData(database, options = {}) {
     database
       .prepare(`SELECT COUNT(*) AS count FROM sales WHERE ${where}`)
       .get(params)?.count ?? 0;
-  console.log('[localDb] 매출 조회 결과', {
-    total,
-    normalizedDateRange: `${startDate} ~ ${endDate}`,
-  });
+
   const rows = database
     .prepare(
       `
@@ -1383,51 +1370,34 @@ function getDepartmentRequests(database) {
 }
 
 function getClosingCompanies(database, options = {}) {
+  const month = String(
+    options.month ??
+      options.closingMonth ??
+      options.startDate?.slice(0, 7) ??
+      "",
+  );
   const params = {
-    month: String(options.month ?? options.closingMonth ?? ""),
+    month,
     startDate: String(options.startDate ?? ""),
     endDate: String(options.endDate ?? ""),
+    owner: String(options.owner ?? "전체"),
+    deadline: String(options.deadline ?? "전체"),
+    customerName: String(options.customerName ?? "").trim(),
     excludeCompleted: options.excludeCompleted ? 1 : 0,
-    emailOnly: options.emailOnly ? 1 : 0,
   };
 
   return database
     .prepare(
       `
-      WITH selected_upload AS (
-        SELECT uploads.upload_id
-        FROM sales_uploads uploads
-        WHERE EXISTS (
-          SELECT 1
-          FROM sales source_rows
-          WHERE source_rows.upload_id = uploads.upload_id
-            AND (@startDate = '' OR source_rows.transaction_date >= @startDate)
-            AND (@endDate = '' OR source_rows.transaction_date <= @endDate)
-        )
-        ORDER BY
-          CASE WHEN @month <> '' AND uploads.closing_month = @month THEN 0 ELSE 1 END,
-          uploads.uploaded_at DESC,
-          uploads.upload_id DESC
-        LIMIT 1
-      ),
-      sales_summary AS (
+      WITH sales_summary AS (
         SELECT
           sales.customer_code AS customerCode,
           SUM(COALESCE(sales.sales_amount, 0)) AS salesAmount,
           MAX(COALESCE(sales.owner_name, '')) AS ownerName
         FROM sales
-        WHERE sales.upload_id = (SELECT upload_id FROM selected_upload)
-          AND sales.customer_code IS NOT NULL
+        WHERE sales.customer_code IS NOT NULL
           AND (@startDate = '' OR sales.transaction_date >= @startDate)
           AND (@endDate = '' OR sales.transaction_date <= @endDate)
-        GROUP BY sales.customer_code
-      ),
-      issue_summary AS (
-        SELECT sales.customer_code AS customerCode, COUNT(*) AS issueCount
-        FROM validation_issues issues
-        JOIN sales ON sales.row_id = issues.row_id
-        WHERE sales.upload_id = (SELECT upload_id FROM selected_upload)
-          AND issues.status = 'OPEN'
         GROUP BY sales.customer_code
       ),
       email_summary AS (
@@ -1442,79 +1412,69 @@ function getClosingCompanies(database, options = {}) {
         GROUP BY customer_code
       )
       SELECT
-        customers.customer_code AS closingId,
-        customers.customer_name AS company,
-        customers.business_number AS businessNumber,
-        customers.tax_status AS taxStatus,
-        COALESCE((
-          SELECT json_group_array(json_object(
-            'transactionDate', detail.transactionDate,
-            'productCode', detail.productCode,
-            'product', detail.product,
-            'quantity', detail.quantity,
-            'unitPrice', detail.unitPrice,
-            'salesAmount', detail.salesAmount,
-            'validationStatus', detail.validationStatus,
-            'owner', detail.owner,
-            'note', ''
-          ))
-          FROM (
-            SELECT
-              closing_sales_detail.transaction_date AS transactionDate,
-              closing_sales_detail.product_code AS productCode,
-              closing_sales_detail.product_name AS product,
-              closing_sales_detail.quantity AS quantity,
-              closing_sales_detail.unit_price AS unitPrice,
-              closing_sales_detail.sales_amount AS salesAmount,
-              closing_sales_detail.validation_status AS validationStatus,
-              closing_sales_detail.owner_name AS owner
-            FROM closing_sales_detail
-            WHERE closing_sales_detail.upload_id = (SELECT upload_id FROM selected_upload)
-              AND closing_sales_detail.customer_code = customers.customer_code
-              AND (@startDate = '' OR closing_sales_detail.transaction_date >= @startDate)
-              AND (@endDate = '' OR closing_sales_detail.transaction_date <= @endDate)
-            ORDER BY closing_sales_detail.transaction_date, closing_sales_detail.row_no
-          ) detail
-        ), '[]') AS detailRowsJson,
+        sales_summary.customerCode AS closingId,
+        COALESCE(customers.customer_name, sales_summary.customerCode) AS company,
+        COALESCE(customers.business_number, '') AS businessNumber,
+        COALESCE(customers.tax_status, 'UNKNOWN') AS taxStatus,
         COALESCE(status.owner_name, sales_summary.ownerName, '') AS owner,
-        COALESCE(
-          status.deadline,
-          CASE customers.rowid % 3 WHEN 1 THEN '10일' WHEN 2 THEN '25일' ELSE '30일' END
-        ) AS deadline,
+        COALESCE(status.deadline, '30일') AS deadline,
         COALESCE((
-          SELECT contacts.recipient_name FROM contacts
-          WHERE contacts.customer_code = customers.customer_code
+          SELECT contacts.recipient_name
+          FROM contacts
+          WHERE contacts.customer_code = sales_summary.customerCode
           ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
           LIMIT 1
         ), '') AS contactName,
         COALESCE((
-          SELECT contacts.department_name FROM contacts
-          WHERE contacts.customer_code = customers.customer_code
+          SELECT contacts.department_name
+          FROM contacts
+          WHERE contacts.customer_code = sales_summary.customerCode
           ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
           LIMIT 1
         ), '') AS contactDepartment,
         '' AS contactTitle,
         COALESCE((
-          SELECT contacts.recipient_email FROM contacts
-          WHERE contacts.customer_code = customers.customer_code
+          SELECT contacts.recipient_email
+          FROM contacts
+          WHERE contacts.customer_code = sales_summary.customerCode
           ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
           LIMIT 1
         ), '') AS email,
         COALESCE((
-          SELECT contacts.recipient_phone FROM contacts
-          WHERE contacts.customer_code = customers.customer_code
+          SELECT contacts.recipient_phone
+          FROM contacts
+          WHERE contacts.customer_code = sales_summary.customerCode
           ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
           LIMIT 1
         ), '') AS phone,
         COALESCE((
-          SELECT contacts.preferred_channel FROM contacts
-          WHERE contacts.customer_code = customers.customer_code
+          SELECT contacts.preferred_channel
+          FROM contacts
+          WHERE contacts.customer_code = sales_summary.customerCode
           ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
           LIMIT 1
         ), 'EMAIL') AS channel,
         sales_summary.salesAmount,
         COALESCE(NULLIF(status.confirmed_amount, 0), sales_summary.salesAmount) AS confirmedAmount,
         ROUND(sales_summary.salesAmount * 0.1) AS taxAmount,
+        COALESCE((
+          SELECT json_group_array(json_object(
+            'transactionDate', sales.transaction_date,
+            'productCode', sales.product_code,
+            'product', COALESCE(NULLIF(sales.raw_product_name, ''), products.product_name, sales.product_code, ''),
+            'quantity', sales.quantity,
+            'unitPrice', sales.unit_price,
+            'salesAmount', sales.sales_amount,
+            'validationStatus', sales.validation_status,
+            'owner', sales.owner_name,
+            'note', ''
+          ))
+          FROM sales
+          LEFT JOIN products ON products.product_code = sales.product_code
+          WHERE sales.customer_code = sales_summary.customerCode
+            AND (@startDate = '' OR sales.transaction_date >= @startDate)
+            AND (@endDate = '' OR sales.transaction_date <= @endDate)
+        ), '[]') AS detailRowsJson,
         COALESCE(status.contact_confirmed, 0) AS contactConfirmed,
         COALESCE(status.amount_confirmed, 0) AS amountConfirmed,
         COALESCE(status.tax_matched, 0) AS taxMatched,
@@ -1522,37 +1482,24 @@ function getClosingCompanies(database, options = {}) {
         COALESCE(status.request_ready, 0) AS requestReady,
         MAX(COALESCE(status.request_sent, 0), COALESCE(email_summary.requestSent, 0)) AS requestSent,
         MAX(COALESCE(status.closing_sheet_sent, 0), COALESCE(email_summary.closingSheetSent, 0)) AS closingSheetSent,
-        COALESCE(
-          status.reason,
-          CASE WHEN COALESCE(issue_summary.issueCount, 0) > 0 THEN '내부 검토' ELSE '회신 대기' END
-        ) AS reason,
+        COALESCE(status.reason, '회신 대기') AS reason,
         COALESCE(status.memo, '') AS memo,
         COALESCE(email_summary.lastContactAt, '') AS lastContactAt,
         COALESCE(email_summary.contactCount, 0) AS contactCount,
         COALESCE(status.history_json, '[]') AS historyJson,
         COALESCE(status.updated_at, customers.updated_at) AS updatedAt
       FROM sales_summary
-      JOIN customers ON customers.customer_code = sales_summary.customerCode
+      LEFT JOIN customers ON customers.customer_code = sales_summary.customerCode
       LEFT JOIN closing_status status
-        ON status.customer_code = customers.customer_code
+        ON status.customer_code = sales_summary.customerCode
        AND status.closing_month = @month
-      LEFT JOIN issue_summary ON issue_summary.customerCode = customers.customer_code
-      LEFT JOIN email_summary ON email_summary.customerCode = customers.customer_code
-      WHERE (
-        @excludeCompleted = 0
-        OR COALESCE(status.amount_confirmed, 0) = 0
-      )
-      AND (
-        @emailOnly = 0
-        OR COALESCE((
-          SELECT contacts.preferred_channel FROM contacts
-          WHERE contacts.customer_code = customers.customer_code
-          ORDER BY CASE WHEN contacts.status = 'ACTIVE' THEN 0 ELSE 1 END, contacts.contact_id
-          LIMIT 1
-        ), 'EMAIL') = 'EMAIL'
-      )
-      ORDER BY customers.customer_code ASC
-    `,
+      LEFT JOIN email_summary ON email_summary.customerCode = sales_summary.customerCode
+      WHERE (@owner = '전체' OR COALESCE(status.owner_name, sales_summary.ownerName, '') = @owner)
+        AND (@deadline = '전체' OR COALESCE(status.deadline, '30일') = @deadline)
+        AND (@customerName = '' OR COALESCE(customers.customer_name, '') LIKE '%' || @customerName || '%')
+        AND (@excludeCompleted = 0 OR COALESCE(status.amount_confirmed, 0) = 0)
+      ORDER BY sales_summary.customerCode ASC
+      `,
     )
     .all(params)
     .map(normalizeClosingCompany);
@@ -2665,11 +2612,76 @@ function ensureContactsForCustomers(database) {
   return result;
 }
 
+function ensureClosingDeadlines(database) {
+  const deadlineCycle = ["10일", "25일", "30일"];
+  const salesCustomers = database
+    .prepare(
+      `SELECT
+         substr(replace(transaction_date, '/', '-'), 1, 7) AS closingMonth,
+         customer_code AS customerCode,
+         MAX(COALESCE(owner_name, '')) AS ownerName
+       FROM sales
+       WHERE customer_code IS NOT NULL
+         AND customer_code <> ''
+         AND replace(transaction_date, '/', '-') GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-*'
+       GROUP BY closingMonth, customer_code
+       ORDER BY closingMonth, customer_code`,
+    )
+    .all();
+  const statusSummary = database
+    .prepare(
+      `SELECT
+         closing_month AS closingMonth,
+         SUM(CASE WHEN deadline IN ('10일', '25일') THEN 1 ELSE 0 END) AS distributedCount
+       FROM closing_status
+       GROUP BY closing_month`,
+    )
+    .all();
+  const distributedByMonth = new Map(
+    statusSummary.map((row) => [row.closingMonth, Number(row.distributedCount) || 0]),
+  );
+  const upsert = database.prepare(
+    `INSERT INTO closing_status (
+       closing_month, customer_code, owner_name, deadline
+     )
+     VALUES (@closingMonth, @customerCode, @ownerName, @deadline)
+     ON CONFLICT(closing_month, customer_code) DO UPDATE SET
+       owner_name = CASE
+         WHEN TRIM(COALESCE(closing_status.owner_name, '')) = '' THEN excluded.owner_name
+         ELSE closing_status.owner_name
+       END,
+       deadline = CASE
+         WHEN @redistribute = 1 THEN excluded.deadline
+         ELSE closing_status.deadline
+       END`,
+  );
+
+  return database.transaction(() => {
+    const customerIndexByMonth = new Map();
+    let changed = 0;
+
+    salesCustomers.forEach((customer) => {
+      const index = customerIndexByMonth.get(customer.closingMonth) ?? 0;
+      customerIndexByMonth.set(customer.closingMonth, index + 1);
+      const deadline = deadlineCycle[index % deadlineCycle.length];
+      const result = upsert.run({
+        ...customer,
+        deadline,
+        redistribute: distributedByMonth.get(customer.closingMonth) ? 0 : 1,
+      });
+      changed += result.changes;
+    });
+
+    return changed;
+  })();
+}
+
 function ensureCoreBusinessData(database) {
   const countTable = (tableName) =>
     database.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get().count;
   const contactSync = ensureContactsForCustomers(database);
   const migratedClosingStatuses = migrateLegacyClosingStatus(database);
+  const assignedClosingDeadlines = ensureClosingDeadlines(database);
   return {
     users: countTable("users"),
     customers: countTable("customers"),
@@ -2679,6 +2691,7 @@ function ensureCoreBusinessData(database) {
     updatedContacts: contactSync.updated,
     closingStatuses: countTable("closing_status"),
     migratedClosingStatuses,
+    assignedClosingDeadlines,
     salesUploads: countTable("sales_uploads"),
     salesRows: countTable("sales"),
   };

@@ -680,8 +680,26 @@ function styleTemplateWorksheet(worksheet, accent = 'FF0F766E') {
   });
 }
 
+function addTemplateImage(workbook, worksheet, image, columnCount, sampleRowCount) {
+  if (!image?.dataUrl || !/^data:image\/(png|jpe?g);base64,/i.test(image.dataUrl)) return;
+  const extension = /^data:image\/png/i.test(image.dataUrl) ? 'png' : 'jpeg';
+  const imageId = workbook.addImage({ base64: image.dataUrl, extension });
+  const width = Math.max(24, Number(image.width) || 120);
+  const height = Math.max(24, Number(image.height) || 48);
+  const x = Math.max(0, Number(image.x) || 0);
+  const y = Math.max(0, Number(image.y) || 0);
+  worksheet.addImage(imageId, {
+    tl: {
+      col: Math.min(x / 100, Math.max(columnCount - 0.5, 0)),
+      row: Math.min(y / 24, Math.max(sampleRowCount + 8, 8)),
+    },
+    ext: { width, height },
+    editAs: 'oneCell',
+  });
+}
+
 function addTemplateSheet(workbook, template) {
-  const accent = 'FF0F766E';
+  const accent = String(template.primaryColor || '#0F766E').replace('#', '').padStart(8, 'FF').toUpperCase();
   const requiredColumns = Array.isArray(template.requiredColumns) ? template.requiredColumns : [];
   const optionalColumns = Array.isArray(template.optionalColumns) ? template.optionalColumns : [];
   const sampleRows = Array.isArray(template.sampleRows) ? template.sampleRows : [];
@@ -713,18 +731,13 @@ function addTemplateSheet(workbook, template) {
   });
 
   if (template.formulaColumns) {
-    worksheet.getColumn(4).numFmt = '#,##0';
-    worksheet.getColumn(5).numFmt = '#,##0';
-    worksheet.getColumn(6).numFmt = '#,##0';
-    worksheet.getColumn(7).numFmt = '#,##0';
-    worksheet.getColumn(8).numFmt = '#,##0';
-    worksheet.getColumn(9).numFmt = '#,##0';
-    worksheet.getColumn(10).numFmt = '#,##0;[Red]-#,##0';
-    worksheet.getColumn(11).numFmt = '0.0%;[Red]-0.0%';
+    Object.entries(template.columnNumberFormats ?? {}).forEach(([columnIndex, numberFormat]) => {
+      worksheet.getColumn(Number(columnIndex)).numFmt = numberFormat;
+    });
 
     const lastDataRow = dataStartRow + dataRowCount - 1;
-    worksheet.addConditionalFormatting({
-      ref: `K${dataStartRow}:K${lastDataRow}`,
+    if (template.changeRateColumn) worksheet.addConditionalFormatting({
+      ref: `${template.changeRateColumn}${dataStartRow}:${template.changeRateColumn}${lastDataRow}`,
       rules: [
         {
           type: 'cellIs',
@@ -740,9 +753,14 @@ function addTemplateSheet(workbook, template) {
         },
       ],
     });
-    worksheet.addConditionalFormatting({
-      ref: `J${dataStartRow}:J${lastDataRow}`,
-      rules: [{ type: 'dataBar', color: 'FF0F766E', gradient: true }],
+    if (template.changeAmountColumn) worksheet.addConditionalFormatting({
+      ref: `${template.changeAmountColumn}${dataStartRow}:${template.changeAmountColumn}${lastDataRow}`,
+      rules: [{
+        type: 'dataBar',
+        color: 'FF0F766E',
+        gradient: true,
+        cfvo: [{ type: 'min' }, { type: 'max' }],
+      }],
     });
   }
   styleTemplateWorksheet(worksheet, accent);
@@ -754,6 +772,9 @@ function addTemplateSheet(workbook, template) {
       fgColor: { argb: accent },
     };
   });
+
+  addTemplateImage(workbook, worksheet, template.logo, columns.length, sampleRows.length);
+  addTemplateImage(workbook, worksheet, template.seal, columns.length, sampleRows.length);
 
   const guide = workbook.addWorksheet(`${template.title.slice(0, 24)}_작성규칙`);
   guide.columns = [

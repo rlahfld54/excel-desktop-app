@@ -53,34 +53,18 @@ export const menuGroups = [
     ],
   },
   {
-    title: "보고서",
-    basePath: "/results",
+    title: "양식 관리",
+    basePath: "/templates",
     items: [
       {
-        label: "보고서 작성",
-        path: "/results/report-generator",
-        component: "ReportGeneratorPage",
+        label: "Excel 양식",
+        path: "/templates/excel",
+        component: "ExcelTemplatesPage",
       },
       {
-        label: "보고서 템플릿",
-        path: "/results/report-templates",
-        component: "ReportTemplatesPage",
-      },
-      {
-        label: "사장님 보고",
-        path: "/results/executive-dashboard",
-        component: "ExecutiveReportDashboardPage",
-      },
-    ],
-  },
-  {
-    title: "일정관리",
-    basePath: "/schedule",
-    items: [
-      {
-        label: "투두·일정 기록",
-        path: "/schedule/todos",
-        component: "SchedulePage",
+        label: "양식 설정",
+        path: "/templates/settings",
+        component: "TemplateSettingsPage",
       },
     ],
   },

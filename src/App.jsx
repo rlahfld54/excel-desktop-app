@@ -12,7 +12,6 @@ import '@fontsource/noto-sans-kr/korean-700.css';
 import './css/style.css';
 
 import Dashboard from './pages/Dashboard';
-import WelcomePage from './pages/WelcomePage';
 import LoginPage from './pages/LoginPage';
 import SetupPage from './pages/SetupPage';
 import SignupPage from './pages/SignupPage';
@@ -21,6 +20,8 @@ import FileManagerPage from './pages/FileManagerPage';
 import ExecutiveReportDashboardPage from './pages/ExecutiveReportDashboardPage';
 import ReportGeneratorPage from './pages/ReportGeneratorPage';
 import ReportTemplatesPage from './pages/ReportTemplatesPage';
+import ExcelTemplatesPage from './pages/ExcelTemplatesPage';
+import TemplateSettingsPage from './pages/TemplateSettingsPage';
 import ClosingSendQueuePage from './pages/ClosingSendQueuePage';
 import ClosingWorkspacePage from './pages/ClosingWorkspacePage';
 import ClosingDocumentSettingsPage from './pages/ClosingDocumentSettingsPage';
@@ -66,6 +67,8 @@ const routeComponents = {
   FileManagerPage,
   ReportGeneratorPage,
   ReportTemplatesPage,
+  ExcelTemplatesPage,
+  TemplateSettingsPage,
   DataTablePage,
   CodeMappingPage,
   ActivityLogsPage,
@@ -249,7 +252,7 @@ function App() {
         </div>
       )}
       <Routes>
-      <Route exact path="/" element={<WelcomePage />} />
+      <Route exact path="/" element={<LoginPage />} />
       <Route exact path="/setup" element={<SetupPage />} />
       <Route exact path="/login" element={<LoginPage />} />
       <Route exact path="/signup" element={<SignupPage />} />

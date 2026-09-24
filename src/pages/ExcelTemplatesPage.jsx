@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import PageShell from './PageShell';
 import { excelUploadTemplates } from '../data/excelUploadTemplates';
@@ -9,7 +10,8 @@ function createSelectedOptionalColumns() {
   return Object.fromEntries(excelUploadTemplates.map((template) => [template.id, []]));
 }
 
-function TemplateCard({ template, selectedColumns, onDownload, onToggleColumn }) {
+function TemplateCard({ template, selectedColumns, onDownload, onToggleColumn, onSettings }) {
+  const isEditableTemplate = template.id === 'sales-closing-compare';
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-xs dark:border-gray-700/60 dark:bg-gray-800">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -18,9 +20,14 @@ function TemplateCard({ template, selectedColumns, onDownload, onToggleColumn })
           <h2 className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">{template.title}</h2>
           <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">{template.description}</p>
         </div>
-        <button className="btn btn-secondary shrink-0" type="button" onClick={() => onDownload(template)}>
-          양식 다운로드
-        </button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {isEditableTemplate ? (
+            <button className="btn btn-secondary" type="button" onClick={() => onSettings(template)}>설정 변경</button>
+          ) : (
+            <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-500 dark:bg-gray-700 dark:text-gray-300">기존 표준양식 · 변경 없음</span>
+          )}
+          <button className="btn btn-primary" type="button" onClick={() => onDownload(template)}>양식 다운로드</button>
+        </div>
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -80,6 +87,7 @@ function TemplateCard({ template, selectedColumns, onDownload, onToggleColumn })
 }
 
 export default function ExcelTemplatesPage() {
+  const navigate = useNavigate();
   const [statusText, setStatusText] = useState('자동화에 필요한 표준 첨부 양식을 내려받을 수 있습니다.');
   const [selectedOptionalColumns, setSelectedOptionalColumns] = useState(createSelectedOptionalColumns);
 
@@ -151,6 +159,7 @@ export default function ExcelTemplatesPage() {
             selectedColumns={getSelectedColumns(template)}
             onDownload={handleDownload}
             onToggleColumn={toggleOptionalColumn}
+            onSettings={(template) => navigate(`/templates/settings?template=${encodeURIComponent(template.id)}`)}
           />
         ))}
       </div>

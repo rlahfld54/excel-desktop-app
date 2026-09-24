@@ -4,7 +4,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import Logo from '../images/logo.svg';
 import { isSharedApiEnabled } from '../config/cloud';
 import { loginWithSharedApi } from '../services/authApiService';
-import { sharedDataService } from '../services/sharedDataService';
 import { addActivityLog, getOfflineProfile, saveOfflineProfile, saveSession, saveUsers } from '../utils/authSession';
 import { hydrateTeamTodos } from '../utils/todoSchedule';
 import { useToast } from '../components/common';
