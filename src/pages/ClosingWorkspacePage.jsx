@@ -32,6 +32,11 @@ function formatCurrency(value) {
   return `${Number(value).toLocaleString('ko-KR')}원`;
 }
 
+function normalizeConfirmedAmount(value) {
+  const amount = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(amount) ? amount : 0;
+}
+
 function formatShortCurrency(value) {
   const amount = Math.abs(Number(value));
 
@@ -117,7 +122,11 @@ async function persistClosingRows(rows, options) {
     return;
   }
   try {
-    const result = await window.api.saveClosingCompanies({ rows, options });
+    const databaseRows = rows.map((row) => ({
+      ...row,
+      confirmedAmount: normalizeConfirmedAmount(row.confirmedAmount),
+    }));
+    const result = await window.api.saveClosingCompanies({ rows: databaseRows, options });
     if (result?.ok === false)
       throw new Error(result.message || '마감 보드 변경 내용을 저장하지 못했습니다.');
   } catch (error) {
@@ -869,15 +878,24 @@ export default function ClosingWorkspacePage() {
                       </span>
                       <input
                         className="form-input mt-2 w-full"
-                        type="number"
-                        value={selectedRow.confirmedAmount}
-                        onChange={(event) =>
+                        type="text"
+                        inputMode="numeric"
+                        value={
+                          selectedRow.confirmedAmount === '' ||
+                          selectedRow.confirmedAmount == null
+                            ? ''
+                            : Number(selectedRow.confirmedAmount).toLocaleString('ko-KR')
+                        }
+                        onChange={(event) => {
+                          const rawValue = event.target.value.replace(/,/g, '');
+                          if (!/^\d*$/.test(rawValue)) return;
+
                           updateSelected({
-                            confirmedAmount: Number(event.target.value),
+                            confirmedAmount: rawValue === '' ? '' : Number(rawValue),
                             amountConfirmed: false,
                             reason: '금액 조율',
-                          })
-                        }
+                          });
+                        }}
                       />
                     </div>
                   </div>

@@ -2044,7 +2044,7 @@ export default function ClosingSendQueuePage() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [params, setParams] = useState(() => ({
     ...getCurrentMonthRange(),
-    manager: currentUser.name || currentUser.id || '전체',
+    manager: '전체',
     deadline: '전체',
     page: 1,
     pageSize: 10,

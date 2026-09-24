@@ -1,53 +1,41 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import Logo from '../images/logo.svg';
 import { isSharedApiEnabled } from '../config/cloud';
-import { loginWithSharedApi } from '../services/authApiService';
 import { addActivityLog, getOfflineProfile, saveOfflineProfile, saveSession, saveUsers } from '../utils/authSession';
 import { hydrateTeamTodos } from '../utils/todoSchedule';
 import { useToast } from '../components/common';
 
 const savedLoginKey = 'excel-workspace:saved-login';
 
-function getSavedLogin() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(savedLoginKey) || 'null');
-    if (saved?.username && saved?.password) return saved;
-  } catch {
-    // Ignore malformed local preferences.
-  }
-  return import.meta.env.DEV
-    ? { username: import.meta.env.VITE_LOCAL_LOGIN_USER || '', password: import.meta.env.VITE_LOCAL_LOGIN_PASSWORD || '' }
-    : { username: '', password: '' };
-}
+// AWS 인증 인프라를 삭제한 상태에서 업무를 계속하기 위한 임시 계정이다.
+// 인증 서버를 다시 연결하면 이 계정과 authenticateTemporaryUser를 제거하고 기존 API 인증으로 복구한다.
+const temporaryLogin = Object.freeze({
+  username: 'test',
+  password: '00000000',
+  user: {
+    id: 'test',
+    username: 'test',
+    name: '임시 관리자',
+    role: 'ADMIN',
+    department: '관리',
+    status: 'ACTIVE',
+  },
+});
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [users, setUsers] = useState([]);
-  const [savedLogin] = useState(getSavedLogin);
-  const [userId, setUserId] = useState(savedLogin.username);
-  const [password, setPassword] = useState(savedLogin.password);
+  const [users] = useState([]);
+  const [userId, setUserId] = useState(temporaryLogin.username);
+  const [password, setPassword] = useState(temporaryLogin.password);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { showToast } = useToast();
   const [offlineProfile] = useState(() => getOfflineProfile());
   const usesSharedLogin = isSharedApiEnabled();
-
-  useEffect(() => {
-    async function loadUsers() {
-      if (usesSharedLogin) return;
-      if (!window.api?.listUsers) return;
-      const result = await window.api.listUsers();
-      const activeUsers = (result.users ?? []).filter((user) => user.status !== 'INACTIVE');
-      setUsers(activeUsers);
-      saveUsers(activeUsers);
-      setUserId(activeUsers.find((user) => user.id === savedLogin.username)?.id ?? activeUsers[0]?.id ?? '');
-    }
-    loadUsers().catch((error) => setError(error.message));
-  }, [usesSharedLogin, savedLogin.username]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -60,9 +48,7 @@ export default function LoginPage() {
 
     setIsSubmitting(true);
     try {
-      const result = usesSharedLogin
-        ? await loginWithSharedApi({ username: userId.trim(), password })
-        : await authenticateLocalUser(userId, password);
+      const result = authenticateTemporaryUser(userId, password);
 
       if (!result?.ok) {
         // 인터넷 단절뿐 아니라 Lambda/RDS가 꺼져 API Gateway가 5xx를 반환한 경우도
@@ -137,6 +123,14 @@ export default function LoginPage() {
     }
   };
 
+  function authenticateTemporaryUser(username, userPassword) {
+    if (username.trim() !== temporaryLogin.username || userPassword !== temporaryLogin.password) {
+      return { ok: false, message: '임시 로그인 아이디 또는 비밀번호가 틀렸습니다.' };
+    }
+
+    return { ok: true, user: temporaryLogin.user, token: '' };
+  }
+
   const completeOfflineLogin = async (profile) => {
     if (!profile) return;
     saveUsers([profile]);
@@ -203,7 +197,7 @@ export default function LoginPage() {
                   로그인
                 </h1>
                 <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
-                  {usesSharedLogin ? '서버 계정으로 로그인하세요.' : '초기 설정에서 만든 계정으로 로그인하세요.'}
+                  AWS 인증을 복구하기 전까지 임시 관리자 계정을 사용합니다.
                 </p>
               </div>
 
@@ -212,33 +206,16 @@ export default function LoginPage() {
                   <label className="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-200" htmlFor="userId">
                     사용자
                   </label>
-                  {usesSharedLogin ? (
-                    <input
-                      className="form-input h-12 w-full rounded-md border-gray-200 bg-white px-3 text-base shadow-xs focus:border-teal-500 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
-                      id="userId"
-                      value={userId}
-                      onChange={(event) => setUserId(event.target.value)}
-                      disabled={isSubmitting}
-                      placeholder="아이디"
-                      autoComplete="username"
-                      autoFocus
-                    />
-                  ) : (
-                    <select
-                      className="form-select h-12 w-full rounded-md border-gray-200 bg-white px-3 text-base shadow-xs focus:border-teal-500 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
-                      id="userId"
-                      value={userId}
-                      onChange={(event) => setUserId(event.target.value)}
-                      disabled={isSubmitting}
-                      autoFocus
-                    >
-                      {users.map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.name} / {user.role}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  <input
+                    className="form-input h-12 w-full rounded-md border-gray-200 bg-white px-3 text-base shadow-xs focus:border-teal-500 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900"
+                    id="userId"
+                    value={userId}
+                    onChange={(event) => setUserId(event.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="아이디"
+                    autoComplete="username"
+                    autoFocus
+                  />
                 </div>
 
                 <div>
