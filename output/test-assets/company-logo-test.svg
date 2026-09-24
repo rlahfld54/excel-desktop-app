@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="240" viewBox="0 0 800 240">
-  <rect width="800" height="240" rx="30" fill="#17365D"/>
-  <rect x="42" y="42" width="156" height="156" rx="22" fill="#FFFFFF"/>
-  <path d="M78 82h84v18H78zm0 38h84v18H78zm0 38h58v18H78z" fill="#17365D"/>
-  <text x="238" y="116" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="58" font-weight="700">YOUR COMPANY</text>
-  <text x="241" y="160" fill="#65D7C3" font-family="Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="7">SALES CLOSING</text>
-</svg>

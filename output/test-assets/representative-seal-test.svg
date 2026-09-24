@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
-  <circle cx="200" cy="200" r="176" fill="none" stroke="#D92D20" stroke-width="14"/>
-  <circle cx="200" cy="200" r="150" fill="none" stroke="#D92D20" stroke-width="5"/>
-  <text x="200" y="145" text-anchor="middle" fill="#D92D20" font-family="Noto Sans KR, Arial, sans-serif" font-size="34" font-weight="700">대표자</text>
-  <text x="200" y="225" text-anchor="middle" fill="#D92D20" font-family="Noto Sans KR, Arial, sans-serif" font-size="70" font-weight="900">직인</text>
-  <text x="200" y="282" text-anchor="middle" fill="#D92D20" font-family="Arial, sans-serif" font-size="20" font-weight="700" letter-spacing="3">TEST SEAL</text>
-</svg>
